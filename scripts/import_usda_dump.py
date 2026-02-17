@@ -20,6 +20,15 @@ TARGET_NUTRIENTS = {
 }
 
 
+def safe_str(value, max_len: int):
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    return text[:max_len]
+
+
 def parse_float(value):
     if value in (None, ""):
         return None
@@ -110,7 +119,7 @@ def load_food_rows(
             if fdc_id is None:
                 continue
 
-            description = (row.get("description") or "").strip()
+            description = safe_str(row.get("description"), 255) or ""
             data_type = (row.get("data_type") or "").strip()
             if not should_include_food(description, data_type, include_branded, keywords):
                 continue
@@ -147,9 +156,9 @@ def load_branded_rows(branded_csv: Path | None, selected: dict[int, dict]) -> No
                 continue
 
             selected_row = selected[fdc_id]
-            brand = (row.get("brand_owner") or row.get("brand_name") or "").strip() or None
+            brand = safe_str(row.get("brand_owner") or row.get("brand_name"), 255)
             serving_size = parse_float(row.get("serving_size"))
-            serving_unit = (row.get("serving_size_unit") or "").strip() or None
+            serving_unit = safe_str(row.get("serving_size_unit"), 32)
 
             if brand:
                 selected_row["brand"] = brand
@@ -176,7 +185,7 @@ def load_portion_rows(food_portion_csv: Path | None, measure_units: dict[int, st
 
             amount = parse_float(row.get("amount"))
             unit_id = parse_int(row.get("measure_unit_id"))
-            modifier = (row.get("modifier") or "").strip()
+            modifier = safe_str(row.get("modifier"), 32)
             unit_name = measure_units.get(unit_id) if unit_id is not None else None
 
             if amount is not None and selected_row["serving_size"] is None:
@@ -184,7 +193,7 @@ def load_portion_rows(food_portion_csv: Path | None, measure_units: dict[int, st
 
             if selected_row["serving_unit"] is None:
                 if unit_name:
-                    selected_row["serving_unit"] = unit_name
+                    selected_row["serving_unit"] = safe_str(unit_name, 32)
                 elif modifier:
                     selected_row["serving_unit"] = modifier
 
@@ -251,16 +260,16 @@ def upsert_selected_foods(selected: dict[int, dict], batch_size: int = 1000) -> 
             deduped[key] = row
 
     for row in deduped.values():
-        external_id = f"usda:{row['fdc_id']}"
+        external_id = safe_str(f"usda:{row['fdc_id']}", 64)
         key = ((row["name"] or "").strip().lower(), (row["brand"] or "").strip().lower())
 
         item = by_external.get(external_id) or by_key.get(key)
         if item:
             item.external_id = item.external_id or external_id
-            item.name = row["name"] or item.name
-            item.brand = row["brand"] or item.brand
+            item.name = safe_str(row["name"], 255) or item.name
+            item.brand = safe_str(row["brand"], 255) or item.brand
             item.serving_size = row["serving_size"] if row["serving_size"] is not None else item.serving_size
-            item.serving_unit = row["serving_unit"] or item.serving_unit
+            item.serving_unit = safe_str(row["serving_unit"], 32) or item.serving_unit
             item.calories = row["calories"] if row["calories"] is not None else item.calories
             item.protein_g = row["protein_g"] if row["protein_g"] is not None else item.protein_g
             item.carbs_g = row["carbs_g"] if row["carbs_g"] is not None else item.carbs_g
@@ -272,10 +281,10 @@ def upsert_selected_foods(selected: dict[int, dict], batch_size: int = 1000) -> 
         else:
             item = FoodItem(
                 external_id=external_id,
-                name=row["name"] or "Unnamed USDA item",
-                brand=row["brand"],
+                name=safe_str(row["name"], 255) or "Unnamed USDA item",
+                brand=safe_str(row["brand"], 255),
                 serving_size=row["serving_size"],
-                serving_unit=row["serving_unit"],
+                serving_unit=safe_str(row["serving_unit"], 32),
                 calories=row["calories"],
                 protein_g=row["protein_g"],
                 carbs_g=row["carbs_g"],

@@ -103,6 +103,15 @@ NUTRIENT_NUMBER_MAP = {
 }
 
 
+def safe_str(value, max_len: int):
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    return text[:max_len]
+
+
 def seed_common_foods_if_needed() -> None:
     existing_seed_foods = FoodItem.query.filter_by(source="seed").all()
     by_key = {
@@ -242,9 +251,9 @@ def import_foods_from_usda(query: str, max_results: int = 12) -> int:
         if not fdc_id:
             continue
 
-        external_id = f"usda:{fdc_id}"
-        name = row.get("description") or "Unnamed USDA item"
-        brand = row.get("brandOwner")
+        external_id = safe_str(f"usda:{fdc_id}", 64)
+        name = safe_str(row.get("description"), 255) or "Unnamed USDA item"
+        brand = safe_str(row.get("brandOwner"), 255)
         existing = FoodItem.query.filter_by(external_id=external_id).first()
         if not existing:
             existing = FoodItem.query.filter_by(name=name, brand=brand, source="usda").first()
@@ -257,7 +266,7 @@ def import_foods_from_usda(query: str, max_results: int = 12) -> int:
             existing.name = name or existing.name
             existing.brand = brand or existing.brand
             existing.serving_size = row.get("servingSize") or existing.serving_size
-            existing.serving_unit = row.get("servingSizeUnit") or existing.serving_unit
+            existing.serving_unit = safe_str(row.get("servingSizeUnit"), 32) or existing.serving_unit
             existing.calories = nutrients.get("calories", existing.calories)
             existing.protein_g = nutrients.get("protein_g", existing.protein_g)
             existing.carbs_g = nutrients.get("carbs_g", existing.carbs_g)
@@ -272,7 +281,7 @@ def import_foods_from_usda(query: str, max_results: int = 12) -> int:
             name=name,
             brand=brand,
             serving_size=row.get("servingSize"),
-            serving_unit=row.get("servingSizeUnit"),
+            serving_unit=safe_str(row.get("servingSizeUnit"), 32),
             calories=nutrients.get("calories"),
             protein_g=nutrients.get("protein_g"),
             carbs_g=nutrients.get("carbs_g"),

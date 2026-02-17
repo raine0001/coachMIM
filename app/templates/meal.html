@@ -207,6 +207,16 @@
                 <label for="add_custom_ingredient_btn">&nbsp;</label>
                 <button id="add_custom_ingredient_btn" type="button">Add Custom Ingredient</button>
               </div>
+              <div>
+                <label for="cancel_edit_custom_ingredient_btn">&nbsp;</label>
+                <button
+                  id="cancel_edit_custom_ingredient_btn"
+                  type="button"
+                  style="display: none; background: #fff; color: #17212b; border: 1px solid #d7dee7;"
+                >
+                  Cancel Edit
+                </button>
+              </div>
             </div>
             <p id="label_parse_status" class="muted" style="margin: 8px 0 0;"></p>
           </div>
@@ -447,6 +457,7 @@
     const labelPhotoUpload = document.getElementById("label_photo_upload");
     const parseLabelButton = document.getElementById("parse_label_btn");
     const addCustomIngredientButton = document.getElementById("add_custom_ingredient_btn");
+    const cancelEditCustomIngredientButton = document.getElementById("cancel_edit_custom_ingredient_btn");
     const labelParseStatus = document.getElementById("label_parse_status");
     const builderTotals = {
       calories: document.getElementById("builder_total_calories"),
@@ -457,7 +468,7 @@
       sodium: document.getElementById("builder_total_sodium"),
     };
 
-    const builderState = { ingredients: [] };
+    const builderState = { ingredients: [], editingRowId: null };
     const unitOptions = ["serving", "g", "oz", "lb", "ml", "cup", "tbsp", "tsp", "item"];
 
     const fieldMap = {
@@ -672,6 +683,7 @@
               <td style="padding: 8px; border-bottom: 1px solid #eef3f8; text-align: right;">${displayNumber(Number(sugar), 1)}</td>
               <td style="padding: 8px; border-bottom: 1px solid #eef3f8; text-align: right;">${displayNumber(Number(sodium), 1)}</td>
               <td style="padding: 8px; border-bottom: 1px solid #eef3f8;">
+                <button type="button" data-row-id="${row.row_id}" data-action="edit" style="background:#fff;color:#17212b;border:1px solid #d7dee7;margin-right:6px;">Edit</button>
                 <button type="button" data-row-id="${row.row_id}" data-action="remove" style="background:#fff;color:#b42318;border:1px solid #f1c0bc;">Remove</button>
               </td>
             </tr>
@@ -684,6 +696,8 @@
 
     function addIngredientFromFood(food) {
       if (!food) return;
+      setCustomIngredientEditMode(null);
+      clearCustomIngredientInputs();
       builderState.ingredients.push({
         row_id: `row_${Date.now()}_${Math.floor(Math.random() * 100000)}`,
         food_item_id: food.id || null,
@@ -714,6 +728,53 @@
       labelParseStatus.style.color = isError ? "#b42318" : "";
     }
 
+    function clearCustomIngredientInputs(resetStatus = true) {
+      if (customIngredientName) customIngredientName.value = "";
+      if (customProductUrl) customProductUrl.value = "";
+      if (customQuantity) customQuantity.value = "1";
+      if (customServingSizeValue) customServingSizeValue.value = "";
+      if (customServingSizeUnit) customServingSizeUnit.value = "g";
+      if (customCalories) customCalories.value = "";
+      if (customProtein) customProtein.value = "";
+      if (customCarbs) customCarbs.value = "";
+      if (customFat) customFat.value = "";
+      if (customSugar) customSugar.value = "";
+      if (customSodium) customSodium.value = "";
+      if (labelPhotoUpload) labelPhotoUpload.value = "";
+      if (resetStatus) setLabelStatus("");
+    }
+
+    function setCustomIngredientEditMode(rowId = null) {
+      builderState.editingRowId = rowId;
+      if (addCustomIngredientButton) {
+        addCustomIngredientButton.textContent = rowId ? "Update Ingredient" : "Add Custom Ingredient";
+      }
+      if (cancelEditCustomIngredientButton) {
+        cancelEditCustomIngredientButton.style.display = rowId ? "inline-block" : "none";
+      }
+    }
+
+    function populateCustomInputsFromIngredientRow(row) {
+      if (!row) return;
+      if (customIngredientName) customIngredientName.value = row.food_name || "";
+      if (customProductUrl) customProductUrl.value = "";
+      if (customQuantity) customQuantity.value = String(row.quantity ?? 1);
+      if (customServingSizeValue) {
+        customServingSizeValue.value = row.serving_size !== null && row.serving_size !== undefined ? String(row.serving_size) : "";
+      }
+      if (customServingSizeUnit) {
+        customServingSizeUnit.value = normalizeUnit(row.serving_unit || "g");
+      }
+      if (customCalories) customCalories.value = row.calories ?? "";
+      if (customProtein) customProtein.value = row.protein_g ?? "";
+      if (customCarbs) customCarbs.value = row.carbs_g ?? "";
+      if (customFat) customFat.value = row.fat_g ?? "";
+      if (customSugar) customSugar.value = row.sugar_g ?? "";
+      if (customSodium) customSodium.value = row.sodium_mg ?? "";
+      setBuilderOpen(true);
+      setLabelStatus("Editing ingredient. Update fields, then click Update Ingredient.");
+    }
+
     function addCustomIngredientFromInputs() {
       const name = (customIngredientName?.value || "").trim();
       const quantity = readFloatInput(customQuantity, 1);
@@ -732,24 +793,43 @@
       const sugar = readFloatInput(customSugar, null);
       const sodium = readFloatInput(customSodium, null);
 
-      builderState.ingredients.push({
-        row_id: `custom_${Date.now()}_${Math.floor(Math.random() * 100000)}`,
-        food_item_id: null,
-        food_name: name,
-        quantity: Number.isFinite(quantity) && quantity > 0 ? quantity : 1,
-        unit: "serving",
-        serving_size: servingSize,
-        serving_unit: servingUnit || "g",
-        calories: calories,
-        protein_g: protein,
-        carbs_g: carbs,
-        fat_g: fat,
-        sugar_g: sugar,
-        sodium_mg: sodium,
-      });
+      const normalizedQuantity = Number.isFinite(quantity) && quantity > 0 ? quantity : 1;
+      const editRow = builderState.ingredients.find((item) => item.row_id === builderState.editingRowId);
+
+      if (editRow) {
+        editRow.food_name = name;
+        editRow.quantity = normalizedQuantity;
+        editRow.unit = "serving";
+        editRow.serving_size = servingSize;
+        editRow.serving_unit = servingUnit || "g";
+        editRow.calories = calories;
+        editRow.protein_g = protein;
+        editRow.carbs_g = carbs;
+        editRow.fat_g = fat;
+        editRow.sugar_g = sugar;
+        editRow.sodium_mg = sodium;
+      } else {
+        builderState.ingredients.push({
+          row_id: `custom_${Date.now()}_${Math.floor(Math.random() * 100000)}`,
+          food_item_id: null,
+          food_name: name,
+          quantity: normalizedQuantity,
+          unit: "serving",
+          serving_size: servingSize,
+          serving_unit: servingUnit || "g",
+          calories: calories,
+          protein_g: protein,
+          carbs_g: carbs,
+          fat_g: fat,
+          sugar_g: sugar,
+          sodium_mg: sodium,
+        });
+      }
       renderBuilderIngredients();
       setBuilderOpen(true);
-      setLabelStatus("Custom ingredient added.");
+      clearCustomIngredientInputs(false);
+      setCustomIngredientEditMode(null);
+      setLabelStatus(editRow ? "Ingredient updated." : "Custom ingredient added and form cleared.");
     }
 
     function populateCustomInputsFromParsed(parsed) {
@@ -859,6 +939,8 @@
         sugar_g: item.sugar_g ?? null,
         sodium_mg: item.sodium_mg ?? null,
       }));
+      setCustomIngredientEditMode(null);
+      clearCustomIngredientInputs();
       setBuilderOpen(true);
       renderBuilderIngredients();
     }
@@ -1136,9 +1218,24 @@
         const target = event.target;
         const rowId = target?.dataset?.rowId;
         const action = target?.dataset?.action;
-        if (!rowId || action !== "remove") return;
-        builderState.ingredients = builderState.ingredients.filter((item) => item.row_id !== rowId);
-        renderBuilderIngredients();
+        if (!rowId || !action) return;
+
+        if (action === "edit") {
+          const row = builderState.ingredients.find((item) => item.row_id === rowId);
+          if (!row) return;
+          setCustomIngredientEditMode(rowId);
+          populateCustomInputsFromIngredientRow(row);
+          return;
+        }
+
+        if (action === "remove") {
+          builderState.ingredients = builderState.ingredients.filter((item) => item.row_id !== rowId);
+          if (builderState.editingRowId === rowId) {
+            setCustomIngredientEditMode(null);
+            clearCustomIngredientInputs();
+          }
+          renderBuilderIngredients();
+        }
       });
     }
 
@@ -1151,6 +1248,8 @@
     if (builderClearButton) {
       builderClearButton.addEventListener("click", () => {
         builderState.ingredients = [];
+        setCustomIngredientEditMode(null);
+        clearCustomIngredientInputs();
         renderBuilderIngredients();
       });
     }
@@ -1158,6 +1257,13 @@
     if (addCustomIngredientButton) {
       addCustomIngredientButton.addEventListener("click", () => {
         addCustomIngredientFromInputs();
+      });
+    }
+
+    if (cancelEditCustomIngredientButton) {
+      cancelEditCustomIngredientButton.addEventListener("click", () => {
+        setCustomIngredientEditMode(null);
+        clearCustomIngredientInputs();
       });
     }
 
@@ -1173,6 +1279,8 @@
       });
     }
 
+    setCustomIngredientEditMode(null);
+    clearCustomIngredientInputs();
     renderBuilderIngredients();
     setBuilderOpen(false);
   </script>

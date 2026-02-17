@@ -1,6 +1,8 @@
 import json
 import os
+import re
 from datetime import date, datetime, timedelta
+from difflib import SequenceMatcher
 from functools import wraps
 from uuid import uuid4
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError, available_timezones
@@ -17,7 +19,7 @@ from flask import (
     session,
     url_for,
 )
-from sqlalchemy import case, or_
+from sqlalchemy import case, func, or_
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
@@ -79,6 +81,16 @@ NATURAL_SUGAR_HINTS = (
     "smoothie",
 )
 
+GENERIC_MEAL_NAMES = {
+    "meal",
+    "food",
+    "drink",
+    "entry",
+    "custom entry",
+    "custom built meal",
+}
+SEARCH_STOPWORDS = {"and", "or", "the", "a", "an", "of", "with", "to", "for"}
+
 
 def allowed_file(filename: str) -> bool:
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -111,6 +123,20 @@ def normalize_text(value):
     if text.lower() in {"none", "null"}:
         return None
     return text
+
+
+def normalize_search_text(value: str | None) -> str:
+    raw = (value or "").lower()
+    raw = re.sub(r"[^a-z0-9\s]", " ", raw)
+    return re.sub(r"\s+", " ", raw).strip()
+
+
+def tokenize_search_text(value: str | None) -> list[str]:
+    normalized = normalize_search_text(value)
+    if not normalized:
+        return []
+    tokens = [token for token in normalized.split() if len(token) >= 2 and token not in SEARCH_STOPWORDS]
+    return tokens or [normalized]
 
 
 def parse_ingredients_json(raw_value):
@@ -480,11 +506,158 @@ def meal_has_meaningful_content(meal: Meal, has_new_photo: bool = False) -> bool
     return False
 
 
-def upsert_favorite_from_request():
+def derive_name_from_meal_request(meal: Meal | None = None, max_len: int = 255):
+    explicit_favorite_name = normalize_text(request.form.get("favorite_name"))
+    if explicit_favorite_name:
+        return explicit_favorite_name[:max_len]
+
+    builder_title = normalize_text(request.form.get("builder_title"))
+    if builder_title and builder_title.lower() not in GENERIC_MEAL_NAMES:
+        return builder_title[:max_len]
+
+    label = normalize_text(request.form.get("label")) or (meal.label if meal else None)
+    if label and label.lower() not in GENERIC_MEAL_NAMES:
+        return label[:max_len]
+
+    description = normalize_text(request.form.get("description")) or (meal.description if meal else None)
+    if description:
+        primary = normalize_text(description.split(":", 1)[0])
+        if primary and primary.lower() not in GENERIC_MEAL_NAMES:
+            return primary[:max_len]
+        if description.lower() not in GENERIC_MEAL_NAMES:
+            return description[:max_len]
+
+    if meal and meal.food_item_id:
+        linked = db.session.get(FoodItem, meal.food_item_id)
+        if linked:
+            linked_name = normalize_text(linked.display_name())
+            if linked_name:
+                return linked_name[:max_len]
+
+    return None
+
+
+def parse_serving_hint(portion_notes: str | None):
+    text = normalize_text(portion_notes)
+    if not text:
+        return (None, None)
+    match = re.search(r"(\d+(?:\.\d+)?)\s*([a-zA-Z]+)", text)
+    if not match:
+        return (None, None)
+
+    value = parse_float(match.group(1))
+    unit = (match.group(2) or "").strip().lower()
+    unit_map = {
+        "grams": "g",
+        "gram": "g",
+        "g": "g",
+        "milliliter": "ml",
+        "milliliters": "ml",
+        "ml": "ml",
+        "tablespoon": "tbsp",
+        "tablespoons": "tbsp",
+        "tbsp": "tbsp",
+        "teaspoon": "tsp",
+        "teaspoons": "tsp",
+        "tsp": "tsp",
+        "cup": "cup",
+        "cups": "cup",
+        "oz": "oz",
+        "ounce": "oz",
+        "ounces": "oz",
+        "item": "item",
+        "items": "item",
+        "slice": "item",
+        "slices": "item",
+    }
+    mapped = unit_map.get(unit, unit[:32] if unit else None)
+    return (value, mapped)
+
+
+def upsert_shared_food_from_request(meal: Meal):
+    if meal.food_item_id is not None:
+        return None
+    if not parse_bool(request.form.get("save_shared_food")):
+        return None
+
+    shared_name = derive_name_from_meal_request(meal=meal, max_len=255)
+    if not shared_name:
+        return None
+
+    has_any_nutrition = any(
+        getattr(meal, field) is not None
+        for field in ["calories", "protein_g", "carbs_g", "fat_g", "sugar_g", "sodium_mg"]
+    )
+    if not has_any_nutrition:
+        return None
+
+    brand_value = normalize_text(request.form.get("shared_brand"))
+    if brand_value:
+        brand_value = brand_value[:255]
+    name_key = shared_name.lower()
+    brand_key = (brand_value or "").lower()
+
+    query = FoodItem.query.filter(
+        FoodItem.source == "community",
+        func.lower(FoodItem.name) == name_key,
+    )
+    if brand_key:
+        query = query.filter(func.lower(FoodItem.brand) == brand_key)
+    else:
+        query = query.filter(or_(FoodItem.brand.is_(None), FoodItem.brand == ""))
+
+    existing = query.first()
+    serving_size, serving_unit = parse_serving_hint(meal.portion_notes)
+
+    if existing:
+        if existing.brand is None and brand_value:
+            existing.brand = brand_value
+        if existing.serving_size is None and serving_size is not None:
+            existing.serving_size = serving_size
+        if existing.serving_unit is None and serving_unit:
+            existing.serving_unit = serving_unit
+        if existing.calories is None and meal.calories is not None:
+            existing.calories = meal.calories
+        if existing.protein_g is None and meal.protein_g is not None:
+            existing.protein_g = meal.protein_g
+        if existing.carbs_g is None and meal.carbs_g is not None:
+            existing.carbs_g = meal.carbs_g
+        if existing.fat_g is None and meal.fat_g is not None:
+            existing.fat_g = meal.fat_g
+        if existing.sugar_g is None and meal.sugar_g is not None:
+            existing.sugar_g = meal.sugar_g
+        if existing.sodium_mg is None and meal.sodium_mg is not None:
+            existing.sodium_mg = meal.sodium_mg
+        db.session.add(existing)
+        db.session.flush()
+        return existing
+
+    shared_food = FoodItem(
+        external_id=f"community:{uuid4().hex}",
+        name=shared_name,
+        brand=brand_value,
+        serving_size=serving_size,
+        serving_unit=serving_unit,
+        calories=meal.calories,
+        protein_g=meal.protein_g,
+        carbs_g=meal.carbs_g,
+        fat_g=meal.fat_g,
+        sugar_g=meal.sugar_g,
+        sodium_mg=meal.sodium_mg,
+        source="community",
+    )
+    db.session.add(shared_food)
+    db.session.flush()
+    return shared_food
+
+
+def upsert_favorite_from_request(meal: Meal | None = None):
     if not parse_bool(request.form.get("save_favorite")):
         return
 
-    favorite_name = (request.form.get("favorite_name") or "").strip()
+    favorite_name = normalize_text(request.form.get("favorite_name"))
+    if not favorite_name:
+        favorite_name = derive_name_from_meal_request(meal=meal, max_len=120)
     if not favorite_name:
         return
 
@@ -1006,7 +1179,12 @@ def meal_save():
         photo.save(local_path)
         meal.photo_path = f"uploads/{upload_name}"
 
-    upsert_favorite_from_request()
+    upsert_favorite_from_request(meal=meal)
+    shared_food = upsert_shared_food_from_request(meal)
+    if meal.food_item_id is None and shared_food is not None:
+        meal.food_item_id = shared_food.id
+        if not meal.description:
+            meal.description = shared_food.display_name()
     db.session.add(meal)
     db.session.commit()
     flash("Meal logged.", "success")
@@ -1032,7 +1210,12 @@ def meal_edit(meal_id: int):
             flash("Meal entry is empty. Add at least one detail or delete the entry.", "error")
             return redirect(url_for("main.meal_edit", meal_id=meal.id))
 
-        upsert_favorite_from_request()
+        upsert_favorite_from_request(meal=meal)
+        shared_food = upsert_shared_food_from_request(meal)
+        if meal.food_item_id is None and shared_food is not None:
+            meal.food_item_id = shared_food.id
+            if not meal.description:
+                meal.description = shared_food.display_name()
         if photo and photo.filename:
             if not allowed_file(photo.filename):
                 flash("Unsupported file type. Use png, jpg, jpeg, webp, or heic.", "error")
@@ -1070,6 +1253,93 @@ def meal_delete(meal_id: int):
     return redirect(url_for("main.meal_form", day=selected_day))
 
 
+def score_food_match(query: str, tokens: list[str], item: FoodItem) -> float:
+    query_norm = normalize_search_text(query)
+    name_norm = normalize_search_text(item.name)
+    brand_norm = normalize_search_text(item.brand)
+    merged = " ".join(part for part in [name_norm, brand_norm] if part)
+    if not query_norm or not merged:
+        return 0.0
+
+    ratio_full = SequenceMatcher(None, query_norm, merged).ratio()
+    ratio_name = SequenceMatcher(None, query_norm, name_norm).ratio() if name_norm else 0.0
+    ratio = max(ratio_full, ratio_name)
+
+    token_hits = 0.0
+    for token in tokens:
+        if token in merged:
+            token_hits += 1.0
+            continue
+        if len(token) >= 3 and token[:3] in merged:
+            token_hits += 0.75
+
+    token_score = token_hits / max(len(tokens), 1)
+    score = (ratio * 0.72) + (token_score * 0.28)
+
+    if name_norm.startswith(query_norm):
+        score += 0.18
+    elif len(query_norm) >= 3 and query_norm[:3] in name_norm:
+        score += 0.06
+
+    if item.source == "seed":
+        score += 0.03
+    elif item.source == "community":
+        score += 0.02
+
+    return score
+
+
+def fuzzy_food_matches(query: str, existing_ids: set[int], limit: int = 8):
+    query_norm = normalize_search_text(query)
+    tokens = tokenize_search_text(query_norm)
+    if len(query_norm) < 3:
+        return []
+
+    conditions = []
+    for token in tokens[:5]:
+        conditions.append(FoodItem.name.ilike(f"%{token}%"))
+        conditions.append(FoodItem.brand.ilike(f"%{token}%"))
+        if len(token) >= 3:
+            snippet = token[:3]
+            conditions.append(FoodItem.name.ilike(f"%{snippet}%"))
+            conditions.append(FoodItem.brand.ilike(f"%{snippet}%"))
+
+    if query_norm:
+        first_char = query_norm[0]
+        conditions.append(FoodItem.name.ilike(f"{first_char}%"))
+        conditions.append(FoodItem.brand.ilike(f"{first_char}%"))
+
+    if not conditions:
+        return []
+
+    candidates = (
+        FoodItem.query.filter(or_(*conditions))
+        .order_by(
+            case(
+                (FoodItem.source == "seed", 0),
+                (FoodItem.source == "community", 1),
+                (FoodItem.source == "usda", 2),
+                else_=3,
+            ),
+            case((FoodItem.calories.isnot(None), 0), else_=1),
+            FoodItem.name.asc(),
+        )
+        .limit(350)
+        .all()
+    )
+
+    scored = []
+    for item in candidates:
+        if item.id in existing_ids:
+            continue
+        score = score_food_match(query_norm, tokens, item)
+        if score >= 0.42:
+            scored.append((score, item))
+
+    scored.sort(key=lambda entry: entry[0], reverse=True)
+    return [item for _, item in scored[:limit]]
+
+
 @bp.get("/foods/search")
 @login_required
 @profile_required
@@ -1090,7 +1360,12 @@ def food_search():
                 )
             )
             .order_by(
-                case((FoodItem.source == "seed", 0), (FoodItem.source == "usda", 1), else_=2),
+                case(
+                    (FoodItem.source == "seed", 0),
+                    (FoodItem.source == "community", 1),
+                    (FoodItem.source == "usda", 2),
+                    else_=3,
+                ),
                 case((FoodItem.name.ilike(f"{query}%"), 0), else_=1),
                 case((FoodItem.calories.isnot(None), 0), else_=1),
                 FoodItem.name.asc(),
@@ -1100,6 +1375,7 @@ def food_search():
         )
 
     results = run_search()
+    used_fuzzy = False
 
     imported = 0
     message = None
@@ -1111,6 +1387,24 @@ def food_search():
             message = "No USDA matches found for that term. Try a broader keyword."
     elif len(results) == 0:
         message = "No local matches. Click Search USDA for a larger catalog."
+
+    if len(results) < 15:
+        fuzzy = fuzzy_food_matches(query, existing_ids={item.id for item in results}, limit=15 - len(results))
+        if fuzzy:
+            results.extend(fuzzy)
+            used_fuzzy = True
+            if not message:
+                message = "Showing close matches (spelling-friendly)."
+
+    deduped_results = []
+    seen_keys = set()
+    for item in results:
+        dedupe_key = ((item.name or "").strip().lower(), (item.brand or "").strip().lower(), item.source or "")
+        if dedupe_key in seen_keys:
+            continue
+        seen_keys.add(dedupe_key)
+        deduped_results.append(item)
+    results = deduped_results[:15]
 
     payload = [
         {
@@ -1134,7 +1428,7 @@ def food_search():
         }
         for item in results
     ]
-    return jsonify({"results": payload, "message": message, "imported": imported})
+    return jsonify({"results": payload, "message": message, "imported": imported, "used_fuzzy": used_fuzzy})
 
 
 @bp.post("/nutrition/label/parse")

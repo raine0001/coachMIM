@@ -134,11 +134,11 @@
           <div class="grid" style="margin-top: 12px;">
             <div>
               <label for="builder_title">Meal Title</label>
-              <input id="builder_title" placeholder="e.g., Daily Protein Shake" />
+              <input id="builder_title" name="builder_title" placeholder="e.g., Daily Protein Shake" />
             </div>
             <div>
               <label for="builder_label">Meal Label</label>
-              <input id="builder_label" placeholder="Breakfast / Snack / Post-workout" />
+              <input id="builder_label" name="builder_label" placeholder="Breakfast / Snack / Post-workout" />
             </div>
           </div>
 
@@ -422,9 +422,17 @@
 
       <div style="margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap;">
         <button type="submit">{{ "Update Meal" if edit_meal else "Save Meal" }}</button>
+        <button id="save_as_favorite_btn" type="button" style="background: #fff; color: #17212b; border: 1px solid #d7dee7;">Save + Favorite</button>
         {% if edit_meal %}
           <a href="{{ url_for('main.meal_form', day=selected_day) }}" style="padding: 10px 14px; background: #fff; border: 1px solid #d7dee7; border-radius: 8px; text-decoration: none; color: #17212b;">Cancel Edit</a>
         {% endif %}
+      </div>
+
+      <div style="margin-top: 10px;">
+        <label style="display: inline-flex; align-items: center; gap: 8px; font-weight: 400;">
+          <input id="save_shared_food" name="save_shared_food" type="checkbox" />
+          Add this item to the shared CoachMIM catalog (name + nutrition only)
+        </label>
       </div>
     </form>
   </div>
@@ -492,6 +500,9 @@
     const isEditMode = {{ "true" if edit_meal else "false" }};
     const mealForm = document.getElementById("meal-form");
     const favoriteSelector = document.getElementById("favorite_selector");
+    const saveFavoriteCheckbox = document.getElementById("save_favorite");
+    const favoriteNameInput = document.getElementById("favorite_name");
+    const saveAsFavoriteButton = document.getElementById("save_as_favorite_btn");
     const foodSearchInput = document.getElementById("food_search");
     const foodResults = document.getElementById("food-results");
     const foodItemIdInput = document.getElementById("food_item_id");
@@ -659,6 +670,34 @@
           builderSourceHint.textContent = "Manual Facts mode: type nutrition values from a package label or your own data.";
         }
       }
+    }
+
+    function suggestedFavoriteName() {
+      const builderTitle = cleanText(builderTitleInput?.value);
+      if (builderTitle) return builderTitle.slice(0, 120);
+
+      const foodName = cleanText(foodSearchInput?.value);
+      if (foodName && !["custom entry", "custom built meal"].includes(foodName.toLowerCase())) {
+        return foodName.slice(0, 120);
+      }
+
+      const label = cleanText(fieldMap.label?.value);
+      if (label) return label.slice(0, 120);
+
+      const description = cleanText(fieldMap.description?.value);
+      if (description) {
+        const primary = cleanText(description.split(":")[0]);
+        if (primary) return primary.slice(0, 120);
+        return description.slice(0, 120);
+      }
+
+      return "My meal";
+    }
+
+    function ensureFavoriteName() {
+      if (!favoriteNameInput) return;
+      if (cleanText(favoriteNameInput.value)) return;
+      favoriteNameInput.value = suggestedFavoriteName();
     }
 
     function normalizeUnit(unit) {
@@ -1216,6 +1255,24 @@
       });
     }
 
+    if (saveFavoriteCheckbox) {
+      saveFavoriteCheckbox.addEventListener("change", () => {
+        if (saveFavoriteCheckbox.checked) {
+          ensureFavoriteName();
+        }
+      });
+    }
+
+    if (saveAsFavoriteButton && mealForm) {
+      saveAsFavoriteButton.addEventListener("click", () => {
+        if (saveFavoriteCheckbox) {
+          saveFavoriteCheckbox.checked = true;
+        }
+        ensureFavoriteName();
+        mealForm.requestSubmit();
+      });
+    }
+
     let lastSearchToken = 0;
     let debounceTimer;
     let lastBuilderSearchToken = 0;
@@ -1244,6 +1301,7 @@
         .map((item) => {
           let score = 0;
           if (item.source === "seed") score += 40;
+          if (item.source === "community") score += 30;
           if (item.source === "usda") score += 20;
           if (item.calories !== null && item.calories !== undefined) score += 12;
           if (item.protein_g !== null && item.protein_g !== undefined) score += 6;
@@ -1522,6 +1580,12 @@
     }
 
     if (mealForm) {
+      mealForm.addEventListener("submit", () => {
+        if (saveFavoriteCheckbox?.checked) {
+          ensureFavoriteName();
+        }
+      });
+
       mealForm.addEventListener("keydown", (event) => {
         if (event.key !== "Enter") return;
         const target = event.target;

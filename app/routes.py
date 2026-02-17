@@ -17,7 +17,7 @@ from flask import (
     session,
     url_for,
 )
-from sqlalchemy import or_
+from sqlalchemy import case, or_
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
@@ -1080,34 +1080,33 @@ def food_search():
         return jsonify({"results": [], "message": "Type at least 2 characters."})
 
     seed_common_foods_if_needed()
-    results = (
-        FoodItem.query.filter(
-            or_(
-                FoodItem.name.ilike(f"%{query}%"),
-                FoodItem.brand.ilike(f"%{query}%"),
+
+    def run_search(limit: int = 15):
+        return (
+            FoodItem.query.filter(
+                or_(
+                    FoodItem.name.ilike(f"%{query}%"),
+                    FoodItem.brand.ilike(f"%{query}%"),
+                )
             )
+            .order_by(
+                case((FoodItem.source == "seed", 0), (FoodItem.source == "usda", 1), else_=2),
+                case((FoodItem.name.ilike(f"{query}%"), 0), else_=1),
+                case((FoodItem.calories.isnot(None), 0), else_=1),
+                FoodItem.name.asc(),
+            )
+            .limit(limit)
+            .all()
         )
-        .order_by(FoodItem.name.asc())
-        .limit(15)
-        .all()
-    )
+
+    results = run_search()
 
     imported = 0
     message = None
     if include_remote and len(results) < 8:
         imported = import_foods_from_usda(query, max_results=12)
         if imported > 0:
-            results = (
-                FoodItem.query.filter(
-                    or_(
-                        FoodItem.name.ilike(f"%{query}%"),
-                        FoodItem.brand.ilike(f"%{query}%"),
-                    )
-                )
-                .order_by(FoodItem.name.asc())
-                .limit(15)
-                .all()
-            )
+            results = run_search()
         elif len(results) == 0:
             message = "No USDA matches found for that term. Try a broader keyword."
     elif len(results) == 0:
@@ -1116,9 +1115,13 @@ def food_search():
     payload = [
         {
             "id": item.id,
-            "name": item.name,
-            "brand": item.brand,
-            "display_name": item.display_name() if item.name else (item.brand or "Unnamed food"),
+            "name": ((item.name or "").strip() or None),
+            "brand": ((item.brand or "").strip() or None),
+            "display_name": (
+                f"{(item.name or '').strip()} ({(item.brand or '').strip()})"
+                if (item.name or "").strip() and (item.brand or "").strip()
+                else ((item.name or "").strip() or (item.brand or "").strip() or f"Food item #{item.id}")
+            ),
             "serving_size": item.serving_size,
             "serving_unit": item.serving_unit,
             "calories": item.calories,

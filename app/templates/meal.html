@@ -78,28 +78,39 @@
 
   <div class="card">
     <form id="meal-form" method="post" action="{{ form_action }}" enctype="multipart/form-data">
-      <div class="grid">
-        <div style="grid-column: span 2;">
-          <label for="food_search">Food / Drink Search</label>
-          <input
-            id="food_search"
-            placeholder="Type food name (e.g., chicken breast, greek yogurt, coffee)"
-            autocomplete="off"
-            value="{{ edit_meal.food_item.display_name() if edit_meal and edit_meal.food_item else '' }}"
-          />
-          <p class="muted" style="margin: 6px 0 0;">Local catalog search first. Click USDA only when local results are not enough.</p>
-          <input id="food_item_id" name="food_item_id" type="hidden" value="{{ edit_meal.food_item_id if edit_meal and edit_meal.food_item_id is not none else '' }}" />
-          <div id="food-results" style="margin-top: 8px;"></div>
+      <div class="card" style="margin-bottom: 12px; border-color: #cfe3ff; background: #f9fcff;">
+        <label>Add Mode</label>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+          <button id="entry_mode_single" type="button">Single Item</button>
+          <button id="entry_mode_recipe" type="button" style="background: #fff; color: #17212b; border: 1px solid #d7dee7;">Build Recipe</button>
         </div>
-        <div>
-          <label for="search_usda">&nbsp;</label>
-          <button id="search_usda" type="button">Search USDA</button>
-        </div>
+        <p id="entry_mode_hint" class="muted" style="margin: 8px 0 0;">Single Item mode: fastest way to log one food/drink.</p>
       </div>
 
       <input id="favorite_ingredients" name="favorite_ingredients" type="hidden" />
 
-      <div class="card" style="margin-top: 12px; margin-bottom: 0; border-color: #cfe3ff; background: #f9fcff;">
+      <div id="single-entry-panel">
+        <div class="grid">
+          <div style="grid-column: span 2;">
+            <label for="food_search">Food / Drink Search</label>
+            <input
+              id="food_search"
+              placeholder="Type food name (e.g., chicken breast, greek yogurt, coffee)"
+              autocomplete="off"
+              value="{{ edit_meal.food_item.display_name() if edit_meal and edit_meal.food_item else '' }}"
+            />
+            <p class="muted" style="margin: 6px 0 0;">Local catalog search first. Click USDA only when local results are not enough.</p>
+            <input id="food_item_id" name="food_item_id" type="hidden" value="{{ edit_meal.food_item_id if edit_meal and edit_meal.food_item_id is not none else '' }}" />
+            <div id="food-results" style="margin-top: 8px;"></div>
+          </div>
+          <div>
+            <label for="search_usda">&nbsp;</label>
+            <button id="search_usda" type="button">Search USDA</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="recipe-entry-panel" class="card" style="margin-top: 12px; margin-bottom: 0; border-color: #cfe3ff; background: #f9fcff;">
         <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
           <div>
             <h3 style="margin: 0;">Build a Meal</h3>
@@ -109,7 +120,18 @@
         </div>
 
         <div id="meal-builder-panel" style="display: none; margin-top: 12px;">
-          <div class="grid">
+          <div style="margin-top: 4px;">
+            <label>Ingredient Source</label>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+              <button id="builder_source_catalog" type="button">Catalog</button>
+              <button id="builder_source_product" type="button" style="background: #fff; color: #17212b; border: 1px solid #d7dee7;">Product Link</button>
+              <button id="builder_source_label" type="button" style="background: #fff; color: #17212b; border: 1px solid #d7dee7;">Label Photo</button>
+              <button id="builder_source_manual" type="button" style="background: #fff; color: #17212b; border: 1px solid #d7dee7;">Manual Facts</button>
+            </div>
+            <p id="builder_source_hint" class="muted" style="margin: 8px 0 0;">Catalog mode: search local foods first, USDA secondary.</p>
+          </div>
+
+          <div class="grid" style="margin-top: 12px;">
             <div>
               <label for="builder_title">Meal Title</label>
               <input id="builder_title" placeholder="e.g., Daily Protein Shake" />
@@ -120,41 +142,35 @@
             </div>
           </div>
 
-          <div class="grid" style="margin-top: 12px;">
-            <div style="grid-column: span 2;">
-              <label for="builder_food_search">Ingredient Search</label>
-              <input
-                id="builder_food_search"
-                placeholder="Type ingredient (e.g., banana, whey protein, almond milk)"
-                autocomplete="off"
-              />
-              <p class="muted" style="margin: 6px 0 0;">Search starts with your local food catalog. Use Search USDA only if needed.</p>
-              <div id="builder-food-results" style="margin-top: 8px;"></div>
-            </div>
-            <div>
-              <label for="builder_search_usda">&nbsp;</label>
-              <button id="builder_search_usda" type="button">Search USDA</button>
+          <div id="builder-source-catalog">
+            <div class="grid" style="margin-top: 12px;">
+              <div style="grid-column: span 2;">
+                <label for="builder_food_search">Ingredient Search</label>
+                <input
+                  id="builder_food_search"
+                  placeholder="Type ingredient (e.g., banana, whey protein, almond milk)"
+                  autocomplete="off"
+                />
+                <p class="muted" style="margin: 6px 0 0;">Search starts with your local food catalog. Use Search USDA only if needed.</p>
+                <div id="builder-food-results" style="margin-top: 8px;"></div>
+              </div>
+              <div>
+                <label for="builder_search_usda">&nbsp;</label>
+                <button id="builder_search_usda" type="button">Search USDA</button>
+              </div>
             </div>
           </div>
 
-          <div class="card" style="margin-top: 12px; margin-bottom: 0; border-color: #d7dee7; background: #ffffff;">
-            <h4 style="margin: 0 0 8px;">Or Add Custom Ingredient</h4>
+          <div id="builder-custom-card" class="card" style="margin-top: 12px; margin-bottom: 0; border-color: #d7dee7; background: #ffffff;">
+            <h4 style="margin: 0 0 8px;">Custom Ingredient Input</h4>
             <p class="muted" style="margin: 0 0 10px;">
-              Use this when search results are wrong or missing. Add nutrition facts manually, or parse from a label photo.
+              Use this when catalog results are wrong or missing.
             </p>
 
             <div class="grid">
               <div>
                 <label for="custom_ingredient_name">Ingredient Title</label>
                 <input id="custom_ingredient_name" placeholder="e.g., Premium Organic Cacao Powder" />
-              </div>
-              <div style="grid-column: span 2;">
-                <label for="custom_product_url">Product Link (optional)</label>
-                <input id="custom_product_url" type="url" placeholder="https://..." />
-              </div>
-              <div>
-                <label for="parse_product_link_btn">&nbsp;</label>
-                <button id="parse_product_link_btn" type="button">Fetch Product Data</button>
               </div>
               <div>
                 <label for="custom_quantity">Servings Used</label>
@@ -177,6 +193,31 @@
                   <option value="lb">lb</option>
                 </select>
               </div>
+            </div>
+
+            <div id="builder-product-controls" class="grid" style="margin-top: 10px;">
+              <div style="grid-column: span 2;">
+                <label for="custom_product_url">Product Link</label>
+                <input id="custom_product_url" type="url" placeholder="https://..." />
+              </div>
+              <div>
+                <label for="parse_product_link_btn">&nbsp;</label>
+                <button id="parse_product_link_btn" type="button">Fetch Product Data</button>
+              </div>
+            </div>
+
+            <div id="builder-label-controls" class="grid" style="margin-top: 10px;">
+              <div style="grid-column: span 2;">
+                <label for="label_photo_upload">Nutrition Label Photo</label>
+                <input id="label_photo_upload" type="file" accept="image/*" capture="environment" />
+              </div>
+              <div>
+                <label for="parse_label_btn">&nbsp;</label>
+                <button id="parse_label_btn" type="button">Parse Label Photo</button>
+              </div>
+            </div>
+
+            <div class="grid" style="margin-top: 10px;">
               <div>
                 <label for="custom_calories">Calories (per serving)</label>
                 <input id="custom_calories" type="number" min="0" step="0.1" />
@@ -204,14 +245,6 @@
             </div>
 
             <div class="grid" style="margin-top: 10px;">
-              <div style="grid-column: span 2;">
-                <label for="label_photo_upload">Nutrition Label Photo</label>
-                <input id="label_photo_upload" type="file" accept="image/*" capture="environment" />
-              </div>
-              <div>
-                <label for="parse_label_btn">&nbsp;</label>
-                <button id="parse_label_btn" type="button">Parse Label Photo</button>
-              </div>
               <div>
                 <label for="add_custom_ingredient_btn">&nbsp;</label>
                 <button id="add_custom_ingredient_btn" type="button">Add Custom Ingredient</button>
@@ -293,29 +326,6 @@
 
       <div class="grid" style="margin-top: 12px;">
         <div>
-          <label for="favorite_selector">Load Favorite</label>
-          <select id="favorite_selector">
-            <option value="">Choose a favorite</option>
-            {% for favorite in favorites %}
-              <option value="{{ favorite.id }}">{{ favorite.name }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <div>
-          <label for="save_favorite">&nbsp;</label>
-          <label style="display: inline-flex; align-items: center; gap: 8px; font-weight: 400;">
-            <input id="save_favorite" name="save_favorite" type="checkbox" />
-            Save this entry as a favorite
-          </label>
-        </div>
-        <div>
-          <label for="favorite_name">Favorite Name</label>
-          <input id="favorite_name" name="favorite_name" placeholder="e.g., weekday breakfast" />
-        </div>
-      </div>
-
-      <div class="grid" style="margin-top: 12px;">
-        <div>
           <label for="eaten_at">Eaten At</label>
           <input
             id="eaten_at"
@@ -334,38 +344,6 @@
           <input id="portion_notes" name="portion_notes" placeholder="1 bowl, 2 slices..." value="{{ ((edit_meal.portion_notes if edit_meal else '') if (edit_meal and edit_meal.portion_notes not in ['None','none','NULL','null']) else '') }}" />
         </div>
         <div>
-          <label for="tags">Tags (comma-separated)</label>
-          <input id="tags" name="tags" placeholder="high_carb, processed, salty" value="{{ (edit_meal.tags | join(', ')) if edit_meal and edit_meal.tags else '' }}" />
-        </div>
-        <div>
-          <label for="calories">Calories</label>
-          <input id="calories" name="calories" type="number" min="0" value="{{ edit_meal.calories if edit_meal and edit_meal.calories is not none else '' }}" />
-        </div>
-        <div>
-          <label for="protein_g">Protein (g)</label>
-          <input id="protein_g" name="protein_g" type="number" min="0" step="0.1" value="{{ edit_meal.protein_g if edit_meal and edit_meal.protein_g is not none else '' }}" />
-        </div>
-        <div>
-          <label for="carbs_g">Carbs (g)</label>
-          <input id="carbs_g" name="carbs_g" type="number" min="0" step="0.1" value="{{ edit_meal.carbs_g if edit_meal and edit_meal.carbs_g is not none else '' }}" />
-        </div>
-        <div>
-          <label for="fat_g">Fat (g)</label>
-          <input id="fat_g" name="fat_g" type="number" min="0" step="0.1" value="{{ edit_meal.fat_g if edit_meal and edit_meal.fat_g is not none else '' }}" />
-        </div>
-        <div>
-          <label for="sugar_g">Sugar (g)</label>
-          <input id="sugar_g" name="sugar_g" type="number" min="0" step="0.1" value="{{ edit_meal.sugar_g if edit_meal and edit_meal.sugar_g is not none else '' }}" />
-        </div>
-        <div>
-          <label for="sodium_mg">Sodium (mg)</label>
-          <input id="sodium_mg" name="sodium_mg" type="number" min="0" step="0.1" value="{{ edit_meal.sodium_mg if edit_meal and edit_meal.sodium_mg is not none else '' }}" />
-        </div>
-        <div>
-          <label for="photo">Photo (optional)</label>
-          <input id="photo" name="photo" type="file" accept=".png,.jpg,.jpeg,.webp,.heic" />
-        </div>
-        <div>
           <label for="is_beverage">&nbsp;</label>
           <label style="display: inline-flex; align-items: center; gap: 8px; font-weight: 400;">
             <input id="is_beverage" name="is_beverage" type="checkbox" {% if edit_meal and edit_meal.is_beverage %}checked{% endif %} />
@@ -378,6 +356,69 @@
         <label for="description">Description</label>
         <textarea id="description" name="description" placeholder="What you ate/drank and context (prep, sauce, cravings, etc).">{{ ((edit_meal.description if edit_meal else '') if (edit_meal and edit_meal.description not in ['None','none','NULL','null']) else '') }}</textarea>
       </div>
+
+      <details id="meal_advanced_section" style="margin-top: 12px;" {% if edit_meal %}open{% endif %}>
+        <summary style="cursor: pointer; font-weight: 600;">Advanced (optional): favorites, tags, nutrition, photo</summary>
+        <div style="margin-top: 12px;">
+          <div class="grid">
+            <div>
+              <label for="favorite_selector">Load Favorite</label>
+              <select id="favorite_selector">
+                <option value="">Choose a favorite</option>
+                {% for favorite in favorites %}
+                  <option value="{{ favorite.id }}">{{ favorite.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div>
+              <label for="save_favorite">&nbsp;</label>
+              <label style="display: inline-flex; align-items: center; gap: 8px; font-weight: 400;">
+                <input id="save_favorite" name="save_favorite" type="checkbox" />
+                Save this entry as a favorite
+              </label>
+            </div>
+            <div>
+              <label for="favorite_name">Favorite Name</label>
+              <input id="favorite_name" name="favorite_name" placeholder="e.g., weekday breakfast" />
+            </div>
+          </div>
+
+          <div class="grid" style="margin-top: 12px;">
+            <div>
+              <label for="tags">Tags (comma-separated)</label>
+              <input id="tags" name="tags" placeholder="high_carb, processed, salty" value="{{ (edit_meal.tags | join(', ')) if edit_meal and edit_meal.tags else '' }}" />
+            </div>
+            <div>
+              <label for="calories">Calories</label>
+              <input id="calories" name="calories" type="number" min="0" value="{{ edit_meal.calories if edit_meal and edit_meal.calories is not none else '' }}" />
+            </div>
+            <div>
+              <label for="protein_g">Protein (g)</label>
+              <input id="protein_g" name="protein_g" type="number" min="0" step="0.1" value="{{ edit_meal.protein_g if edit_meal and edit_meal.protein_g is not none else '' }}" />
+            </div>
+            <div>
+              <label for="carbs_g">Carbs (g)</label>
+              <input id="carbs_g" name="carbs_g" type="number" min="0" step="0.1" value="{{ edit_meal.carbs_g if edit_meal and edit_meal.carbs_g is not none else '' }}" />
+            </div>
+            <div>
+              <label for="fat_g">Fat (g)</label>
+              <input id="fat_g" name="fat_g" type="number" min="0" step="0.1" value="{{ edit_meal.fat_g if edit_meal and edit_meal.fat_g is not none else '' }}" />
+            </div>
+            <div>
+              <label for="sugar_g">Sugar (g)</label>
+              <input id="sugar_g" name="sugar_g" type="number" min="0" step="0.1" value="{{ edit_meal.sugar_g if edit_meal and edit_meal.sugar_g is not none else '' }}" />
+            </div>
+            <div>
+              <label for="sodium_mg">Sodium (mg)</label>
+              <input id="sodium_mg" name="sodium_mg" type="number" min="0" step="0.1" value="{{ edit_meal.sodium_mg if edit_meal and edit_meal.sodium_mg is not none else '' }}" />
+            </div>
+            <div>
+              <label for="photo">Photo (optional)</label>
+              <input id="photo" name="photo" type="file" accept=".png,.jpg,.jpeg,.webp,.heic" />
+            </div>
+          </div>
+        </div>
+      </details>
 
       <div style="margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap;">
         <button type="submit">{{ "Update Meal" if edit_meal else "Save Meal" }}</button>
@@ -448,6 +489,7 @@
 
   <script>
     const favoritePayload = {{ favorite_payload | tojson }};
+    const isEditMode = {{ "true" if edit_meal else "false" }};
     const mealForm = document.getElementById("meal-form");
     const favoriteSelector = document.getElementById("favorite_selector");
     const foodSearchInput = document.getElementById("food_search");
@@ -455,6 +497,12 @@
     const foodItemIdInput = document.getElementById("food_item_id");
     const searchUsdaButton = document.getElementById("search_usda");
     const favoriteIngredientsInput = document.getElementById("favorite_ingredients");
+
+    const entryModeSingleButton = document.getElementById("entry_mode_single");
+    const entryModeRecipeButton = document.getElementById("entry_mode_recipe");
+    const entryModeHint = document.getElementById("entry_mode_hint");
+    const singleEntryPanel = document.getElementById("single-entry-panel");
+    const recipeEntryPanel = document.getElementById("recipe-entry-panel");
 
     const builderToggle = document.getElementById("builder_toggle");
     const mealBuilderPanel = document.getElementById("meal-builder-panel");
@@ -466,6 +514,16 @@
     const builderIngredientsBody = document.getElementById("builder-ingredients-body");
     const builderApplyButton = document.getElementById("builder_apply_to_form");
     const builderClearButton = document.getElementById("builder_clear");
+    const builderSourceCatalogButton = document.getElementById("builder_source_catalog");
+    const builderSourceProductButton = document.getElementById("builder_source_product");
+    const builderSourceLabelButton = document.getElementById("builder_source_label");
+    const builderSourceManualButton = document.getElementById("builder_source_manual");
+    const builderSourceHint = document.getElementById("builder_source_hint");
+    const builderSourceCatalogPanel = document.getElementById("builder-source-catalog");
+    const builderCustomCard = document.getElementById("builder-custom-card");
+    const builderProductControls = document.getElementById("builder-product-controls");
+    const builderLabelControls = document.getElementById("builder-label-controls");
+
     const customIngredientName = document.getElementById("custom_ingredient_name");
     const customProductUrl = document.getElementById("custom_product_url");
     const parseProductLinkButton = document.getElementById("parse_product_link_btn");
@@ -492,7 +550,7 @@
       sodium: document.getElementById("builder_total_sodium"),
     };
 
-    const builderState = { ingredients: [], editingRowId: null };
+    const builderState = { ingredients: [], editingRowId: null, source: "catalog", mode: "single" };
     const unitOptions = ["serving", "g", "oz", "lb", "ml", "cup", "tbsp", "tsp", "item"];
 
     const fieldMap = {
@@ -522,6 +580,85 @@
       if (!Number.isFinite(value)) return "-";
       const fixed = value.toFixed(digits);
       return digits > 0 ? fixed.replace(/\.0$/, "") : fixed;
+    }
+
+    function cleanText(value) {
+      return String(value || "")
+        .replace(/\s+/g, " ")
+        .trim();
+    }
+
+    function setToggleButtonState(button, active) {
+      if (!button) return;
+      if (active) {
+        button.style.background = "var(--accent)";
+        button.style.color = "#fff";
+        button.style.border = "none";
+      } else {
+        button.style.background = "#fff";
+        button.style.color = "#17212b";
+        button.style.border = "1px solid #d7dee7";
+      }
+    }
+
+    function setEntryMode(mode) {
+      const nextMode = mode === "recipe" ? "recipe" : "single";
+      builderState.mode = nextMode;
+      const isRecipe = nextMode === "recipe";
+
+      if (singleEntryPanel) singleEntryPanel.style.display = isRecipe ? "none" : "block";
+      if (recipeEntryPanel) recipeEntryPanel.style.display = isRecipe ? "block" : "none";
+
+      setToggleButtonState(entryModeSingleButton, !isRecipe);
+      setToggleButtonState(entryModeRecipeButton, isRecipe);
+
+      if (entryModeHint) {
+        entryModeHint.textContent = isRecipe
+          ? "Build Recipe mode: add ingredients, apply totals, then save."
+          : "Single Item mode: fastest way to log one food/drink.";
+      }
+
+      if (isRecipe) {
+        setBuilderOpen(true);
+      } else {
+        setBuilderOpen(false);
+      }
+    }
+
+    function setBuilderSource(source) {
+      const allowed = new Set(["catalog", "product", "label", "manual"]);
+      const nextSource = allowed.has(source) ? source : "catalog";
+      builderState.source = nextSource;
+
+      setToggleButtonState(builderSourceCatalogButton, nextSource === "catalog");
+      setToggleButtonState(builderSourceProductButton, nextSource === "product");
+      setToggleButtonState(builderSourceLabelButton, nextSource === "label");
+      setToggleButtonState(builderSourceManualButton, nextSource === "manual");
+
+      if (builderSourceCatalogPanel) {
+        builderSourceCatalogPanel.style.display = nextSource === "catalog" ? "block" : "none";
+      }
+      if (builderCustomCard) {
+        builderCustomCard.style.display = nextSource === "catalog" ? "none" : "block";
+      }
+      if (builderProductControls) {
+        builderProductControls.style.display = nextSource === "product" ? "grid" : "none";
+      }
+      if (builderLabelControls) {
+        builderLabelControls.style.display = nextSource === "label" ? "grid" : "none";
+      }
+
+      if (builderSourceHint) {
+        if (nextSource === "catalog") {
+          builderSourceHint.textContent = "Catalog mode: search your local foods first. Use USDA only if needed.";
+        } else if (nextSource === "product") {
+          builderSourceHint.textContent = "Product Link mode: paste a product URL, fetch nutrition, then add ingredient.";
+        } else if (nextSource === "label") {
+          builderSourceHint.textContent = "Label Photo mode: take/upload nutrition label photo, review parsed values, then add.";
+        } else {
+          builderSourceHint.textContent = "Manual Facts mode: type nutrition values from a package label or your own data.";
+        }
+      }
     }
 
     function normalizeUnit(unit) {
@@ -720,6 +857,8 @@
 
     function addIngredientFromFood(food) {
       if (!food) return;
+      setEntryMode("recipe");
+      setBuilderSource("catalog");
       setCustomIngredientEditMode(null);
       clearCustomIngredientInputs();
       builderState.ingredients.push({
@@ -795,6 +934,8 @@
       if (customFat) customFat.value = row.fat_g ?? "";
       if (customSugar) customSugar.value = row.sugar_g ?? "";
       if (customSodium) customSodium.value = row.sodium_mg ?? "";
+      setEntryMode("recipe");
+      setBuilderSource("manual");
       setBuilderOpen(true);
       setLabelStatus("Editing ingredient. Update fields, then click Update Ingredient.");
     }
@@ -850,10 +991,13 @@
         });
       }
       renderBuilderIngredients();
+      setEntryMode("recipe");
+      setBuilderSource("manual");
       setBuilderOpen(true);
       clearCustomIngredientInputs(false);
       setCustomIngredientEditMode(null);
       setLabelStatus(editRow ? "Ingredient updated." : "Custom ingredient added and form cleared.");
+      if (customIngredientName) customIngredientName.focus();
     }
 
     function populateCustomInputsFromParsed(parsed) {
@@ -965,6 +1109,8 @@
       }));
       setCustomIngredientEditMode(null);
       clearCustomIngredientInputs();
+      setEntryMode("recipe");
+      setBuilderSource("catalog");
       setBuilderOpen(true);
       renderBuilderIngredients();
     }
@@ -1010,6 +1156,9 @@
 
     function applyFoodOrFavorite(data) {
       if (!data) return;
+      const hasIngredients = Array.isArray(data.ingredients) && data.ingredients.length > 0;
+      setEntryMode(hasIngredients ? "recipe" : "single");
+
       if (data.id !== undefined && data.id !== null) {
         foodItemIdInput.value = data.id;
       } else if (data.food_item_id) {
@@ -1047,7 +1196,7 @@
         fieldMap.is_beverage.checked = data.is_beverage;
       }
 
-      if (Array.isArray(data.ingredients) && data.ingredients.length > 0) {
+      if (hasIngredients) {
         if (builderTitleInput && !builderTitleInput.value) {
           builderTitleInput.value = data.name || data.display_name || "";
         }
@@ -1074,14 +1223,41 @@
 
     function renderSearchButtons(targetElement, items, onPick, message = "") {
       if (!targetElement) return;
-      if (!items || items.length === 0) {
+      const normalizedItems = (items || []).filter((item) => {
+        const label = cleanText(item?.display_name || item?.name || item?.food_name || item?.brand);
+        const hasMacro =
+          item?.calories !== null ||
+          item?.protein_g !== null ||
+          item?.carbs_g !== null ||
+          item?.fat_g !== null ||
+          item?.sugar_g !== null;
+        return Boolean(label) || hasMacro;
+      });
+
+      if (normalizedItems.length === 0) {
         const text = message || "No matching foods found.";
         targetElement.innerHTML = `<p class="muted" style="margin: 6px 0;">${text}</p>`;
         return;
       }
 
+      const rankedItems = normalizedItems
+        .map((item) => {
+          let score = 0;
+          if (item.source === "seed") score += 40;
+          if (item.source === "usda") score += 20;
+          if (item.calories !== null && item.calories !== undefined) score += 12;
+          if (item.protein_g !== null && item.protein_g !== undefined) score += 6;
+          if (item.serving_size && item.serving_unit) score += 4;
+          const name = cleanText(item.display_name || item.name || item.food_name || "");
+          if (name) score += 4;
+          return { item, score };
+        })
+        .sort((left, right) => right.score - left.score)
+        .slice(0, 15)
+        .map((row) => row.item);
+
       targetElement.innerHTML = "";
-      items.forEach((item) => {
+      rankedItems.forEach((item) => {
         const button = document.createElement("button");
         button.type = "button";
         button.className = "food-result";
@@ -1096,17 +1272,21 @@
         button.style.cursor = "pointer";
 
         const title = document.createElement("strong");
-        const displayName = item.display_name || item.name || item.food_name || "Unnamed food";
+        const displayName = cleanText(item.display_name || item.name || item.food_name || item.brand)
+          || (item.id ? `Food item #${item.id}` : "Food item");
         title.textContent = displayName;
         button.appendChild(title);
 
-        const meta = document.createElement("span");
+        const meta = document.createElement("div");
         meta.className = "muted";
-        meta.style.marginLeft = "6px";
+        meta.style.marginTop = "4px";
         const kcal = item.calories !== null && item.calories !== undefined ? `${item.calories} kcal` : "kcal n/a";
         const serving = item.serving_size && item.serving_unit ? ` | ${item.serving_size} ${item.serving_unit}` : "";
         const source = item.source || "local";
-        meta.textContent = `${kcal}${serving} - ${source}`;
+        const protein = item.protein_g !== null && item.protein_g !== undefined ? `P ${displayNumber(Number(item.protein_g), 1)}g` : "P -";
+        const carbs = item.carbs_g !== null && item.carbs_g !== undefined ? `C ${displayNumber(Number(item.carbs_g), 1)}g` : "C -";
+        const fat = item.fat_g !== null && item.fat_g !== undefined ? `F ${displayNumber(Number(item.fat_g), 1)}g` : "F -";
+        meta.textContent = `${kcal}${serving} | ${protein} ${carbs} ${fat} | ${source}`;
         button.appendChild(meta);
 
         button.addEventListener("click", () => onPick(item));
@@ -1166,6 +1346,8 @@
     }
 
     async function runBuilderFoodSearch(remote = false) {
+      setEntryMode("recipe");
+      setBuilderSource("catalog");
       const query = (builderFoodSearchInput?.value || "").trim();
       if (query.length < 2) {
         if (builderFoodResults) builderFoodResults.innerHTML = "";
@@ -1209,6 +1391,42 @@
     if (builderSearchUsdaButton) {
       builderSearchUsdaButton.addEventListener("click", () => {
         runBuilderFoodSearch(true);
+      });
+    }
+
+    if (entryModeSingleButton) {
+      entryModeSingleButton.addEventListener("click", () => {
+        setEntryMode("single");
+      });
+    }
+
+    if (entryModeRecipeButton) {
+      entryModeRecipeButton.addEventListener("click", () => {
+        setEntryMode("recipe");
+      });
+    }
+
+    if (builderSourceCatalogButton) {
+      builderSourceCatalogButton.addEventListener("click", () => {
+        setBuilderSource("catalog");
+      });
+    }
+
+    if (builderSourceProductButton) {
+      builderSourceProductButton.addEventListener("click", () => {
+        setBuilderSource("product");
+      });
+    }
+
+    if (builderSourceLabelButton) {
+      builderSourceLabelButton.addEventListener("click", () => {
+        setBuilderSource("label");
+      });
+    }
+
+    if (builderSourceManualButton) {
+      builderSourceManualButton.addEventListener("click", () => {
+        setBuilderSource("manual");
       });
     }
 
@@ -1344,7 +1562,12 @@
     setCustomIngredientEditMode(null);
     clearCustomIngredientInputs();
     renderBuilderIngredients();
-    setBuilderOpen(false);
+    setBuilderSource("catalog");
+    setEntryMode("single");
+
+    if (isEditMode && !foodItemIdInput.value && foodSearchInput && foodSearchInput.value.trim()) {
+      setEntryMode("single");
+    }
   </script>
 {% endblock %}
 

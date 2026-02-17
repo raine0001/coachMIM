@@ -116,6 +116,7 @@ class DailyCheckIn(db.Model):
     morning_focus = db.Column(db.Integer, nullable=True)  # 1-10
     morning_mood = db.Column(db.Integer, nullable=True)  # 1-10
     morning_stress = db.Column(db.Integer, nullable=True)  # 1-10
+    morning_weight_kg = db.Column(db.Float, nullable=True)
     morning_notes = db.Column(db.Text, nullable=True)
 
     midday_energy = db.Column(db.Integer, nullable=True)  # 1-10

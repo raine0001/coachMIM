@@ -87,6 +87,7 @@ flask run
 
 - OpenAI is optional for MVP. If `OPENAI_API_KEY` is unset, weekly AI reflection shows a fallback message.
 - USDA food import is optional. Add `USDA_API_KEY` to enable search-time USDA imports into your local DB cache.
+- If `USDA_API_KEY` is unset, app falls back to USDA `DEMO_KEY` (lower rate limits).
 - Optional bulk import command: `python -m scripts.import_foods chicken rice yogurt coffee --max-results 50`
 - Uploads are stored in `app/static/uploads` for local/dev. Production object storage can replace this later.
 - For production cookie security, set `SESSION_COOKIE_SECURE=true`.

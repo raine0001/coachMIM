@@ -25,6 +25,18 @@ COMMON_FOODS = [
     {"name": "White rice, cooked", "serving_size": 100, "serving_unit": "g", "calories": 130, "protein_g": 2.4, "carbs_g": 28, "fat_g": 0.3},
     {"name": "Quinoa, cooked", "serving_size": 100, "serving_unit": "g", "calories": 120, "protein_g": 4.4, "carbs_g": 21.3, "fat_g": 1.9},
     {"name": "Oats, dry", "serving_size": 40, "serving_unit": "g", "calories": 150, "protein_g": 5, "carbs_g": 27, "fat_g": 3},
+    {"name": "Pancakes, plain", "serving_size": 2, "serving_unit": "medium", "calories": 175, "protein_g": 4.7, "carbs_g": 28.3, "fat_g": 4.5},
+    {"name": "Waffles, plain", "serving_size": 2, "serving_unit": "small", "calories": 218, "protein_g": 5.9, "carbs_g": 29.7, "fat_g": 8.3},
+    {"name": "French toast", "serving_size": 2, "serving_unit": "slices", "calories": 290, "protein_g": 10, "carbs_g": 35, "fat_g": 12},
+    {"name": "Bacon", "serving_size": 2, "serving_unit": "slices", "calories": 86, "protein_g": 6, "carbs_g": 0.3, "fat_g": 6.7},
+    {"name": "Sausage link", "serving_size": 2, "serving_unit": "links", "calories": 170, "protein_g": 7, "carbs_g": 1.5, "fat_g": 15},
+    {"name": "Hash browns", "serving_size": 85, "serving_unit": "g", "calories": 150, "protein_g": 2, "carbs_g": 18, "fat_g": 8},
+    {"name": "Bagel, plain", "serving_size": 1, "serving_unit": "item", "calories": 277, "protein_g": 10.5, "carbs_g": 55, "fat_g": 1.7},
+    {"name": "Cream cheese", "serving_size": 2, "serving_unit": "tbsp", "calories": 99, "protein_g": 1.8, "carbs_g": 1.6, "fat_g": 9.8},
+    {"name": "Jam", "serving_size": 1, "serving_unit": "tbsp", "calories": 56, "protein_g": 0.1, "carbs_g": 14, "fat_g": 0},
+    {"name": "Turkey sandwich", "serving_size": 1, "serving_unit": "item", "calories": 320, "protein_g": 21, "carbs_g": 33, "fat_g": 12},
+    {"name": "Ham sandwich", "serving_size": 1, "serving_unit": "item", "calories": 360, "protein_g": 19, "carbs_g": 35, "fat_g": 15},
+    {"name": "Chicken salad sandwich", "serving_size": 1, "serving_unit": "item", "calories": 410, "protein_g": 20, "carbs_g": 33, "fat_g": 22},
     {"name": "Whole wheat bread", "serving_size": 1, "serving_unit": "slice", "calories": 80, "protein_g": 4, "carbs_g": 14, "fat_g": 1},
     {"name": "Sourdough bread", "serving_size": 1, "serving_unit": "slice", "calories": 93, "protein_g": 3.4, "carbs_g": 18, "fat_g": 0.7},
     {"name": "Tortilla, flour", "serving_size": 1, "serving_unit": "medium", "calories": 140, "protein_g": 4, "carbs_g": 24, "fat_g": 3.5},
@@ -49,8 +61,22 @@ COMMON_FOODS = [
     {"name": "Chicken burrito", "serving_size": 1, "serving_unit": "item", "calories": 520, "protein_g": 29, "carbs_g": 49, "fat_g": 22},
     {"name": "Caesar salad with chicken", "serving_size": 1, "serving_unit": "bowl", "calories": 420, "protein_g": 27, "carbs_g": 15, "fat_g": 28},
     {"name": "Sushi roll, California", "serving_size": 1, "serving_unit": "roll", "calories": 255, "protein_g": 9, "carbs_g": 38, "fat_g": 7},
+    {"name": "Sushi roll, spicy tuna", "serving_size": 1, "serving_unit": "roll", "calories": 290, "protein_g": 12, "carbs_g": 33, "fat_g": 10},
+    {"name": "Ramen noodles", "serving_size": 1, "serving_unit": "bowl", "calories": 380, "protein_g": 10, "carbs_g": 52, "fat_g": 14},
+    {"name": "Pho with beef", "serving_size": 1, "serving_unit": "bowl", "calories": 450, "protein_g": 26, "carbs_g": 55, "fat_g": 12},
+    {"name": "Taco, beef", "serving_size": 1, "serving_unit": "item", "calories": 180, "protein_g": 8, "carbs_g": 14, "fat_g": 10},
+    {"name": "Burrito bowl, chicken", "serving_size": 1, "serving_unit": "bowl", "calories": 610, "protein_g": 37, "carbs_g": 64, "fat_g": 22},
+    {"name": "Quesadilla, cheese", "serving_size": 1, "serving_unit": "item", "calories": 510, "protein_g": 20, "carbs_g": 42, "fat_g": 28},
+    {"name": "Fried chicken breast", "serving_size": 1, "serving_unit": "piece", "calories": 320, "protein_g": 29, "carbs_g": 12, "fat_g": 18},
+    {"name": "Mashed potatoes", "serving_size": 1, "serving_unit": "cup", "calories": 214, "protein_g": 3.9, "carbs_g": 35, "fat_g": 7.2},
+    {"name": "Mac and cheese", "serving_size": 1, "serving_unit": "cup", "calories": 310, "protein_g": 12, "carbs_g": 33, "fat_g": 14},
     {"name": "Protein bar", "serving_size": 1, "serving_unit": "bar", "calories": 210, "protein_g": 20, "carbs_g": 23, "fat_g": 7},
     {"name": "Granola", "serving_size": 60, "serving_unit": "g", "calories": 270, "protein_g": 6, "carbs_g": 40, "fat_g": 9},
+    {"name": "Trail mix", "serving_size": 40, "serving_unit": "g", "calories": 200, "protein_g": 5, "carbs_g": 16, "fat_g": 14},
+    {"name": "Pretzels", "serving_size": 28, "serving_unit": "g", "calories": 108, "protein_g": 2.8, "carbs_g": 22.5, "fat_g": 0.8},
+    {"name": "Chips, potato", "serving_size": 28, "serving_unit": "g", "calories": 152, "protein_g": 2, "carbs_g": 15, "fat_g": 10},
+    {"name": "Cookie, chocolate chip", "serving_size": 1, "serving_unit": "large", "calories": 78, "protein_g": 1, "carbs_g": 11, "fat_g": 3.3},
+    {"name": "Ice cream, vanilla", "serving_size": 1, "serving_unit": "cup", "calories": 273, "protein_g": 4.6, "carbs_g": 31, "fat_g": 14.5},
     {"name": "Coffee, black", "serving_size": 240, "serving_unit": "ml", "calories": 2, "protein_g": 0.3, "carbs_g": 0, "fat_g": 0, "sodium_mg": 5},
     {"name": "Coffee with milk", "serving_size": 240, "serving_unit": "ml", "calories": 35, "protein_g": 2, "carbs_g": 3, "fat_g": 1.5},
     {"name": "Tea, unsweetened", "serving_size": 240, "serving_unit": "ml", "calories": 2, "protein_g": 0, "carbs_g": 0, "fat_g": 0},
@@ -58,8 +84,13 @@ COMMON_FOODS = [
     {"name": "Soda", "serving_size": 355, "serving_unit": "ml", "calories": 140, "protein_g": 0, "carbs_g": 39, "fat_g": 0},
     {"name": "Diet soda", "serving_size": 355, "serving_unit": "ml", "calories": 0, "protein_g": 0, "carbs_g": 0, "fat_g": 0},
     {"name": "Sports drink", "serving_size": 591, "serving_unit": "ml", "calories": 140, "protein_g": 0, "carbs_g": 34, "fat_g": 0},
+    {"name": "Energy drink", "serving_size": 473, "serving_unit": "ml", "calories": 210, "protein_g": 0, "carbs_g": 54, "fat_g": 0},
+    {"name": "Protein shake", "serving_size": 1, "serving_unit": "bottle", "calories": 160, "protein_g": 30, "carbs_g": 5, "fat_g": 3},
+    {"name": "Smoothie, fruit", "serving_size": 350, "serving_unit": "ml", "calories": 220, "protein_g": 4, "carbs_g": 48, "fat_g": 1},
+    {"name": "Sparkling water", "serving_size": 355, "serving_unit": "ml", "calories": 0, "protein_g": 0, "carbs_g": 0, "fat_g": 0},
     {"name": "Beer, regular", "serving_size": 355, "serving_unit": "ml", "calories": 153, "protein_g": 1.6, "carbs_g": 13, "fat_g": 0},
     {"name": "Wine, red", "serving_size": 150, "serving_unit": "ml", "calories": 125, "protein_g": 0.1, "carbs_g": 4, "fat_g": 0},
+    {"name": "Whiskey", "serving_size": 44, "serving_unit": "ml", "calories": 97, "protein_g": 0, "carbs_g": 0, "fat_g": 0},
 ]
 
 NUTRIENT_NUMBER_MAP = {
@@ -73,15 +104,46 @@ NUTRIENT_NUMBER_MAP = {
 
 
 def seed_common_foods_if_needed() -> None:
-    existing = FoodItem.query.filter_by(source="seed").count()
-    if existing > 0:
-        return
+    existing_seed_foods = FoodItem.query.filter_by(source="seed").all()
+    by_key = {
+        ((item.name or "").strip().lower(), (item.brand or "").strip().lower()): item
+        for item in existing_seed_foods
+    }
 
+    changed = False
     for row in COMMON_FOODS:
+        name = row["name"]
+        brand = row.get("brand")
+        key = (name.strip().lower(), (brand or "").strip().lower())
+        existing = by_key.get(key)
+
+        if existing:
+            # Keep seeded defaults fresh in case values are tuned in code.
+            fields_to_sync = {
+                "serving_size": row.get("serving_size"),
+                "serving_unit": row.get("serving_unit"),
+                "calories": row.get("calories"),
+                "protein_g": row.get("protein_g"),
+                "carbs_g": row.get("carbs_g"),
+                "fat_g": row.get("fat_g"),
+                "sugar_g": row.get("sugar_g"),
+                "sodium_mg": row.get("sodium_mg"),
+            }
+            existing_changed = False
+            for field_name, field_value in fields_to_sync.items():
+                if getattr(existing, field_name) != field_value:
+                    setattr(existing, field_name, field_value)
+                    existing_changed = True
+
+            if existing_changed:
+                db.session.add(existing)
+                changed = True
+            continue
+
         food = FoodItem(
             external_id=None,
-            name=row["name"],
-            brand=row.get("brand"),
+            name=name,
+            brand=brand,
             serving_size=row.get("serving_size"),
             serving_unit=row.get("serving_unit"),
             calories=row.get("calories"),
@@ -93,7 +155,10 @@ def seed_common_foods_if_needed() -> None:
             source="seed",
         )
         db.session.add(food)
-    db.session.commit()
+        changed = True
+
+    if changed:
+        db.session.commit()
 
 
 def parse_usda_nutrients(food_row: dict[str, Any]) -> dict[str, Any]:
@@ -145,9 +210,7 @@ def parse_usda_nutrients(food_row: dict[str, Any]) -> dict[str, Any]:
 
 
 def import_foods_from_usda(query: str, max_results: int = 12) -> int:
-    api_key = os.getenv("USDA_API_KEY")
-    if not api_key:
-        return 0
+    api_key = os.getenv("USDA_API_KEY") or os.getenv("FDC_API_KEY") or "DEMO_KEY"
 
     query = query.strip()
     if len(query) < 2:
@@ -180,12 +243,19 @@ def import_foods_from_usda(query: str, max_results: int = 12) -> int:
             continue
 
         external_id = f"usda:{fdc_id}"
+        name = row.get("description") or "Unnamed USDA item"
+        brand = row.get("brandOwner")
         existing = FoodItem.query.filter_by(external_id=external_id).first()
+        if not existing:
+            existing = FoodItem.query.filter_by(name=name, brand=brand, source="usda").first()
+            if existing and not existing.external_id:
+                existing.external_id = external_id
+
         nutrients = parse_usda_nutrients(row)
         if existing:
             # Refresh nutrient values as USDA updates records over time.
-            existing.name = row.get("description") or existing.name
-            existing.brand = row.get("brandOwner") or existing.brand
+            existing.name = name or existing.name
+            existing.brand = brand or existing.brand
             existing.serving_size = row.get("servingSize") or existing.serving_size
             existing.serving_unit = row.get("servingSizeUnit") or existing.serving_unit
             existing.calories = nutrients.get("calories", existing.calories)
@@ -199,8 +269,8 @@ def import_foods_from_usda(query: str, max_results: int = 12) -> int:
 
         food = FoodItem(
             external_id=external_id,
-            name=row.get("description") or "Unnamed USDA item",
-            brand=row.get("brandOwner"),
+            name=name,
+            brand=brand,
             serving_size=row.get("servingSize"),
             serving_unit=row.get("servingSizeUnit"),
             calories=nutrients.get("calories"),

@@ -98,6 +98,10 @@
             <label for="morning_stress">Stress (1-10)</label>
             <input id="morning_stress" name="morning_stress" type="number" min="1" max="10" value="{{ record.morning_stress if record else '' }}" />
           </div>
+          <div>
+            <label for="morning_weight">Morning Weight ({{ checkin_weight_unit }})</label>
+            <input id="morning_weight" name="morning_weight" type="number" min="0" step="0.1" value="{{ morning_weight_display if morning_weight_display is not none else '' }}" />
+          </div>
         </div>
         <div style="margin-top: 12px;">
           <label for="morning_notes">Morning Notes</label>
@@ -248,6 +252,7 @@
               <th style="text-align: center; border-bottom: 1px solid #d7dee7; padding: 8px;">Midday</th>
               <th style="text-align: center; border-bottom: 1px solid #d7dee7; padding: 8px;">Evening</th>
               <th style="text-align: center; border-bottom: 1px solid #d7dee7; padding: 8px;">Overall</th>
+              <th style="text-align: right; border-bottom: 1px solid #d7dee7; padding: 8px;">Weight ({{ checkin_weight_unit }})</th>
               <th style="text-align: right; border-bottom: 1px solid #d7dee7; padding: 8px;">Productivity</th>
               <th style="text-align: left; border-bottom: 1px solid #d7dee7; padding: 8px;">Open</th>
             </tr>
@@ -264,6 +269,17 @@
                 <td style="padding: 8px; border-bottom: 1px solid #eef3f8; text-align: center;">{{ "done" if row.segments.midday else "-" }}</td>
                 <td style="padding: 8px; border-bottom: 1px solid #eef3f8; text-align: center;">{{ "done" if row.segments.evening else "-" }}</td>
                 <td style="padding: 8px; border-bottom: 1px solid #eef3f8; text-align: center;">{{ "done" if row.segments.overall else "-" }}</td>
+                <td style="padding: 8px; border-bottom: 1px solid #eef3f8; text-align: right;">
+                  {% if row.record.morning_weight_kg is not none %}
+                    {% if checkin_unit_system == "imperial" %}
+                      {{ (row.record.morning_weight_kg * 2.2046226218) | round(1) }}
+                    {% else %}
+                      {{ row.record.morning_weight_kg | round(2) }}
+                    {% endif %}
+                  {% else %}
+                    -
+                  {% endif %}
+                </td>
                 <td style="padding: 8px; border-bottom: 1px solid #eef3f8; text-align: right;">{{ row.record.productivity if row.record.productivity is not none else "-" }}</td>
                 <td style="padding: 8px; border-bottom: 1px solid #eef3f8;">
                   <a href="{{ url_for('main.checkin_form', day=row.record.day.isoformat()) }}">Open</a>

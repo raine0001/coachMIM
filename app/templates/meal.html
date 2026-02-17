@@ -259,10 +259,11 @@
     let lastSearchToken = 0;
     let debounceTimer;
 
-    function renderFoodResults(items) {
+    function renderFoodResults(items, message = "") {
       if (!foodResults) return;
       if (!items || items.length === 0) {
-        foodResults.innerHTML = '<p class="muted" style="margin: 6px 0;">No matching foods found.</p>';
+        const text = message || "No matching foods found.";
+        foodResults.innerHTML = `<p class="muted" style="margin: 6px 0;">${text}</p>`;
         return;
       }
 
@@ -289,7 +290,7 @@
         meta.className = "muted";
         meta.style.marginLeft = "6px";
         const kcal = item.calories !== null && item.calories !== undefined ? `${item.calories} kcal` : "kcal n/a";
-        meta.textContent = `${kcal} · ${item.source}`;
+        meta.textContent = `${kcal} - ${item.source}`;
         button.appendChild(meta);
 
         button.addEventListener("click", () => {
@@ -315,7 +316,7 @@
         const response = await fetch(`/foods/search?${params.toString()}`);
         const data = await response.json();
         if (token !== lastSearchToken) return;
-        renderFoodResults(data.results || []);
+        renderFoodResults(data.results || [], data.message || "");
       } catch (error) {
         if (token !== lastSearchToken) return;
         foodResults.innerHTML = '<p class="muted" style="margin: 6px 0;">Search failed. Try again.</p>';
@@ -337,3 +338,4 @@
     }
   </script>
 {% endblock %}
+

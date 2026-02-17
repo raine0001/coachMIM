@@ -95,6 +95,7 @@ def checkin_has_any_data(record: DailyCheckIn | None):
         "morning_focus",
         "morning_mood",
         "morning_stress",
+        "morning_weight_kg",
         "morning_notes",
         "midday_energy",
         "midday_focus",
@@ -139,7 +140,14 @@ def checkin_segment_status(record: DailyCheckIn | None):
     return {
         "sleep": has_values(["sleep_hours", "sleep_quality", "sleep_notes"]),
         "morning": has_values(
-            ["morning_energy", "morning_focus", "morning_mood", "morning_stress", "morning_notes"]
+            [
+                "morning_energy",
+                "morning_focus",
+                "morning_mood",
+                "morning_stress",
+                "morning_weight_kg",
+                "morning_notes",
+            ]
         ),
         "midday": has_values(
             ["midday_energy", "midday_focus", "midday_mood", "midday_stress", "midday_notes"]
@@ -615,6 +623,13 @@ def checkin_form():
 
     record = DailyCheckIn.query.filter_by(user_id=g.user.id, day=selected_day).first()
     today_record = DailyCheckIn.query.filter_by(user_id=g.user.id, day=local_today).first()
+    unit_system = "imperial"
+    if g.user.profile and g.user.profile.unit_system in {"imperial", "metric"}:
+        unit_system = g.user.profile.unit_system
+    weight_unit = "lb" if unit_system == "imperial" else "kg"
+    morning_weight_display = None
+    if record and record.morning_weight_kg is not None:
+        morning_weight_display = kg_to_lb(record.morning_weight_kg) if unit_system == "imperial" else round(record.morning_weight_kg, 2)
 
     history_records = (
         DailyCheckIn.query.filter_by(user_id=g.user.id).order_by(DailyCheckIn.day.desc()).limit(30).all()
@@ -645,6 +660,9 @@ def checkin_form():
         next_day=next_day.isoformat(),
         can_go_next=can_go_next,
         is_viewing_today=(selected_day == local_today),
+        checkin_weight_unit=weight_unit,
+        morning_weight_display=morning_weight_display,
+        checkin_unit_system=unit_system,
     )
 
 
@@ -661,6 +679,10 @@ def checkin_save():
 
     if selected_day > local_today:
         selected_day = local_today
+
+    unit_system = "imperial"
+    if g.user.profile and g.user.profile.unit_system in {"imperial", "metric"}:
+        unit_system = g.user.profile.unit_system
 
     record = DailyCheckIn.query.filter_by(user_id=g.user.id, day=selected_day).first()
     if not record:
@@ -695,6 +717,12 @@ def checkin_save():
             setattr(record, field, parse_float(value))
         else:
             setattr(record, field, parse_int(value))
+
+    morning_weight_value = parse_float(request.form.get("morning_weight"))
+    if morning_weight_value is None:
+        record.morning_weight_kg = None
+    else:
+        record.morning_weight_kg = lb_to_kg(morning_weight_value) if unit_system == "imperial" else morning_weight_value
 
     record.sleep_notes = request.form.get("sleep_notes") or None
     record.morning_notes = request.form.get("morning_notes") or None
@@ -825,7 +853,7 @@ def food_search():
     query = (request.args.get("q") or "").strip()
     include_remote = parse_bool(request.args.get("remote"))
     if len(query) < 2:
-        return jsonify({"results": []})
+        return jsonify({"results": [], "message": "Type at least 2 characters."})
 
     seed_common_foods_if_needed()
     results = (
@@ -840,6 +868,8 @@ def food_search():
         .all()
     )
 
+    imported = 0
+    message = None
     if include_remote and len(results) < 8:
         imported = import_foods_from_usda(query, max_results=12)
         if imported > 0:
@@ -854,6 +884,10 @@ def food_search():
                 .limit(15)
                 .all()
             )
+        elif len(results) == 0:
+            message = "No USDA matches found for that term. Try a broader keyword."
+    elif len(results) == 0:
+        message = "No local matches. Click Search USDA for a larger catalog."
 
     payload = [
         {
@@ -873,7 +907,7 @@ def food_search():
         }
         for item in results
     ]
-    return jsonify({"results": payload})
+    return jsonify({"results": payload, "message": message, "imported": imported})
 
 
 @bp.get("/substance")

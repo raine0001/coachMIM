@@ -1,5 +1,29 @@
 {% extends "base.html" %}
 {% block content %}
+  <style>
+    .loading-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 6px 0;
+      color: var(--muted);
+    }
+    .inline-spinner {
+      width: 14px;
+      height: 14px;
+      border: 2px solid #d7dee7;
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: meal-spin 0.7s linear infinite;
+      flex-shrink: 0;
+    }
+    @keyframes meal-spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+  </style>
+
   <div class="card">
     <h1>{{ "Edit Meal Entry" if edit_meal else "Log Meal" }}</h1>
     <p class="muted">
@@ -116,6 +140,10 @@
             />
             <p class="muted" style="margin: 6px 0 0;">Local catalog search first. Choose a result with <strong>Use</strong>. Click USDA only when local results are not enough.</p>
             <input id="food_item_id" name="food_item_id" type="hidden" value="{{ edit_meal.food_item_id if edit_meal and edit_meal.food_item_id is not none else '' }}" />
+            <div id="food-search-loading" class="loading-row" style="display: none;">
+              <span class="inline-spinner"></span>
+              <span id="food-search-loading-text">Searching foods...</span>
+            </div>
             <div id="food-results" style="margin-top: 8px;"></div>
             <div id="selected-food-preview" class="card" style="display: none; margin-top: 8px; margin-bottom: 0; border-color: #d7dee7; background: #f8fafc;"></div>
           </div>
@@ -168,6 +196,10 @@
                   autocomplete="off"
                 />
                 <p class="muted" style="margin: 6px 0 0;">Search starts with your local food catalog. Use Search USDA only if needed.</p>
+                <div id="builder-search-loading" class="loading-row" style="display: none;">
+                  <span class="inline-spinner"></span>
+                  <span id="builder-search-loading-text">Searching ingredients...</span>
+                </div>
                 <div id="builder-food-results" style="margin-top: 8px;"></div>
               </div>
               <div>
@@ -441,10 +473,14 @@
         <p id="save-status-text" class="muted" style="margin: 6px 0 0;">
           Choose a search result with Use, or type a description, then press Save Meal.
         </p>
+        <div id="save-submit-loading" class="loading-row" style="display: none; margin-top: 8px;">
+          <span class="inline-spinner"></span>
+          <span>Saving meal entry...</span>
+        </div>
       </div>
 
       <div style="margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap;">
-        <button type="submit">{{ "Update Meal" if edit_meal else "Save Meal" }}</button>
+        <button id="save_meal_btn" type="submit">{{ "Update Meal" if edit_meal else "Save Meal" }}</button>
         <button id="save_as_favorite_btn" type="button" style="background: #fff; color: #17212b; border: 1px solid #d7dee7;">Save + Favorite</button>
         {% if edit_meal %}
           <a href="{{ url_for('main.meal_form', day=selected_day) }}" style="padding: 10px 14px; background: #fff; border: 1px solid #d7dee7; border-radius: 8px; text-decoration: none; color: #17212b;">Cancel Edit</a>
@@ -525,13 +561,17 @@
     const favoriteSelector = document.getElementById("favorite_selector");
     const saveFavoriteCheckbox = document.getElementById("save_favorite");
     const favoriteNameInput = document.getElementById("favorite_name");
+    const saveMealButton = document.getElementById("save_meal_btn");
     const saveAsFavoriteButton = document.getElementById("save_as_favorite_btn");
     const saveStatusText = document.getElementById("save-status-text");
+    const saveSubmitLoading = document.getElementById("save-submit-loading");
     const foodSearchInput = document.getElementById("food_search");
     const foodResults = document.getElementById("food-results");
     const foodItemIdInput = document.getElementById("food_item_id");
     const selectedFoodPreview = document.getElementById("selected-food-preview");
     const searchUsdaButton = document.getElementById("search_usda");
+    const foodSearchLoading = document.getElementById("food-search-loading");
+    const foodSearchLoadingText = document.getElementById("food-search-loading-text");
     const favoriteIngredientsInput = document.getElementById("favorite_ingredients");
 
     const entryModeSingleButton = document.getElementById("entry_mode_single");
@@ -546,6 +586,8 @@
     const builderLabelInput = document.getElementById("builder_label");
     const builderFoodSearchInput = document.getElementById("builder_food_search");
     const builderFoodResults = document.getElementById("builder-food-results");
+    const builderSearchLoading = document.getElementById("builder-search-loading");
+    const builderSearchLoadingText = document.getElementById("builder-search-loading-text");
     const builderSearchUsdaButton = document.getElementById("builder_search_usda");
     const builderIngredientsBody = document.getElementById("builder-ingredients-body");
     const builderApplyButton = document.getElementById("builder_apply_to_form");
@@ -773,6 +815,49 @@
       }
 
       saveStatusText.textContent = "Choose a search result with Use, or type a description, then press Save Meal.";
+    }
+
+    function setSearchLoading(mode, isLoading, useRemote = false) {
+      const text = useRemote ? "Searching USDA catalog..." : "Searching local catalog...";
+      if (mode === "single") {
+        if (foodSearchLoading) {
+          foodSearchLoading.style.display = isLoading ? "flex" : "none";
+        }
+        if (foodSearchLoadingText && isLoading) {
+          foodSearchLoadingText.textContent = text;
+        }
+        if (searchUsdaButton) {
+          searchUsdaButton.disabled = isLoading;
+        }
+      } else {
+        if (builderSearchLoading) {
+          builderSearchLoading.style.display = isLoading ? "flex" : "none";
+        }
+        if (builderSearchLoadingText && isLoading) {
+          builderSearchLoadingText.textContent = text;
+        }
+        if (builderSearchUsdaButton) {
+          builderSearchUsdaButton.disabled = isLoading;
+        }
+      }
+    }
+
+    function setSubmitLoading(isLoading) {
+      if (saveSubmitLoading) {
+        saveSubmitLoading.style.display = isLoading ? "flex" : "none";
+      }
+      if (saveMealButton) {
+        saveMealButton.disabled = isLoading;
+        if (isLoading) {
+          saveMealButton.dataset.originalText = saveMealButton.textContent;
+          saveMealButton.textContent = "Saving...";
+        } else if (saveMealButton.dataset.originalText) {
+          saveMealButton.textContent = saveMealButton.dataset.originalText;
+        }
+      }
+      if (saveAsFavoriteButton) {
+        saveAsFavoriteButton.disabled = isLoading;
+      }
     }
 
     function normalizeUnit(unit) {
@@ -1499,10 +1584,12 @@
       const query = (foodSearchInput.value || "").trim();
       if (query.length < 2) {
         foodResults.innerHTML = "";
+        setSearchLoading("single", false, remote);
         return;
       }
 
       const token = ++lastSearchToken;
+      setSearchLoading("single", true, remote);
       try {
         const data = await fetchFoods(query, remote);
         if (token !== lastSearchToken) return;
@@ -1510,6 +1597,10 @@
       } catch (error) {
         if (token !== lastSearchToken) return;
         foodResults.innerHTML = '<p class="muted" style="margin: 6px 0;">Search failed. Try again.</p>';
+      } finally {
+        if (token === lastSearchToken) {
+          setSearchLoading("single", false, remote);
+        }
       }
     }
 
@@ -1519,10 +1610,12 @@
       const query = (builderFoodSearchInput?.value || "").trim();
       if (query.length < 2) {
         if (builderFoodResults) builderFoodResults.innerHTML = "";
+        setSearchLoading("builder", false, remote);
         return;
       }
 
       const token = ++lastBuilderSearchToken;
+      setSearchLoading("builder", true, remote);
       try {
         const data = await fetchFoods(query, remote);
         if (token !== lastBuilderSearchToken) return;
@@ -1531,6 +1624,10 @@
         if (token !== lastBuilderSearchToken) return;
         if (builderFoodResults) {
           builderFoodResults.innerHTML = '<p class="muted" style="margin: 6px 0;">Ingredient search failed. Try again.</p>';
+        }
+      } finally {
+        if (token === lastBuilderSearchToken) {
+          setSearchLoading("builder", false, remote);
         }
       }
     }
@@ -1696,6 +1793,7 @@
         if (saveFavoriteCheckbox?.checked) {
           ensureFavoriteName();
         }
+        setSubmitLoading(true);
       });
 
       mealForm.addEventListener("keydown", (event) => {
@@ -1740,6 +1838,9 @@
     renderBuilderIngredients();
     setBuilderSource("catalog");
     setEntryMode("single");
+    setSubmitLoading(false);
+    setSearchLoading("single", false, false);
+    setSearchLoading("builder", false, false);
 
     if (foodItemIdInput?.value && cleanText(foodSearchInput?.value)) {
       setSelectedFoodPreview({

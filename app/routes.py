@@ -413,6 +413,7 @@ def build_meal_context(selected_day: date, edit_meal: Meal | None = None):
     )
     favorites = FavoriteMeal.query.filter_by(user_id=g.user.id).order_by(FavoriteMeal.name.asc()).all()
     meal_summary = build_meal_summary(selected_day, day_meals)
+    today = date.today()
 
     favorite_payload = [
         {
@@ -439,6 +440,11 @@ def build_meal_context(selected_day: date, edit_meal: Meal | None = None):
 
     return {
         "selected_day": selected_day.isoformat(),
+        "selected_day_weekday": selected_day.strftime("%A"),
+        "selected_day_pretty": selected_day.strftime("%B %d, %Y"),
+        "prev_day": (selected_day - timedelta(days=1)).isoformat(),
+        "next_day": (selected_day + timedelta(days=1)).isoformat(),
+        "can_go_next": selected_day < today,
         "day_meals": day_meals,
         "meal_summary": meal_summary,
         "favorites": favorites,
@@ -1146,7 +1152,14 @@ def checkin_save():
 @profile_required
 def meal_form():
     day_str = request.args.get("day")
-    selected_day = date.fromisoformat(day_str) if day_str else date.today()
+    if day_str:
+        try:
+            selected_day = date.fromisoformat(day_str)
+        except ValueError:
+            selected_day = date.today()
+            flash("Invalid day format. Showing today.", "error")
+    else:
+        selected_day = date.today()
     return render_template("meal.html", form_action=url_for("main.meal_save"), **build_meal_context(selected_day))
 
 

@@ -9,6 +9,8 @@ Phase I (MVP) focuses on 30-day baseline capture:
 - Daily check-ins with timezone-aware day locking and segmented tabs (sleep, morning, midday, evening, overall)
 - Prev/next day navigation and check-in history table for consistency tracking
 - Meal logging with searchable food catalog + USDA-backed import/caching
+- Ingredient-based meal builder (multi-item recipes) with reusable favorites
+- Custom ingredient entry (manual nutrition facts) + optional nutrition-label photo parsing
 - Favorite meals (save/reuse defaults)
 - Daily meal table with edit/delete
 - Optional meal photo upload
@@ -86,6 +88,7 @@ flask run
 ## Notes
 
 - OpenAI is optional for MVP. If `OPENAI_API_KEY` is unset, weekly AI reflection shows a fallback message.
+- Nutrition-label photo parsing also requires `OPENAI_API_KEY`.
 - USDA food import is optional. Add `USDA_API_KEY` to enable search-time USDA imports into your local DB cache.
 - If `USDA_API_KEY` is unset, app falls back to USDA `DEMO_KEY` (lower rate limits).
 - Optional bulk import command: `python -m scripts.import_foods chicken rice yogurt coffee --max-results 50`

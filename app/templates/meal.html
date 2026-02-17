@@ -78,6 +78,7 @@
             autocomplete="off"
             value="{{ edit_meal.food_item.display_name() if edit_meal and edit_meal.food_item else '' }}"
           />
+          <p class="muted" style="margin: 6px 0 0;">Local catalog search first. Click USDA only when local results are not enough.</p>
           <input id="food_item_id" name="food_item_id" type="hidden" value="{{ edit_meal.food_item_id if edit_meal else '' }}" />
           <div id="food-results" style="margin-top: 8px;"></div>
         </div>
@@ -118,12 +119,88 @@
                 placeholder="Type ingredient (e.g., banana, whey protein, almond milk)"
                 autocomplete="off"
               />
+              <p class="muted" style="margin: 6px 0 0;">Search starts with your local food catalog. Use Search USDA only if needed.</p>
               <div id="builder-food-results" style="margin-top: 8px;"></div>
             </div>
             <div>
               <label for="builder_search_usda">&nbsp;</label>
               <button id="builder_search_usda" type="button">Search USDA</button>
             </div>
+          </div>
+
+          <div class="card" style="margin-top: 12px; margin-bottom: 0; border-color: #d7dee7; background: #ffffff;">
+            <h4 style="margin: 0 0 8px;">Or Add Custom Ingredient</h4>
+            <p class="muted" style="margin: 0 0 10px;">
+              Use this when search results are wrong or missing. Add nutrition facts manually, or parse from a label photo.
+            </p>
+
+            <div class="grid">
+              <div>
+                <label for="custom_ingredient_name">Ingredient Title</label>
+                <input id="custom_ingredient_name" placeholder="e.g., Premium Organic Cacao Powder" />
+              </div>
+              <div>
+                <label for="custom_quantity">Servings Used</label>
+                <input id="custom_quantity" type="number" min="0" step="0.1" value="1" />
+              </div>
+              <div>
+                <label for="custom_serving_size_value">Serving Size Value</label>
+                <input id="custom_serving_size_value" type="number" min="0" step="0.1" placeholder="e.g., 6" />
+              </div>
+              <div>
+                <label for="custom_serving_size_unit">Serving Size Unit</label>
+                <select id="custom_serving_size_unit">
+                  <option value="g">g</option>
+                  <option value="ml">ml</option>
+                  <option value="item">item</option>
+                  <option value="tbsp">tbsp</option>
+                  <option value="tsp">tsp</option>
+                  <option value="cup">cup</option>
+                  <option value="oz">oz</option>
+                  <option value="lb">lb</option>
+                </select>
+              </div>
+              <div>
+                <label for="custom_calories">Calories (per serving)</label>
+                <input id="custom_calories" type="number" min="0" step="0.1" />
+              </div>
+              <div>
+                <label for="custom_protein_g">Protein g (per serving)</label>
+                <input id="custom_protein_g" type="number" min="0" step="0.1" />
+              </div>
+              <div>
+                <label for="custom_carbs_g">Carbs g (per serving)</label>
+                <input id="custom_carbs_g" type="number" min="0" step="0.1" />
+              </div>
+              <div>
+                <label for="custom_fat_g">Fat g (per serving)</label>
+                <input id="custom_fat_g" type="number" min="0" step="0.1" />
+              </div>
+              <div>
+                <label for="custom_sugar_g">Sugar g (per serving)</label>
+                <input id="custom_sugar_g" type="number" min="0" step="0.1" />
+              </div>
+              <div>
+                <label for="custom_sodium_mg">Sodium mg (per serving)</label>
+                <input id="custom_sodium_mg" type="number" min="0" step="0.1" />
+              </div>
+            </div>
+
+            <div class="grid" style="margin-top: 10px;">
+              <div style="grid-column: span 2;">
+                <label for="label_photo_upload">Nutrition Label Photo</label>
+                <input id="label_photo_upload" type="file" accept="image/*" capture="environment" />
+              </div>
+              <div>
+                <label for="parse_label_btn">&nbsp;</label>
+                <button id="parse_label_btn" type="button">Parse Label Photo</button>
+              </div>
+              <div>
+                <label for="add_custom_ingredient_btn">&nbsp;</label>
+                <button id="add_custom_ingredient_btn" type="button">Add Custom Ingredient</button>
+              </div>
+            </div>
+            <p id="label_parse_status" class="muted" style="margin: 8px 0 0;"></p>
           </div>
 
           <div style="overflow-x: auto; margin-top: 12px;">
@@ -347,6 +424,20 @@
     const builderIngredientsBody = document.getElementById("builder-ingredients-body");
     const builderApplyButton = document.getElementById("builder_apply_to_form");
     const builderClearButton = document.getElementById("builder_clear");
+    const customIngredientName = document.getElementById("custom_ingredient_name");
+    const customQuantity = document.getElementById("custom_quantity");
+    const customServingSizeValue = document.getElementById("custom_serving_size_value");
+    const customServingSizeUnit = document.getElementById("custom_serving_size_unit");
+    const customCalories = document.getElementById("custom_calories");
+    const customProtein = document.getElementById("custom_protein_g");
+    const customCarbs = document.getElementById("custom_carbs_g");
+    const customFat = document.getElementById("custom_fat_g");
+    const customSugar = document.getElementById("custom_sugar_g");
+    const customSodium = document.getElementById("custom_sodium_mg");
+    const labelPhotoUpload = document.getElementById("label_photo_upload");
+    const parseLabelButton = document.getElementById("parse_label_btn");
+    const addCustomIngredientButton = document.getElementById("add_custom_ingredient_btn");
+    const labelParseStatus = document.getElementById("label_parse_status");
     const builderTotals = {
       calories: document.getElementById("builder_total_calories"),
       protein: document.getElementById("builder_total_protein"),
@@ -601,6 +692,107 @@
       renderBuilderIngredients();
     }
 
+    function readFloatInput(input, fallback = null) {
+      if (!input) return fallback;
+      const value = Number(input.value);
+      return Number.isFinite(value) ? value : fallback;
+    }
+
+    function setLabelStatus(message, isError = false) {
+      if (!labelParseStatus) return;
+      labelParseStatus.textContent = message || "";
+      labelParseStatus.style.color = isError ? "#b42318" : "";
+    }
+
+    function addCustomIngredientFromInputs() {
+      const name = (customIngredientName?.value || "").trim();
+      const quantity = readFloatInput(customQuantity, 1);
+      const servingSize = readFloatInput(customServingSizeValue, null);
+      const servingUnit = (customServingSizeUnit?.value || "g").trim();
+
+      if (!name) {
+        setLabelStatus("Add an ingredient title before adding.", true);
+        return;
+      }
+
+      const calories = readFloatInput(customCalories, null);
+      const protein = readFloatInput(customProtein, null);
+      const carbs = readFloatInput(customCarbs, null);
+      const fat = readFloatInput(customFat, null);
+      const sugar = readFloatInput(customSugar, null);
+      const sodium = readFloatInput(customSodium, null);
+
+      builderState.ingredients.push({
+        row_id: `custom_${Date.now()}_${Math.floor(Math.random() * 100000)}`,
+        food_item_id: null,
+        food_name: name,
+        quantity: Number.isFinite(quantity) && quantity > 0 ? quantity : 1,
+        unit: "serving",
+        serving_size: servingSize,
+        serving_unit: servingUnit || "g",
+        calories: calories,
+        protein_g: protein,
+        carbs_g: carbs,
+        fat_g: fat,
+        sugar_g: sugar,
+        sodium_mg: sodium,
+      });
+      renderBuilderIngredients();
+      setBuilderOpen(true);
+      setLabelStatus("Custom ingredient added.");
+    }
+
+    function populateCustomInputsFromParsed(parsed) {
+      if (!parsed) return;
+      if (customIngredientName && parsed.name) customIngredientName.value = parsed.name;
+      if (customServingSizeValue && parsed.serving_size_value !== null && parsed.serving_size_value !== undefined) {
+        customServingSizeValue.value = parsed.serving_size_value;
+      }
+      if (customServingSizeUnit && parsed.serving_size_unit) {
+        customServingSizeUnit.value = normalizeUnit(parsed.serving_size_unit);
+      }
+      if (customCalories && parsed.calories !== null && parsed.calories !== undefined) customCalories.value = parsed.calories;
+      if (customProtein && parsed.protein_g !== null && parsed.protein_g !== undefined) customProtein.value = parsed.protein_g;
+      if (customCarbs && parsed.carbs_g !== null && parsed.carbs_g !== undefined) customCarbs.value = parsed.carbs_g;
+      if (customFat && parsed.fat_g !== null && parsed.fat_g !== undefined) customFat.value = parsed.fat_g;
+      if (customSugar && parsed.sugar_g !== null && parsed.sugar_g !== undefined) customSugar.value = parsed.sugar_g;
+      if (customSodium && parsed.sodium_mg !== null && parsed.sodium_mg !== undefined) customSodium.value = parsed.sodium_mg;
+    }
+
+    async function parseNutritionLabelPhoto() {
+      if (!labelPhotoUpload || !labelPhotoUpload.files || labelPhotoUpload.files.length === 0) {
+        setLabelStatus("Choose a nutrition label photo first.", true);
+        return;
+      }
+
+      const file = labelPhotoUpload.files[0];
+      const formData = new FormData();
+      formData.append("label_photo", file);
+      formData.append("ingredient_name", (customIngredientName?.value || "").trim());
+
+      setLabelStatus("Parsing label...");
+      try {
+        const response = await fetch("/nutrition/label/parse", {
+          method: "POST",
+          body: formData,
+        });
+        const data = await response.json();
+        if (!response.ok || !data.ok) {
+          setLabelStatus(data.error || "Could not parse label photo.", true);
+          return;
+        }
+        populateCustomInputsFromParsed(data.parsed || {});
+        const confidence = data.parsed?.confidence;
+        if (confidence !== null && confidence !== undefined) {
+          setLabelStatus(`Label parsed. Confidence ${displayNumber(Number(confidence) * 100, 0)}%. Review and edit if needed.`);
+        } else {
+          setLabelStatus("Label parsed. Review and edit if needed.");
+        }
+      } catch (error) {
+        setLabelStatus("Label parse request failed. You can still enter values manually.", true);
+      }
+    }
+
     function loadFavoriteIngredients(ingredients) {
       if (!Array.isArray(ingredients) || ingredients.length === 0) return;
       builderState.ingredients = ingredients.map((item, index) => ({
@@ -669,8 +861,8 @@
         foodItemIdInput.value = data.food_item_id;
       }
 
-      if (data.display_name) {
-        foodSearchInput.value = data.display_name;
+      if (foodSearchInput) {
+        foodSearchInput.value = data.display_name || data.name || data.food_name || "";
       }
 
       if (fieldMap.description && !fieldMap.description.value) {
@@ -749,14 +941,17 @@
         button.style.cursor = "pointer";
 
         const title = document.createElement("strong");
-        title.textContent = item.display_name;
+        const displayName = item.display_name || item.name || item.food_name || "Unnamed food";
+        title.textContent = displayName;
         button.appendChild(title);
 
         const meta = document.createElement("span");
         meta.className = "muted";
         meta.style.marginLeft = "6px";
         const kcal = item.calories !== null && item.calories !== undefined ? `${item.calories} kcal` : "kcal n/a";
-        meta.textContent = `${kcal} - ${item.source}`;
+        const serving = item.serving_size && item.serving_unit ? ` | ${item.serving_size} ${item.serving_unit}` : "";
+        const source = item.source || "local";
+        meta.textContent = `${kcal}${serving} - ${source}`;
         button.appendChild(meta);
 
         button.addEventListener("click", () => onPick(item));
@@ -908,6 +1103,18 @@
       builderClearButton.addEventListener("click", () => {
         builderState.ingredients = [];
         renderBuilderIngredients();
+      });
+    }
+
+    if (addCustomIngredientButton) {
+      addCustomIngredientButton.addEventListener("click", () => {
+        addCustomIngredientFromInputs();
+      });
+    }
+
+    if (parseLabelButton) {
+      parseLabelButton.addEventListener("click", () => {
+        parseNutritionLabelPhoto();
       });
     }
 

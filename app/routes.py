@@ -22,7 +22,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
 from app import db
-from app.ai import ai_reflection, coach_prompt_missing_fields
+from app.ai import ai_reflection, coach_prompt_missing_fields, parse_nutrition_label_image
 from app.food_catalog import import_foods_from_usda, seed_common_foods_if_needed
 from app.models import DailyCheckIn, FavoriteMeal, FoodItem, Meal, Substance, User, UserProfile
 
@@ -1089,6 +1089,33 @@ def food_search():
         for item in results
     ]
     return jsonify({"results": payload, "message": message, "imported": imported})
+
+
+@bp.post("/nutrition/label/parse")
+@login_required
+@profile_required
+def nutrition_label_parse():
+    photo = request.files.get("label_photo")
+    if photo is None:
+        return jsonify({"ok": False, "error": "Attach a nutrition label image first."}), 400
+    filename = photo.filename or ""
+    mime_type = (photo.mimetype or "").lower()
+    if not allowed_file(filename) and not mime_type.startswith("image/"):
+        return jsonify({"ok": False, "error": "Unsupported file type. Use png/jpg/jpeg/webp/heic."}), 400
+
+    raw = photo.read()
+    if not raw:
+        return jsonify({"ok": False, "error": "The uploaded image was empty."}), 400
+
+    hint_name = (request.form.get("ingredient_name") or "").strip() or None
+    try:
+        parsed = parse_nutrition_label_image(raw, photo.mimetype, hint_name=hint_name)
+    except RuntimeError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    except Exception:
+        return jsonify({"ok": False, "error": "Label parsing failed. Enter values manually or retry."}), 500
+
+    return jsonify({"ok": True, "parsed": parsed})
 
 
 @bp.get("/substance")

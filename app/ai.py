@@ -1,4 +1,7 @@
 import os
+import base64
+import json
+import re
 from datetime import date, datetime, timedelta
 from typing import Sequence
 
@@ -57,3 +60,92 @@ def ai_reflection(summary_text: str) -> str:
         input=f"You're a helpful performance coach. Give a concise reflection and 1-2 next questions.\n\n{summary_text}",
     )
     return resp.output_text or "No reflection generated."
+
+
+def _extract_json_object(raw_text: str) -> dict:
+    text = (raw_text or "").strip()
+    if not text:
+        return {}
+
+    if text.startswith("```"):
+        text = re.sub(r"^```[a-zA-Z0-9]*\s*", "", text)
+        text = re.sub(r"\s*```$", "", text)
+
+    try:
+        parsed = json.loads(text)
+        if isinstance(parsed, dict):
+            return parsed
+    except json.JSONDecodeError:
+        pass
+
+    match = re.search(r"\{[\s\S]*\}", text)
+    if not match:
+        return {}
+    try:
+        parsed = json.loads(match.group(0))
+        return parsed if isinstance(parsed, dict) else {}
+    except json.JSONDecodeError:
+        return {}
+
+
+def parse_nutrition_label_image(image_bytes: bytes, mime_type: str | None, hint_name: str | None = None) -> dict:
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY is not configured.")
+
+    if not image_bytes:
+        raise RuntimeError("No image data was provided.")
+
+    model = os.getenv("OPENAI_OCR_MODEL", "gpt-4.1-mini")
+    mime = (mime_type or "image/jpeg").split(";")[0].strip()
+    if not mime.startswith("image/"):
+        mime = "image/jpeg"
+
+    image_b64 = base64.b64encode(image_bytes).decode("utf-8")
+    image_url = f"data:{mime};base64,{image_b64}"
+    hint_line = f"Possible product name: {hint_name}" if hint_name else "No product-name hint provided."
+
+    prompt = (
+        "Read the nutrition label from this image and return JSON only with these keys:\n"
+        "name, serving_size_value, serving_size_unit, calories, protein_g, carbs_g, fat_g, sugar_g, sodium_mg, confidence.\n"
+        "Use numeric values when possible. Use null if unknown. Confidence should be 0.0 to 1.0.\n"
+        f"{hint_line}"
+    )
+
+    client = OpenAI(api_key=api_key)
+    response = client.responses.create(
+        model=model,
+        input=[
+            {
+                "role": "user",
+                "content": [
+                    {"type": "input_text", "text": prompt},
+                    {"type": "input_image", "image_url": image_url},
+                ],
+            }
+        ],
+    )
+
+    parsed = _extract_json_object(response.output_text or "")
+
+    def as_float(value):
+        if value in (None, ""):
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    normalized = {
+        "name": str(parsed.get("name") or hint_name or "").strip() or None,
+        "serving_size_value": as_float(parsed.get("serving_size_value")),
+        "serving_size_unit": str(parsed.get("serving_size_unit") or "").strip()[:32] or None,
+        "calories": as_float(parsed.get("calories")),
+        "protein_g": as_float(parsed.get("protein_g")),
+        "carbs_g": as_float(parsed.get("carbs_g")),
+        "fat_g": as_float(parsed.get("fat_g")),
+        "sugar_g": as_float(parsed.get("sugar_g")),
+        "sodium_mg": as_float(parsed.get("sodium_mg")),
+        "confidence": as_float(parsed.get("confidence")),
+    }
+    return normalized

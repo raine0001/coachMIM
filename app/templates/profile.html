@@ -10,7 +10,7 @@
     {% endif %}
   </div>
 
-  <form method="post" action="{{ url_for('main.profile') }}">
+  <form id="profile-form" method="post" action="{{ url_for('main.profile') }}">
     <div class="card">
       <h2>Required Core Baseline</h2>
       <div class="grid">
@@ -292,10 +292,73 @@
 
     <div class="card">
       <button type="submit">Save Profile</button>
+      <p id="profile-submit-feedback" class="muted" style="margin-top: 10px;"></p>
     </div>
   </form>
 
   <script>
+    const profileForm = document.getElementById("profile-form");
+    const submitFeedback = document.getElementById("profile-submit-feedback");
+    const draftStorageKey = "coachmim_profile_draft_v1";
+
+    function saveDraft() {
+      if (!profileForm) return;
+      const formData = new FormData(profileForm);
+      const draft = {};
+      formData.forEach((value, key) => {
+        draft[key] = value;
+      });
+      localStorage.setItem(draftStorageKey, JSON.stringify(draft));
+    }
+
+    function restoreDraft() {
+      if (!profileForm) return;
+      const raw = localStorage.getItem(draftStorageKey);
+      if (!raw) return;
+
+      let draft;
+      try {
+        draft = JSON.parse(raw);
+      } catch (error) {
+        localStorage.removeItem(draftStorageKey);
+        return;
+      }
+
+      Object.entries(draft).forEach(([name, value]) => {
+        const field = profileForm.elements.namedItem(name);
+        if (!field || typeof field.value === "undefined") return;
+        if (field.value && String(field.value).trim() !== "") return;
+        field.value = value;
+      });
+    }
+
+    if (profileForm) {
+      restoreDraft();
+
+      profileForm.addEventListener("input", saveDraft);
+      profileForm.addEventListener("change", saveDraft);
+
+      profileForm.addEventListener("submit", (event) => {
+        if (!profileForm.checkValidity()) {
+          event.preventDefault();
+          profileForm.reportValidity();
+
+          const firstInvalid = profileForm.querySelector(":invalid");
+          if (firstInvalid) {
+            firstInvalid.scrollIntoView({ behavior: "smooth", block: "center" });
+            firstInvalid.focus({ preventScroll: true });
+          }
+
+          if (submitFeedback) {
+            submitFeedback.textContent = "Please complete required fields before saving.";
+          }
+          return;
+        }
+
+        localStorage.removeItem(draftStorageKey);
+      });
+    }
+
     const unitSystemInput = document.getElementById("unit_system");
     const metricFields = document.querySelectorAll(".metric-only");
     const imperialFields = document.querySelectorAll(".imperial-only");
@@ -353,6 +416,7 @@
       clearBodyFat.addEventListener("click", () => {
         bodyFatInput.value = "";
         bodyFatSlider.value = "25";
+        saveDraft();
       });
     }
   </script>

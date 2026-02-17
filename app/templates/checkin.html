@@ -1,91 +1,307 @@
 {% extends "base.html" %}
 {% block content %}
+  {% set default_tab = "sleep" %}
+  {% if selected_segments.sleep and not selected_segments.morning %}
+    {% set default_tab = "morning" %}
+  {% elif selected_segments.sleep and selected_segments.morning and not selected_segments.midday %}
+    {% set default_tab = "midday" %}
+  {% elif selected_segments.sleep and selected_segments.morning and selected_segments.midday and not selected_segments.evening %}
+    {% set default_tab = "evening" %}
+  {% elif selected_segments.sleep and selected_segments.morning and selected_segments.midday and selected_segments.evening %}
+    {% set default_tab = "overall" %}
+  {% endif %}
+
   <div class="card">
     <h1>Daily Check-In</h1>
-    <p class="muted">Capture baseline inputs and outputs. No interventions yet.</p>
+    <p class="muted">One record per local day. Re-open and update it anytime throughout the day.</p>
+    <p>
+      <strong>Today Status:</strong>
+      {% if checked_in_today %}
+        <span style="color: #067647;">CHECKED IN</span>
+      {% else %}
+        <span style="color: #b42318;">NOT STARTED</span>
+      {% endif %}
+    </p>
+    <p class="muted">
+      Viewing day: <strong>{{ selected_day }}</strong>
+      {% if not is_viewing_today %}
+        (local today: {{ local_today }})
+      {% endif %}
+    </p>
+
+    <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px;">
+      <a href="{{ url_for('main.checkin_form', day=prev_day) }}" style="padding: 8px 12px; border: 1px solid #d7dee7; border-radius: 8px; text-decoration: none; background: #fff; color: #17212b;">&lt; Prev</a>
+      {% if can_go_next %}
+        <a href="{{ url_for('main.checkin_form', day=next_day) }}" style="padding: 8px 12px; border: 1px solid #d7dee7; border-radius: 8px; text-decoration: none; background: #fff; color: #17212b;">Next &gt;</a>
+      {% else %}
+        <span style="padding: 8px 12px; border: 1px solid #d7dee7; border-radius: 8px; color: #98a2b3; background: #fff;">Next &gt;</span>
+      {% endif %}
+      <a href="{{ url_for('main.checkin_form', day=local_today) }}" style="padding: 8px 12px; border: 1px solid #d7dee7; border-radius: 8px; text-decoration: none; background: #fff; color: #17212b;">Today</a>
+    </div>
+  </div>
+
+  <div class="card">
     <form method="post" action="{{ url_for('main.checkin_save') }}">
-      <div class="grid">
-        <div>
-          <label for="day">Day</label>
-          <input id="day" name="day" type="date" value="{{ selected_day }}" />
+      <input type="hidden" name="day" value="{{ selected_day }}" />
+
+      <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px;">
+        <button type="button" class="checkin-tab-btn" data-tab="sleep">Sleep</button>
+        <button type="button" class="checkin-tab-btn" data-tab="morning">Morning</button>
+        <button type="button" class="checkin-tab-btn" data-tab="midday">Midday</button>
+        <button type="button" class="checkin-tab-btn" data-tab="evening">Evening</button>
+        <button type="button" class="checkin-tab-btn" data-tab="overall">Overall</button>
+      </div>
+
+      <div class="muted" style="margin-bottom: 12px;">
+        Segment progress:
+        Sleep={{ "done" if selected_segments.sleep else "pending" }},
+        Morning={{ "done" if selected_segments.morning else "pending" }},
+        Midday={{ "done" if selected_segments.midday else "pending" }},
+        Evening={{ "done" if selected_segments.evening else "pending" }},
+        Overall={{ "done" if selected_segments.overall else "pending" }}
+      </div>
+
+      <div class="checkin-tab-panel" data-panel="sleep">
+        <h2>Sleep (Night Before)</h2>
+        <div class="grid">
+          <div>
+            <label for="sleep_hours">Sleep Hours</label>
+            <input id="sleep_hours" name="sleep_hours" type="number" min="0" max="24" step="0.1" value="{{ record.sleep_hours if record else '' }}" />
+          </div>
+          <div>
+            <label for="sleep_quality">Sleep Quality (1-10)</label>
+            <input id="sleep_quality" name="sleep_quality" type="number" min="1" max="10" value="{{ record.sleep_quality if record else '' }}" />
+          </div>
         </div>
-        <div>
-          <label for="sleep_hours">Sleep Hours</label>
-          <input id="sleep_hours" name="sleep_hours" type="number" min="0" max="24" step="0.1" value="{{ record.sleep_hours if record else '' }}" />
-        </div>
-        <div>
-          <label for="sleep_quality">Sleep Quality (1-10)</label>
-          <input id="sleep_quality" name="sleep_quality" type="number" min="1" max="10" value="{{ record.sleep_quality if record else '' }}" />
-        </div>
-        <div>
-          <label for="energy">Energy (1-10)</label>
-          <input id="energy" name="energy" type="number" min="1" max="10" value="{{ record.energy if record else '' }}" />
-        </div>
-        <div>
-          <label for="focus">Focus (1-10)</label>
-          <input id="focus" name="focus" type="number" min="1" max="10" value="{{ record.focus if record else '' }}" />
-        </div>
-        <div>
-          <label for="mood">Mood (1-10)</label>
-          <input id="mood" name="mood" type="number" min="1" max="10" value="{{ record.mood if record else '' }}" />
-        </div>
-        <div>
-          <label for="stress">Stress (1-10)</label>
-          <input id="stress" name="stress" type="number" min="1" max="10" value="{{ record.stress if record else '' }}" />
-        </div>
-        <div>
-          <label for="anxiety">Anxiety (1-10)</label>
-          <input id="anxiety" name="anxiety" type="number" min="1" max="10" value="{{ record.anxiety if record else '' }}" />
-        </div>
-        <div>
-          <label for="productivity">Productivity (1-10)</label>
-          <input id="productivity" name="productivity" type="number" min="1" max="10" value="{{ record.productivity if record else '' }}" />
-        </div>
-        <div>
-          <label for="workout_timing">Workout Timing</label>
-          <input id="workout_timing" name="workout_timing" placeholder="e.g., 7:00am strength" value="{{ record.workout_timing if record else '' }}" />
-        </div>
-        <div>
-          <label for="workout_intensity">Workout Intensity (1-10)</label>
-          <input id="workout_intensity" name="workout_intensity" type="number" min="1" max="10" value="{{ record.workout_intensity if record else '' }}" />
-        </div>
-        <div>
-          <label for="alcohol_drinks">Alcohol (drinks)</label>
-          <input id="alcohol_drinks" name="alcohol_drinks" type="number" min="0" step="0.5" value="{{ record.alcohol_drinks if record else '' }}" />
-        </div>
-        <div>
-          <label for="headache">Headache Severity (0-10)</label>
-          <input id="headache" name="headache" type="number" min="0" max="10" value="{{ record.symptoms.get('headache') if record and record.symptoms else '' }}" />
-        </div>
-        <div>
-          <label for="stomach">Stomach Severity (0-10)</label>
-          <input id="stomach" name="stomach" type="number" min="0" max="10" value="{{ record.symptoms.get('stomach') if record and record.symptoms else '' }}" />
-        </div>
-        <div>
-          <label for="nausea">Nausea Severity (0-10)</label>
-          <input id="nausea" name="nausea" type="number" min="0" max="10" value="{{ record.symptoms.get('nausea') if record and record.symptoms else '' }}" />
-        </div>
-        <div>
-          <label for="bm_count">BM Count</label>
-          <input id="bm_count" name="bm_count" type="number" min="0" value="{{ record.digestion.get('bm_count') if record and record.digestion else '' }}" />
-        </div>
-        <div>
-          <label for="digestion_issues">Digestion Issues (comma-separated)</label>
-          <input id="digestion_issues" name="digestion_issues" placeholder="bloat, cramp, reflux" value="{{ (record.digestion.get('issues') | join(', ')) if record and record.digestion and record.digestion.get('issues') else '' }}" />
+        <div style="margin-top: 12px;">
+          <label for="sleep_notes">Sleep Notes</label>
+          <textarea id="sleep_notes" name="sleep_notes" placeholder="Wakeups, latency, dreams, disruptions...">{{ record.sleep_notes if record else '' }}</textarea>
         </div>
       </div>
 
-      <div style="margin-top: 12px;">
-        <label for="accomplishments">Accomplishments</label>
-        <textarea id="accomplishments" name="accomplishments">{{ record.accomplishments if record else '' }}</textarea>
+      <div class="checkin-tab-panel" data-panel="morning" style="display: none;">
+        <h2>Morning</h2>
+        <div class="grid">
+          <div>
+            <label for="morning_energy">Energy (1-10)</label>
+            <input id="morning_energy" name="morning_energy" type="number" min="1" max="10" value="{{ record.morning_energy if record else '' }}" />
+          </div>
+          <div>
+            <label for="morning_focus">Focus (1-10)</label>
+            <input id="morning_focus" name="morning_focus" type="number" min="1" max="10" value="{{ record.morning_focus if record else '' }}" />
+          </div>
+          <div>
+            <label for="morning_mood">Mood (1-10)</label>
+            <input id="morning_mood" name="morning_mood" type="number" min="1" max="10" value="{{ record.morning_mood if record else '' }}" />
+          </div>
+          <div>
+            <label for="morning_stress">Stress (1-10)</label>
+            <input id="morning_stress" name="morning_stress" type="number" min="1" max="10" value="{{ record.morning_stress if record else '' }}" />
+          </div>
+        </div>
+        <div style="margin-top: 12px;">
+          <label for="morning_notes">Morning Notes</label>
+          <textarea id="morning_notes" name="morning_notes">{{ record.morning_notes if record else '' }}</textarea>
+        </div>
       </div>
-      <div style="margin-top: 12px;">
-        <label for="notes">Notes</label>
-        <textarea id="notes" name="notes">{{ record.notes if record else '' }}</textarea>
+
+      <div class="checkin-tab-panel" data-panel="midday" style="display: none;">
+        <h2>Midday</h2>
+        <div class="grid">
+          <div>
+            <label for="midday_energy">Energy (1-10)</label>
+            <input id="midday_energy" name="midday_energy" type="number" min="1" max="10" value="{{ record.midday_energy if record else '' }}" />
+          </div>
+          <div>
+            <label for="midday_focus">Focus (1-10)</label>
+            <input id="midday_focus" name="midday_focus" type="number" min="1" max="10" value="{{ record.midday_focus if record else '' }}" />
+          </div>
+          <div>
+            <label for="midday_mood">Mood (1-10)</label>
+            <input id="midday_mood" name="midday_mood" type="number" min="1" max="10" value="{{ record.midday_mood if record else '' }}" />
+          </div>
+          <div>
+            <label for="midday_stress">Stress (1-10)</label>
+            <input id="midday_stress" name="midday_stress" type="number" min="1" max="10" value="{{ record.midday_stress if record else '' }}" />
+          </div>
+        </div>
+        <div style="margin-top: 12px;">
+          <label for="midday_notes">Midday Notes</label>
+          <textarea id="midday_notes" name="midday_notes">{{ record.midday_notes if record else '' }}</textarea>
+        </div>
       </div>
-      <div style="margin-top: 12px;">
+
+      <div class="checkin-tab-panel" data-panel="evening" style="display: none;">
+        <h2>Evening</h2>
+        <div class="grid">
+          <div>
+            <label for="evening_energy">Energy (1-10)</label>
+            <input id="evening_energy" name="evening_energy" type="number" min="1" max="10" value="{{ record.evening_energy if record else '' }}" />
+          </div>
+          <div>
+            <label for="evening_focus">Focus (1-10)</label>
+            <input id="evening_focus" name="evening_focus" type="number" min="1" max="10" value="{{ record.evening_focus if record else '' }}" />
+          </div>
+          <div>
+            <label for="evening_mood">Mood (1-10)</label>
+            <input id="evening_mood" name="evening_mood" type="number" min="1" max="10" value="{{ record.evening_mood if record else '' }}" />
+          </div>
+          <div>
+            <label for="evening_stress">Stress (1-10)</label>
+            <input id="evening_stress" name="evening_stress" type="number" min="1" max="10" value="{{ record.evening_stress if record else '' }}" />
+          </div>
+        </div>
+        <div style="margin-top: 12px;">
+          <label for="evening_notes">Evening Notes</label>
+          <textarea id="evening_notes" name="evening_notes">{{ record.evening_notes if record else '' }}</textarea>
+        </div>
+      </div>
+
+      <div class="checkin-tab-panel" data-panel="overall" style="display: none;">
+        <h2>Overall Day Snapshot</h2>
+        <div class="grid">
+          <div>
+            <label for="energy">Overall Energy (1-10)</label>
+            <input id="energy" name="energy" type="number" min="1" max="10" value="{{ record.energy if record else '' }}" />
+          </div>
+          <div>
+            <label for="focus">Overall Focus (1-10)</label>
+            <input id="focus" name="focus" type="number" min="1" max="10" value="{{ record.focus if record else '' }}" />
+          </div>
+          <div>
+            <label for="mood">Overall Mood (1-10)</label>
+            <input id="mood" name="mood" type="number" min="1" max="10" value="{{ record.mood if record else '' }}" />
+          </div>
+          <div>
+            <label for="stress">Overall Stress (1-10)</label>
+            <input id="stress" name="stress" type="number" min="1" max="10" value="{{ record.stress if record else '' }}" />
+          </div>
+          <div>
+            <label for="anxiety">Anxiety (1-10)</label>
+            <input id="anxiety" name="anxiety" type="number" min="1" max="10" value="{{ record.anxiety if record else '' }}" />
+          </div>
+          <div>
+            <label for="productivity">Productivity (1-10)</label>
+            <input id="productivity" name="productivity" type="number" min="1" max="10" value="{{ record.productivity if record else '' }}" />
+          </div>
+          <div>
+            <label for="workout_timing">Workout Timing</label>
+            <input id="workout_timing" name="workout_timing" placeholder="e.g., 7:00am strength" value="{{ record.workout_timing if record else '' }}" />
+          </div>
+          <div>
+            <label for="workout_intensity">Workout Intensity (1-10)</label>
+            <input id="workout_intensity" name="workout_intensity" type="number" min="1" max="10" value="{{ record.workout_intensity if record else '' }}" />
+          </div>
+          <div>
+            <label for="alcohol_drinks">Alcohol (drinks)</label>
+            <input id="alcohol_drinks" name="alcohol_drinks" type="number" min="0" step="0.5" value="{{ record.alcohol_drinks if record else '' }}" />
+          </div>
+          <div>
+            <label for="headache">Headache Severity (0-10)</label>
+            <input id="headache" name="headache" type="number" min="0" max="10" value="{{ record.symptoms.get('headache') if record and record.symptoms else '' }}" />
+          </div>
+          <div>
+            <label for="stomach">Stomach Severity (0-10)</label>
+            <input id="stomach" name="stomach" type="number" min="0" max="10" value="{{ record.symptoms.get('stomach') if record and record.symptoms else '' }}" />
+          </div>
+          <div>
+            <label for="nausea">Nausea Severity (0-10)</label>
+            <input id="nausea" name="nausea" type="number" min="0" max="10" value="{{ record.symptoms.get('nausea') if record and record.symptoms else '' }}" />
+          </div>
+          <div>
+            <label for="bm_count">BM Count</label>
+            <input id="bm_count" name="bm_count" type="number" min="0" value="{{ record.digestion.get('bm_count') if record and record.digestion else '' }}" />
+          </div>
+          <div>
+            <label for="digestion_issues">Digestion Issues (comma-separated)</label>
+            <input id="digestion_issues" name="digestion_issues" placeholder="bloat, cramp, reflux" value="{{ (record.digestion.get('issues') | join(', ')) if record and record.digestion and record.digestion.get('issues') else '' }}" />
+          </div>
+        </div>
+
+        <div style="margin-top: 12px;">
+          <label for="accomplishments">Accomplishments</label>
+          <textarea id="accomplishments" name="accomplishments">{{ record.accomplishments if record else '' }}</textarea>
+        </div>
+        <div style="margin-top: 12px;">
+          <label for="notes">Overall Notes</label>
+          <textarea id="notes" name="notes">{{ record.notes if record else '' }}</textarea>
+        </div>
+      </div>
+
+      <div style="margin-top: 14px;">
         <button type="submit">Save Check-In</button>
       </div>
     </form>
   </div>
+
+  <div class="card">
+    <h2>Recent Check-In History</h2>
+    {% if history_rows %}
+      <div style="overflow-x: auto;">
+        <table style="width: 100%; border-collapse: collapse;">
+          <thead>
+            <tr>
+              <th style="text-align: left; border-bottom: 1px solid #d7dee7; padding: 8px;">Day</th>
+              <th style="text-align: center; border-bottom: 1px solid #d7dee7; padding: 8px;">Any Data</th>
+              <th style="text-align: center; border-bottom: 1px solid #d7dee7; padding: 8px;">Sleep</th>
+              <th style="text-align: center; border-bottom: 1px solid #d7dee7; padding: 8px;">Morning</th>
+              <th style="text-align: center; border-bottom: 1px solid #d7dee7; padding: 8px;">Midday</th>
+              <th style="text-align: center; border-bottom: 1px solid #d7dee7; padding: 8px;">Evening</th>
+              <th style="text-align: center; border-bottom: 1px solid #d7dee7; padding: 8px;">Overall</th>
+              <th style="text-align: right; border-bottom: 1px solid #d7dee7; padding: 8px;">Productivity</th>
+              <th style="text-align: left; border-bottom: 1px solid #d7dee7; padding: 8px;">Open</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in history_rows %}
+              <tr {% if row.is_today %}style="background: #f2f8f7;"{% endif %}>
+                <td style="padding: 8px; border-bottom: 1px solid #eef3f8;">
+                  {{ row.record.day }}{% if row.is_today %} (today){% endif %}
+                </td>
+                <td style="padding: 8px; border-bottom: 1px solid #eef3f8; text-align: center;">{{ "yes" if row.has_data else "no" }}</td>
+                <td style="padding: 8px; border-bottom: 1px solid #eef3f8; text-align: center;">{{ "done" if row.segments.sleep else "-" }}</td>
+                <td style="padding: 8px; border-bottom: 1px solid #eef3f8; text-align: center;">{{ "done" if row.segments.morning else "-" }}</td>
+                <td style="padding: 8px; border-bottom: 1px solid #eef3f8; text-align: center;">{{ "done" if row.segments.midday else "-" }}</td>
+                <td style="padding: 8px; border-bottom: 1px solid #eef3f8; text-align: center;">{{ "done" if row.segments.evening else "-" }}</td>
+                <td style="padding: 8px; border-bottom: 1px solid #eef3f8; text-align: center;">{{ "done" if row.segments.overall else "-" }}</td>
+                <td style="padding: 8px; border-bottom: 1px solid #eef3f8; text-align: right;">{{ row.record.productivity if row.record.productivity is not none else "-" }}</td>
+                <td style="padding: 8px; border-bottom: 1px solid #eef3f8;">
+                  <a href="{{ url_for('main.checkin_form', day=row.record.day.isoformat()) }}">Open</a>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p class="muted">No check-ins yet.</p>
+    {% endif %}
+  </div>
+
+  <script>
+    const defaultTab = "{{ default_tab }}";
+    const tabButtons = document.querySelectorAll(".checkin-tab-btn");
+    const tabPanels = document.querySelectorAll(".checkin-tab-panel");
+
+    function setTab(tabName) {
+      tabButtons.forEach((btn) => {
+        if (btn.dataset.tab === tabName) {
+          btn.style.background = "#0f766e";
+          btn.style.color = "#fff";
+        } else {
+          btn.style.background = "#fff";
+          btn.style.color = "#17212b";
+        }
+      });
+      tabPanels.forEach((panel) => {
+        panel.style.display = panel.dataset.panel === tabName ? "" : "none";
+      });
+    }
+
+    tabButtons.forEach((btn) => {
+      btn.addEventListener("click", () => setTab(btn.dataset.tab));
+    });
+
+    setTab(defaultTab);
+  </script>
 {% endblock %}

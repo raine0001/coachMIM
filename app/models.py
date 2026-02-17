@@ -110,6 +110,26 @@ class DailyCheckIn(db.Model):
 
     sleep_hours = db.Column(db.Float, nullable=True)
     sleep_quality = db.Column(db.Integer, nullable=True)  # 1-10
+    sleep_notes = db.Column(db.Text, nullable=True)
+
+    morning_energy = db.Column(db.Integer, nullable=True)  # 1-10
+    morning_focus = db.Column(db.Integer, nullable=True)  # 1-10
+    morning_mood = db.Column(db.Integer, nullable=True)  # 1-10
+    morning_stress = db.Column(db.Integer, nullable=True)  # 1-10
+    morning_notes = db.Column(db.Text, nullable=True)
+
+    midday_energy = db.Column(db.Integer, nullable=True)  # 1-10
+    midday_focus = db.Column(db.Integer, nullable=True)  # 1-10
+    midday_mood = db.Column(db.Integer, nullable=True)  # 1-10
+    midday_stress = db.Column(db.Integer, nullable=True)  # 1-10
+    midday_notes = db.Column(db.Text, nullable=True)
+
+    evening_energy = db.Column(db.Integer, nullable=True)  # 1-10
+    evening_focus = db.Column(db.Integer, nullable=True)  # 1-10
+    evening_mood = db.Column(db.Integer, nullable=True)  # 1-10
+    evening_stress = db.Column(db.Integer, nullable=True)  # 1-10
+    evening_notes = db.Column(db.Text, nullable=True)
+
     energy = db.Column(db.Integer, nullable=True)  # 1-10
     focus = db.Column(db.Integer, nullable=True)  # 1-10
     mood = db.Column(db.Integer, nullable=True)  # 1-10

@@ -6,7 +6,8 @@ Phase I (MVP) focuses on 30-day baseline capture:
 
 - Basic account login per user
 - Core profile baseline (required fields) + optional profile enrichment
-- Daily check-ins (sleep, mood, focus, energy, stress, productivity, symptoms, digestion, workout, alcohol)
+- Daily check-ins with timezone-aware day locking and segmented tabs (sleep, morning, midday, evening, overall)
+- Prev/next day navigation and check-in history table for consistency tracking
 - Meal logging with searchable food catalog + USDA-backed import/caching
 - Favorite meals (save/reuse defaults)
 - Daily meal table with edit/delete

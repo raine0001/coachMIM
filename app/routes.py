@@ -2,7 +2,7 @@ import os
 from datetime import date, datetime, timedelta
 from functools import wraps
 from uuid import uuid4
-from zoneinfo import available_timezones
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError, available_timezones
 
 from flask import (
     Blueprint,
@@ -64,6 +64,105 @@ def parse_tags(raw_value):
     raw = raw_value or ""
     tags = [item.strip() for item in raw.split(",") if item.strip()]
     return tags or None
+
+
+def get_user_zoneinfo(user: User):
+    tz_name = None
+    if user and user.profile and user.profile.time_zone:
+        tz_name = user.profile.time_zone
+    if not tz_name:
+        return ZoneInfo("UTC")
+    try:
+        return ZoneInfo(tz_name)
+    except ZoneInfoNotFoundError:
+        return ZoneInfo("UTC")
+
+
+def get_user_local_today(user: User):
+    tz = get_user_zoneinfo(user)
+    return datetime.now(tz).date()
+
+
+def checkin_has_any_data(record: DailyCheckIn | None):
+    if not record:
+        return False
+
+    for field in [
+        "sleep_hours",
+        "sleep_quality",
+        "sleep_notes",
+        "morning_energy",
+        "morning_focus",
+        "morning_mood",
+        "morning_stress",
+        "morning_notes",
+        "midday_energy",
+        "midday_focus",
+        "midday_mood",
+        "midday_stress",
+        "midday_notes",
+        "evening_energy",
+        "evening_focus",
+        "evening_mood",
+        "evening_stress",
+        "evening_notes",
+        "energy",
+        "focus",
+        "mood",
+        "stress",
+        "anxiety",
+        "productivity",
+        "accomplishments",
+        "notes",
+        "workout_timing",
+        "workout_intensity",
+        "alcohol_drinks",
+        "symptoms",
+        "digestion",
+    ]:
+        value = getattr(record, field)
+        if value not in (None, "", [], {}):
+            return True
+    return False
+
+
+def checkin_segment_status(record: DailyCheckIn | None):
+    def has_values(fields):
+        if not record:
+            return False
+        for field in fields:
+            value = getattr(record, field)
+            if value not in (None, "", [], {}):
+                return True
+        return False
+
+    return {
+        "sleep": has_values(["sleep_hours", "sleep_quality", "sleep_notes"]),
+        "morning": has_values(
+            ["morning_energy", "morning_focus", "morning_mood", "morning_stress", "morning_notes"]
+        ),
+        "midday": has_values(
+            ["midday_energy", "midday_focus", "midday_mood", "midday_stress", "midday_notes"]
+        ),
+        "evening": has_values(
+            ["evening_energy", "evening_focus", "evening_mood", "evening_stress", "evening_notes"]
+        ),
+        "overall": has_values(
+            [
+                "energy",
+                "focus",
+                "mood",
+                "stress",
+                "anxiety",
+                "productivity",
+                "accomplishments",
+                "notes",
+                "workout_timing",
+                "workout_intensity",
+                "alcohol_drinks",
+            ]
+        ),
+    }
 
 
 def day_bounds(target_day: date):
@@ -499,17 +598,69 @@ def profile():
 @login_required
 @profile_required
 def checkin_form():
+    local_today = get_user_local_today(g.user)
     day_str = request.args.get("day")
-    selected_day = date.fromisoformat(day_str) if day_str else date.today()
+    if day_str:
+        try:
+            selected_day = date.fromisoformat(day_str)
+        except ValueError:
+            selected_day = local_today
+            flash("Invalid date format. Showing current local day.", "error")
+    else:
+        selected_day = local_today
+
+    if selected_day > local_today:
+        selected_day = local_today
+        flash("Future check-ins are disabled. Showing current local day.", "error")
+
     record = DailyCheckIn.query.filter_by(user_id=g.user.id, day=selected_day).first()
-    return render_template("checkin.html", record=record, selected_day=selected_day.isoformat())
+    today_record = DailyCheckIn.query.filter_by(user_id=g.user.id, day=local_today).first()
+
+    history_records = (
+        DailyCheckIn.query.filter_by(user_id=g.user.id).order_by(DailyCheckIn.day.desc()).limit(30).all()
+    )
+    history_rows = [
+        {
+            "record": row,
+            "segments": checkin_segment_status(row),
+            "is_today": row.day == local_today,
+            "has_data": checkin_has_any_data(row),
+        }
+        for row in history_records
+    ]
+
+    prev_day = selected_day - timedelta(days=1)
+    next_day = selected_day + timedelta(days=1)
+    can_go_next = next_day <= local_today
+
+    return render_template(
+        "checkin.html",
+        record=record,
+        selected_day=selected_day.isoformat(),
+        local_today=local_today.isoformat(),
+        checked_in_today=checkin_has_any_data(today_record),
+        selected_segments=checkin_segment_status(record),
+        history_rows=history_rows,
+        prev_day=prev_day.isoformat(),
+        next_day=next_day.isoformat(),
+        can_go_next=can_go_next,
+        is_viewing_today=(selected_day == local_today),
+    )
 
 
 @bp.post("/checkin")
 @login_required
 @profile_required
 def checkin_save():
-    selected_day = date.fromisoformat(request.form.get("day", date.today().isoformat()))
+    local_today = get_user_local_today(g.user)
+    selected_day_raw = request.form.get("day", local_today.isoformat())
+    try:
+        selected_day = date.fromisoformat(selected_day_raw)
+    except ValueError:
+        selected_day = local_today
+
+    if selected_day > local_today:
+        selected_day = local_today
 
     record = DailyCheckIn.query.filter_by(user_id=g.user.id, day=selected_day).first()
     if not record:
@@ -518,6 +669,18 @@ def checkin_save():
     for field in [
         "sleep_hours",
         "sleep_quality",
+        "morning_energy",
+        "morning_focus",
+        "morning_mood",
+        "morning_stress",
+        "midday_energy",
+        "midday_focus",
+        "midday_mood",
+        "midday_stress",
+        "evening_energy",
+        "evening_focus",
+        "evening_mood",
+        "evening_stress",
         "energy",
         "focus",
         "mood",
@@ -533,6 +696,10 @@ def checkin_save():
         else:
             setattr(record, field, parse_int(value))
 
+    record.sleep_notes = request.form.get("sleep_notes") or None
+    record.morning_notes = request.form.get("morning_notes") or None
+    record.midday_notes = request.form.get("midday_notes") or None
+    record.evening_notes = request.form.get("evening_notes") or None
     record.workout_timing = request.form.get("workout_timing") or None
     record.accomplishments = request.form.get("accomplishments") or None
     record.notes = request.form.get("notes") or None
@@ -555,8 +722,8 @@ def checkin_save():
 
     db.session.add(record)
     db.session.commit()
-    flash("Check-in saved.", "success")
-    return redirect(url_for("main.timeline"))
+    flash(f"Check-in saved for {selected_day.isoformat()}.", "success")
+    return redirect(url_for("main.checkin_form", day=selected_day.isoformat()))
 
 
 @bp.get("/meal")

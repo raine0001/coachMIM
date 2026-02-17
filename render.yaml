@@ -3,8 +3,8 @@ services:
     name: coachmim-web
     env: python
     plan: starter
-    buildCommand: python -m pip install -r requirements.txt && python -m flask --app wsgi.py db upgrade
-    startCommand: python -m gunicorn wsgi:app
+    buildCommand: .venv/bin/python -m pip install -r requirements.txt && .venv/bin/python -m flask --app wsgi.py db upgrade
+    startCommand: .venv/bin/python -m gunicorn wsgi:app
     envVars:
       - key: FLASK_ENV
         value: production

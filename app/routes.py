@@ -43,6 +43,36 @@ ALL_TIMEZONES = sorted(available_timezones())
 PREFERRED_TIMEZONE_SET = set(PREFERRED_TIMEZONES)
 TIMEZONE_OPTIONS = PREFERRED_TIMEZONES + [tz for tz in ALL_TIMEZONES if tz not in PREFERRED_TIMEZONE_SET]
 
+ADDED_SUGAR_HINTS = (
+    "soda",
+    "cookie",
+    "cake",
+    "candy",
+    "chocolate",
+    "pastry",
+    "dessert",
+    "ice cream",
+    "donut",
+    "syrup",
+    "sweetened",
+    "energy drink",
+    "sports drink",
+)
+NATURAL_SUGAR_HINTS = (
+    "fruit",
+    "banana",
+    "apple",
+    "orange",
+    "berries",
+    "berry",
+    "grape",
+    "mango",
+    "pineapple",
+    "milk",
+    "yogurt",
+    "smoothie",
+)
+
 
 def allowed_file(filename: str) -> bool:
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -179,6 +209,104 @@ def day_bounds(target_day: date):
     return start, end
 
 
+def sum_meal_nutrient(day_meals: list[Meal], field_name: str) -> float:
+    total = 0.0
+    for meal in day_meals:
+        value = getattr(meal, field_name)
+        if value is not None:
+            total += float(value)
+    return total
+
+
+def meal_context_text(meal: Meal) -> str:
+    parts = [meal.label, meal.description]
+    if meal.food_item:
+        parts.extend([meal.food_item.name, meal.food_item.brand])
+    if meal.tags:
+        parts.extend(meal.tags)
+    return " ".join(str(part) for part in parts if part).lower()
+
+
+def estimate_sugar_sources(day_meals: list[Meal]) -> tuple[float, float]:
+    added_sugar = 0.0
+    natural_sugar = 0.0
+
+    for meal in day_meals:
+        sugar = float(meal.sugar_g or 0)
+        if sugar <= 0:
+            continue
+
+        text = meal_context_text(meal)
+        has_added_hint = any(token in text for token in ADDED_SUGAR_HINTS)
+        has_natural_hint = any(token in text for token in NATURAL_SUGAR_HINTS)
+
+        if has_added_hint and not has_natural_hint:
+            added_sugar += sugar
+        elif has_natural_hint and not has_added_hint:
+            natural_sugar += sugar
+        elif has_added_hint and has_natural_hint:
+            added_sugar += sugar * 0.5
+            natural_sugar += sugar * 0.5
+        elif meal.is_beverage:
+            added_sugar += sugar * 0.7
+            natural_sugar += sugar * 0.3
+        else:
+            added_sugar += sugar * 0.5
+            natural_sugar += sugar * 0.5
+
+    return (round(added_sugar, 1), round(natural_sugar, 1))
+
+
+def build_meal_summary(selected_day: date, day_meals: list[Meal]) -> dict:
+    calories_total = round(sum_meal_nutrient(day_meals, "calories"))
+    carbs_total = round(sum_meal_nutrient(day_meals, "carbs_g"), 1)
+    sugar_total = round(sum_meal_nutrient(day_meals, "sugar_g"), 1)
+    protein_total = round(sum_meal_nutrient(day_meals, "protein_g"), 1)
+    added_sugar_total, natural_sugar_total = estimate_sugar_sources(day_meals)
+
+    entries_without_nutrition = sum(
+        1
+        for meal in day_meals
+        if all(
+            getattr(meal, field) is None
+            for field in ["calories", "protein_g", "carbs_g", "fat_g", "sugar_g", "sodium_mg"]
+        )
+    )
+
+    mim_notes = []
+    if not day_meals:
+        mim_notes.append("No meals logged for this day yet. Add your first entry to start your signal.")
+    else:
+        if protein_total < 30:
+            mim_notes.append("Protein is low so far. Add a protein anchor (eggs, yogurt, fish, chicken, tofu, beans).")
+        if carbs_total >= 240 and protein_total < 70:
+            mim_notes.append("Day is carb-heavy versus protein. Add protein + fiber to reduce energy swings.")
+        if added_sugar_total >= 45:
+            mim_notes.append("Added sugar is high. Consider swapping one sweetened item for whole-food carbs.")
+        if entries_without_nutrition > 0:
+            mim_notes.append(
+                f"{entries_without_nutrition} entr{'y' if entries_without_nutrition == 1 else 'ies'} "
+                "are missing nutrition values. Fill them to improve pattern detection."
+            )
+        if selected_day < date.today() and calories_total < 900 and len(day_meals) <= 2:
+            mim_notes.append("This past day may be under-logged. Add missed meals/drinks for cleaner analysis.")
+
+    if not mim_notes and day_meals:
+        mim_notes.append("Day looks balanced so far. Keep logging timing and portions to preserve signal quality.")
+
+    return {
+        "calories_total": int(calories_total),
+        "carbs_total": carbs_total,
+        "sugar_total": sugar_total,
+        "protein_total": protein_total,
+        "added_sugar_total": added_sugar_total,
+        "natural_sugar_total": natural_sugar_total,
+        "entries_count": len(day_meals),
+        "entries_without_nutrition": entries_without_nutrition,
+        "mim_notes": mim_notes,
+    }
+
+
 def build_meal_context(selected_day: date, edit_meal: Meal | None = None):
     seed_common_foods_if_needed()
 
@@ -193,6 +321,7 @@ def build_meal_context(selected_day: date, edit_meal: Meal | None = None):
         .all()
     )
     favorites = FavoriteMeal.query.filter_by(user_id=g.user.id).order_by(FavoriteMeal.name.asc()).all()
+    meal_summary = build_meal_summary(selected_day, day_meals)
 
     favorite_payload = [
         {
@@ -219,6 +348,7 @@ def build_meal_context(selected_day: date, edit_meal: Meal | None = None):
     return {
         "selected_day": selected_day.isoformat(),
         "day_meals": day_meals,
+        "meal_summary": meal_summary,
         "favorites": favorites,
         "favorite_payload": favorite_payload,
         "edit_meal": edit_meal,

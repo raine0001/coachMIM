@@ -25,6 +25,49 @@
   </div>
 
   <div class="card">
+    <h2>Daily Intake Snapshot</h2>
+    <p class="muted">Selected day: {{ selected_day }}</p>
+
+    <div class="grid">
+      <div>
+        <div class="muted">Total Calories</div>
+        <div class="metric">{{ meal_summary.calories_total }}</div>
+      </div>
+      <div>
+        <div class="muted">Total Carbs (g)</div>
+        <div class="metric">{{ meal_summary.carbs_total }}</div>
+      </div>
+      <div>
+        <div class="muted">Total Sugar (g)</div>
+        <div class="metric">{{ meal_summary.sugar_total }}</div>
+      </div>
+      <div>
+        <div class="muted">Total Protein (g)</div>
+        <div class="metric">{{ meal_summary.protein_total }}</div>
+      </div>
+      <div>
+        <div class="muted">Est. Added Sugar (g)</div>
+        <div class="metric">{{ meal_summary.added_sugar_total }}</div>
+      </div>
+      <div>
+        <div class="muted">Est. Natural Sugar (g)</div>
+        <div class="metric">{{ meal_summary.natural_sugar_total }}</div>
+      </div>
+    </div>
+
+    <p class="muted" style="margin-top: 12px;">
+      Sugar split is an estimate from food names/tags (used for guidance, not lab-grade nutrition).
+    </p>
+
+    <h3 style="margin-top: 16px; margin-bottom: 8px;">MIM Day Summary</h3>
+    <ul style="margin-top: 0;">
+      {% for note in meal_summary.mim_notes %}
+        <li>{{ note }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+
+  <div class="card">
     <form id="meal-form" method="post" action="{{ form_action }}" enctype="multipart/form-data">
       <div class="grid">
         <div style="grid-column: span 2;">

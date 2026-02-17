@@ -1,3 +1,4 @@
+import json
 import os
 from datetime import date, datetime, timedelta
 from functools import wraps
@@ -94,6 +95,54 @@ def parse_tags(raw_value):
     raw = raw_value or ""
     tags = [item.strip() for item in raw.split(",") if item.strip()]
     return tags or None
+
+
+def parse_ingredients_json(raw_value):
+    if not raw_value:
+        return None
+    try:
+        parsed = json.loads(raw_value)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(parsed, list):
+        return None
+
+    def safe_float(value):
+        if value in (None, ""):
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    def safe_int(value):
+        if value in (None, ""):
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    cleaned = []
+    for item in parsed[:60]:
+        if not isinstance(item, dict):
+            continue
+        cleaned_item = {
+            "food_item_id": safe_int(item.get("food_item_id")),
+            "food_name": (str(item.get("food_name") or "").strip()[:255] or None),
+            "quantity": safe_float(item.get("quantity")),
+            "unit": (str(item.get("unit") or "").strip()[:32] or None),
+            "serving_size": safe_float(item.get("serving_size")),
+            "serving_unit": (str(item.get("serving_unit") or "").strip()[:32] or None),
+            "calories": safe_float(item.get("calories")),
+            "protein_g": safe_float(item.get("protein_g")),
+            "carbs_g": safe_float(item.get("carbs_g")),
+            "fat_g": safe_float(item.get("fat_g")),
+            "sugar_g": safe_float(item.get("sugar_g")),
+            "sodium_mg": safe_float(item.get("sodium_mg")),
+        }
+        cleaned.append(cleaned_item)
+    return cleaned or None
 
 
 def get_user_zoneinfo(user: User):
@@ -339,6 +388,7 @@ def build_meal_context(selected_day: date, edit_meal: Meal | None = None):
             "sugar_g": f.sugar_g,
             "sodium_mg": f.sodium_mg,
             "is_beverage": f.is_beverage,
+            "ingredients": f.ingredients or [],
         }
         for f in favorites
     ]
@@ -422,6 +472,7 @@ def upsert_favorite_from_request():
     favorite.fat_g = parse_float(request.form.get("fat_g"))
     favorite.sugar_g = parse_float(request.form.get("sugar_g"))
     favorite.sodium_mg = parse_float(request.form.get("sodium_mg"))
+    favorite.ingredients = parse_ingredients_json(request.form.get("favorite_ingredients"))
 
     db.session.add(favorite)
 

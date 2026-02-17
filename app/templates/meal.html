@@ -87,6 +87,106 @@
         </div>
       </div>
 
+      <input id="favorite_ingredients" name="favorite_ingredients" type="hidden" />
+
+      <div class="card" style="margin-top: 12px; margin-bottom: 0; border-color: #cfe3ff; background: #f9fcff;">
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
+          <div>
+            <h3 style="margin: 0;">Build a Meal</h3>
+            <p class="muted" style="margin: 4px 0 0;">Create a reusable recipe from ingredients and auto-calculate totals.</p>
+          </div>
+          <button id="builder_toggle" type="button">Build a Meal</button>
+        </div>
+
+        <div id="meal-builder-panel" style="display: none; margin-top: 12px;">
+          <div class="grid">
+            <div>
+              <label for="builder_title">Meal Title</label>
+              <input id="builder_title" placeholder="e.g., Daily Protein Shake" />
+            </div>
+            <div>
+              <label for="builder_label">Meal Label</label>
+              <input id="builder_label" placeholder="Breakfast / Snack / Post-workout" />
+            </div>
+          </div>
+
+          <div class="grid" style="margin-top: 12px;">
+            <div style="grid-column: span 2;">
+              <label for="builder_food_search">Ingredient Search</label>
+              <input
+                id="builder_food_search"
+                placeholder="Type ingredient (e.g., banana, whey protein, almond milk)"
+                autocomplete="off"
+              />
+              <div id="builder-food-results" style="margin-top: 8px;"></div>
+            </div>
+            <div>
+              <label for="builder_search_usda">&nbsp;</label>
+              <button id="builder_search_usda" type="button">Search USDA</button>
+            </div>
+          </div>
+
+          <div style="overflow-x: auto; margin-top: 12px;">
+            <table style="width: 100%; border-collapse: collapse;">
+              <thead>
+                <tr>
+                  <th style="text-align: left; padding: 8px; border-bottom: 1px solid #d7dee7;">Ingredient</th>
+                  <th style="text-align: left; padding: 8px; border-bottom: 1px solid #d7dee7;">Qty</th>
+                  <th style="text-align: left; padding: 8px; border-bottom: 1px solid #d7dee7;">Unit</th>
+                  <th style="text-align: right; padding: 8px; border-bottom: 1px solid #d7dee7;">Cal</th>
+                  <th style="text-align: right; padding: 8px; border-bottom: 1px solid #d7dee7;">Protein</th>
+                  <th style="text-align: right; padding: 8px; border-bottom: 1px solid #d7dee7;">Carbs</th>
+                  <th style="text-align: right; padding: 8px; border-bottom: 1px solid #d7dee7;">Fat</th>
+                  <th style="text-align: right; padding: 8px; border-bottom: 1px solid #d7dee7;">Sugar</th>
+                  <th style="text-align: right; padding: 8px; border-bottom: 1px solid #d7dee7;">Sodium</th>
+                  <th style="text-align: left; padding: 8px; border-bottom: 1px solid #d7dee7;">Action</th>
+                </tr>
+              </thead>
+              <tbody id="builder-ingredients-body">
+                <tr>
+                  <td colspan="10" class="muted" style="padding: 8px;">No ingredients added yet.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="grid" style="margin-top: 12px;">
+            <div>
+              <div class="muted">Builder Calories</div>
+              <div id="builder_total_calories" class="metric">0</div>
+            </div>
+            <div>
+              <div class="muted">Builder Protein (g)</div>
+              <div id="builder_total_protein" class="metric">0</div>
+            </div>
+            <div>
+              <div class="muted">Builder Carbs (g)</div>
+              <div id="builder_total_carbs" class="metric">0</div>
+            </div>
+            <div>
+              <div class="muted">Builder Fat (g)</div>
+              <div id="builder_total_fat" class="metric">0</div>
+            </div>
+            <div>
+              <div class="muted">Builder Sugar (g)</div>
+              <div id="builder_total_sugar" class="metric">0</div>
+            </div>
+            <div>
+              <div class="muted">Builder Sodium (mg)</div>
+              <div id="builder_total_sodium" class="metric">0</div>
+            </div>
+          </div>
+
+          <div style="margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap;">
+            <button id="builder_apply_to_form" type="button">Use Builder Totals</button>
+            <button id="builder_clear" type="button" style="background: #fff; color: #17212b; border: 1px solid #d7dee7;">Clear Ingredients</button>
+          </div>
+          <p class="muted" style="margin-top: 8px;">
+            Tip: enable "Save this entry as a favorite" to reuse this built meal later.
+          </p>
+        </div>
+      </div>
+
       <div class="grid" style="margin-top: 12px;">
         <div>
           <label for="favorite_selector">Load Favorite</label>
@@ -235,6 +335,29 @@
     const foodResults = document.getElementById("food-results");
     const foodItemIdInput = document.getElementById("food_item_id");
     const searchUsdaButton = document.getElementById("search_usda");
+    const favoriteIngredientsInput = document.getElementById("favorite_ingredients");
+
+    const builderToggle = document.getElementById("builder_toggle");
+    const mealBuilderPanel = document.getElementById("meal-builder-panel");
+    const builderTitleInput = document.getElementById("builder_title");
+    const builderLabelInput = document.getElementById("builder_label");
+    const builderFoodSearchInput = document.getElementById("builder_food_search");
+    const builderFoodResults = document.getElementById("builder-food-results");
+    const builderSearchUsdaButton = document.getElementById("builder_search_usda");
+    const builderIngredientsBody = document.getElementById("builder-ingredients-body");
+    const builderApplyButton = document.getElementById("builder_apply_to_form");
+    const builderClearButton = document.getElementById("builder_clear");
+    const builderTotals = {
+      calories: document.getElementById("builder_total_calories"),
+      protein: document.getElementById("builder_total_protein"),
+      carbs: document.getElementById("builder_total_carbs"),
+      fat: document.getElementById("builder_total_fat"),
+      sugar: document.getElementById("builder_total_sugar"),
+      sodium: document.getElementById("builder_total_sodium"),
+    };
+
+    const builderState = { ingredients: [] };
+    const unitOptions = ["serving", "g", "oz", "lb", "ml", "cup", "tbsp", "tsp", "item"];
 
     const fieldMap = {
       label: document.getElementById("label"),
@@ -249,6 +372,294 @@
       sodium_mg: document.getElementById("sodium_mg"),
       is_beverage: document.getElementById("is_beverage"),
     };
+
+    function escapeHtml(text) {
+      return String(text || "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#39;");
+    }
+
+    function displayNumber(value, digits = 1) {
+      if (!Number.isFinite(value)) return "-";
+      const fixed = value.toFixed(digits);
+      return digits > 0 ? fixed.replace(/\.0$/, "") : fixed;
+    }
+
+    function normalizeUnit(unit) {
+      const raw = String(unit || "").trim().toLowerCase();
+      const aliases = {
+        gram: "g",
+        grams: "g",
+        kilogram: "kg",
+        kilograms: "kg",
+        ounce: "oz",
+        ounces: "oz",
+        pound: "lb",
+        pounds: "lb",
+        milliliter: "ml",
+        milliliters: "ml",
+        liter: "l",
+        liters: "l",
+        tablespoon: "tbsp",
+        tablespoons: "tbsp",
+        teaspoon: "tsp",
+        teaspoons: "tsp",
+        pieces: "item",
+        piece: "item",
+        slices: "item",
+        slice: "item",
+        bottle: "item",
+        bottles: "item",
+      };
+      return aliases[raw] || raw;
+    }
+
+    function unitToWeightGrams(quantity, unit) {
+      const normalized = normalizeUnit(unit);
+      const map = { g: 1, kg: 1000, oz: 28.3495, lb: 453.59237 };
+      if (!map[normalized]) return null;
+      return quantity * map[normalized];
+    }
+
+    function unitToVolumeMl(quantity, unit) {
+      const normalized = normalizeUnit(unit);
+      const map = { ml: 1, l: 1000, cup: 240, tbsp: 15, tsp: 5 };
+      if (!map[normalized]) return null;
+      return quantity * map[normalized];
+    }
+
+    function isCountUnit(unit) {
+      return normalizeUnit(unit) === "item";
+    }
+
+    function computeMultiplier(row) {
+      const quantity = Number(row.quantity || 0);
+      if (!Number.isFinite(quantity) || quantity <= 0) return 0;
+
+      const chosenUnit = normalizeUnit(row.unit || "serving");
+      if (chosenUnit === "serving") return quantity;
+
+      const servingSize = Number(row.serving_size || 0);
+      const servingUnit = normalizeUnit(row.serving_unit || "");
+      if (!Number.isFinite(servingSize) || servingSize <= 0 || !servingUnit) return quantity;
+
+      if (chosenUnit === servingUnit) {
+        return quantity / servingSize;
+      }
+
+      const chosenWeight = unitToWeightGrams(quantity, chosenUnit);
+      const servingWeight = unitToWeightGrams(servingSize, servingUnit);
+      if (chosenWeight !== null && servingWeight !== null && servingWeight > 0) {
+        return chosenWeight / servingWeight;
+      }
+
+      const chosenVolume = unitToVolumeMl(quantity, chosenUnit);
+      const servingVolume = unitToVolumeMl(servingSize, servingUnit);
+      if (chosenVolume !== null && servingVolume !== null && servingVolume > 0) {
+        return chosenVolume / servingVolume;
+      }
+
+      if (isCountUnit(chosenUnit) && isCountUnit(servingUnit)) {
+        return quantity / servingSize;
+      }
+
+      return quantity;
+    }
+
+    function scaledNutrient(row, key, isCalories = false) {
+      const base = Number(row[key]);
+      if (!Number.isFinite(base)) return null;
+      const scaled = base * computeMultiplier(row);
+      return isCalories ? Math.round(scaled) : Number(scaled.toFixed(1));
+    }
+
+    function syncFavoriteIngredientsField() {
+      if (!favoriteIngredientsInput) return;
+      if (!builderState.ingredients.length) {
+        favoriteIngredientsInput.value = "";
+        return;
+      }
+
+      const payload = builderState.ingredients.map((row) => ({
+        food_item_id: row.food_item_id || null,
+        food_name: row.food_name || null,
+        quantity: Number(row.quantity || 0),
+        unit: normalizeUnit(row.unit || "serving"),
+        serving_size: row.serving_size ?? null,
+        serving_unit: row.serving_unit || null,
+        calories: row.calories ?? null,
+        protein_g: row.protein_g ?? null,
+        carbs_g: row.carbs_g ?? null,
+        fat_g: row.fat_g ?? null,
+        sugar_g: row.sugar_g ?? null,
+        sodium_mg: row.sodium_mg ?? null,
+      }));
+      favoriteIngredientsInput.value = JSON.stringify(payload);
+    }
+
+    function updateBuilderTotals() {
+      let calories = 0;
+      let protein = 0;
+      let carbs = 0;
+      let fat = 0;
+      let sugar = 0;
+      let sodium = 0;
+
+      builderState.ingredients.forEach((row) => {
+        calories += Number(scaledNutrient(row, "calories", true) || 0);
+        protein += Number(scaledNutrient(row, "protein_g") || 0);
+        carbs += Number(scaledNutrient(row, "carbs_g") || 0);
+        fat += Number(scaledNutrient(row, "fat_g") || 0);
+        sugar += Number(scaledNutrient(row, "sugar_g") || 0);
+        sodium += Number(scaledNutrient(row, "sodium_mg") || 0);
+      });
+
+      if (builderTotals.calories) builderTotals.calories.textContent = String(Math.round(calories));
+      if (builderTotals.protein) builderTotals.protein.textContent = displayNumber(protein, 1);
+      if (builderTotals.carbs) builderTotals.carbs.textContent = displayNumber(carbs, 1);
+      if (builderTotals.fat) builderTotals.fat.textContent = displayNumber(fat, 1);
+      if (builderTotals.sugar) builderTotals.sugar.textContent = displayNumber(sugar, 1);
+      if (builderTotals.sodium) builderTotals.sodium.textContent = displayNumber(sodium, 1);
+
+      syncFavoriteIngredientsField();
+      return { calories, protein, carbs, fat, sugar, sodium };
+    }
+
+    function renderBuilderIngredients() {
+      if (!builderIngredientsBody) return;
+      if (!builderState.ingredients.length) {
+        builderIngredientsBody.innerHTML = '<tr><td colspan="10" class="muted" style="padding: 8px;">No ingredients added yet.</td></tr>';
+        updateBuilderTotals();
+        return;
+      }
+
+      builderIngredientsBody.innerHTML = builderState.ingredients
+        .map((row) => {
+          const calories = scaledNutrient(row, "calories", true);
+          const protein = scaledNutrient(row, "protein_g");
+          const carbs = scaledNutrient(row, "carbs_g");
+          const fat = scaledNutrient(row, "fat_g");
+          const sugar = scaledNutrient(row, "sugar_g");
+          const sodium = scaledNutrient(row, "sodium_mg");
+          const servingHint = row.serving_size && row.serving_unit
+            ? `${displayNumber(Number(row.serving_size), 1)} ${escapeHtml(row.serving_unit)}`
+            : "serving n/a";
+
+          const options = unitOptions
+            .map((unit) => `<option value="${unit}" ${normalizeUnit(row.unit) === unit ? "selected" : ""}>${unit}</option>`)
+            .join("");
+
+          return `
+            <tr>
+              <td style="padding: 8px; border-bottom: 1px solid #eef3f8;">
+                <strong>${escapeHtml(row.food_name || "Ingredient")}</strong>
+                <div class="muted">base: ${servingHint}</div>
+              </td>
+              <td style="padding: 8px; border-bottom: 1px solid #eef3f8; min-width: 90px;">
+                <input type="number" min="0" step="0.1" value="${escapeHtml(row.quantity)}" data-row-id="${row.row_id}" data-field="quantity" />
+              </td>
+              <td style="padding: 8px; border-bottom: 1px solid #eef3f8; min-width: 100px;">
+                <select data-row-id="${row.row_id}" data-field="unit">${options}</select>
+              </td>
+              <td style="padding: 8px; border-bottom: 1px solid #eef3f8; text-align: right;">${calories ?? "-"}</td>
+              <td style="padding: 8px; border-bottom: 1px solid #eef3f8; text-align: right;">${displayNumber(Number(protein), 1)}</td>
+              <td style="padding: 8px; border-bottom: 1px solid #eef3f8; text-align: right;">${displayNumber(Number(carbs), 1)}</td>
+              <td style="padding: 8px; border-bottom: 1px solid #eef3f8; text-align: right;">${displayNumber(Number(fat), 1)}</td>
+              <td style="padding: 8px; border-bottom: 1px solid #eef3f8; text-align: right;">${displayNumber(Number(sugar), 1)}</td>
+              <td style="padding: 8px; border-bottom: 1px solid #eef3f8; text-align: right;">${displayNumber(Number(sodium), 1)}</td>
+              <td style="padding: 8px; border-bottom: 1px solid #eef3f8;">
+                <button type="button" data-row-id="${row.row_id}" data-action="remove" style="background:#fff;color:#b42318;border:1px solid #f1c0bc;">Remove</button>
+              </td>
+            </tr>
+          `;
+        })
+        .join("");
+
+      updateBuilderTotals();
+    }
+
+    function addIngredientFromFood(food) {
+      if (!food) return;
+      builderState.ingredients.push({
+        row_id: `row_${Date.now()}_${Math.floor(Math.random() * 100000)}`,
+        food_item_id: food.id || null,
+        food_name: food.display_name || food.name || "Ingredient",
+        quantity: 1,
+        unit: "serving",
+        serving_size: food.serving_size ?? null,
+        serving_unit: food.serving_unit ?? null,
+        calories: food.calories ?? null,
+        protein_g: food.protein_g ?? null,
+        carbs_g: food.carbs_g ?? null,
+        fat_g: food.fat_g ?? null,
+        sugar_g: food.sugar_g ?? null,
+        sodium_mg: food.sodium_mg ?? null,
+      });
+      renderBuilderIngredients();
+    }
+
+    function loadFavoriteIngredients(ingredients) {
+      if (!Array.isArray(ingredients) || ingredients.length === 0) return;
+      builderState.ingredients = ingredients.map((item, index) => ({
+        row_id: `fav_${Date.now()}_${index}`,
+        food_item_id: item.food_item_id || null,
+        food_name: item.food_name || "Ingredient",
+        quantity: Number(item.quantity || 0) > 0 ? Number(item.quantity) : 1,
+        unit: normalizeUnit(item.unit || "serving"),
+        serving_size: item.serving_size ?? null,
+        serving_unit: item.serving_unit ?? null,
+        calories: item.calories ?? null,
+        protein_g: item.protein_g ?? null,
+        carbs_g: item.carbs_g ?? null,
+        fat_g: item.fat_g ?? null,
+        sugar_g: item.sugar_g ?? null,
+        sodium_mg: item.sodium_mg ?? null,
+      }));
+      setBuilderOpen(true);
+      renderBuilderIngredients();
+    }
+
+    function setBuilderOpen(open) {
+      if (!mealBuilderPanel || !builderToggle) return;
+      mealBuilderPanel.style.display = open ? "block" : "none";
+      builderToggle.textContent = open ? "Hide Builder" : "Build a Meal";
+    }
+
+    function applyBuilderToMealForm() {
+      const totals = updateBuilderTotals();
+      if (!builderState.ingredients.length) return;
+
+      if (fieldMap.calories) fieldMap.calories.value = String(Math.round(totals.calories));
+      if (fieldMap.protein_g) fieldMap.protein_g.value = totals.protein.toFixed(1);
+      if (fieldMap.carbs_g) fieldMap.carbs_g.value = totals.carbs.toFixed(1);
+      if (fieldMap.fat_g) fieldMap.fat_g.value = totals.fat.toFixed(1);
+      if (fieldMap.sugar_g) fieldMap.sugar_g.value = totals.sugar.toFixed(1);
+      if (fieldMap.sodium_mg) fieldMap.sodium_mg.value = totals.sodium.toFixed(1);
+
+      const builderTitle = (builderTitleInput?.value || "").trim();
+      const builderLabel = (builderLabelInput?.value || "").trim();
+      const ingredientSummary = builderState.ingredients.map((item) => item.food_name).slice(0, 6).join(", ");
+
+      if (builderLabel && fieldMap.label) {
+        fieldMap.label.value = builderLabel;
+      }
+      if (builderTitle && fieldMap.description) {
+        fieldMap.description.value = `${builderTitle}: ${ingredientSummary}`;
+      } else if (fieldMap.description) {
+        fieldMap.description.value = ingredientSummary;
+      }
+      if (fieldMap.portion_notes) {
+        fieldMap.portion_notes.value = `Built meal (${builderState.ingredients.length} ingredients)`;
+      }
+
+      foodItemIdInput.value = "";
+      if (foodSearchInput) {
+        foodSearchInput.value = builderTitle || "Custom built meal";
+      }
+    }
 
     function applyFoodOrFavorite(data) {
       if (!data) return;
@@ -288,6 +699,16 @@
       if (typeof data.is_beverage === "boolean" && fieldMap.is_beverage) {
         fieldMap.is_beverage.checked = data.is_beverage;
       }
+
+      if (Array.isArray(data.ingredients) && data.ingredients.length > 0) {
+        if (builderTitleInput && !builderTitleInput.value) {
+          builderTitleInput.value = data.name || data.display_name || "";
+        }
+        if (builderLabelInput && data.label) {
+          builderLabelInput.value = data.label;
+        }
+        loadFavoriteIngredients(data.ingredients);
+      }
     }
 
     if (favoriteSelector) {
@@ -301,16 +722,18 @@
 
     let lastSearchToken = 0;
     let debounceTimer;
+    let lastBuilderSearchToken = 0;
+    let builderDebounceTimer;
 
-    function renderFoodResults(items, message = "") {
-      if (!foodResults) return;
+    function renderSearchButtons(targetElement, items, onPick, message = "") {
+      if (!targetElement) return;
       if (!items || items.length === 0) {
         const text = message || "No matching foods found.";
-        foodResults.innerHTML = `<p class="muted" style="margin: 6px 0;">${text}</p>`;
+        targetElement.innerHTML = `<p class="muted" style="margin: 6px 0;">${text}</p>`;
         return;
       }
 
-      foodResults.innerHTML = "";
+      targetElement.innerHTML = "";
       items.forEach((item) => {
         const button = document.createElement("button");
         button.type = "button";
@@ -336,12 +759,42 @@
         meta.textContent = `${kcal} - ${item.source}`;
         button.appendChild(meta);
 
-        button.addEventListener("click", () => {
-          applyFoodOrFavorite(item);
-          foodResults.innerHTML = "";
-        });
-        foodResults.appendChild(button);
+        button.addEventListener("click", () => onPick(item));
+        targetElement.appendChild(button);
       });
+    }
+
+    function renderFoodResults(items, message = "") {
+      renderSearchButtons(
+        foodResults,
+        items,
+        (item) => {
+          applyFoodOrFavorite(item);
+          if (foodResults) foodResults.innerHTML = "";
+        },
+        message
+      );
+    }
+
+    function renderBuilderFoodResults(items, message = "") {
+      renderSearchButtons(
+        builderFoodResults,
+        items,
+        (item) => {
+          addIngredientFromFood(item);
+          if (builderFoodResults) builderFoodResults.innerHTML = "";
+          if (builderFoodSearchInput) builderFoodSearchInput.value = "";
+          setBuilderOpen(true);
+        },
+        message
+      );
+    }
+
+    async function fetchFoods(query, remote = false) {
+      const params = new URLSearchParams({ q: query });
+      if (remote) params.set("remote", "1");
+      const response = await fetch(`/foods/search?${params.toString()}`);
+      return response.json();
     }
 
     async function runFoodSearch(remote = false) {
@@ -352,17 +805,33 @@
       }
 
       const token = ++lastSearchToken;
-      const params = new URLSearchParams({ q: query });
-      if (remote) params.set("remote", "1");
-
       try {
-        const response = await fetch(`/foods/search?${params.toString()}`);
-        const data = await response.json();
+        const data = await fetchFoods(query, remote);
         if (token !== lastSearchToken) return;
         renderFoodResults(data.results || [], data.message || "");
       } catch (error) {
         if (token !== lastSearchToken) return;
         foodResults.innerHTML = '<p class="muted" style="margin: 6px 0;">Search failed. Try again.</p>';
+      }
+    }
+
+    async function runBuilderFoodSearch(remote = false) {
+      const query = (builderFoodSearchInput?.value || "").trim();
+      if (query.length < 2) {
+        if (builderFoodResults) builderFoodResults.innerHTML = "";
+        return;
+      }
+
+      const token = ++lastBuilderSearchToken;
+      try {
+        const data = await fetchFoods(query, remote);
+        if (token !== lastBuilderSearchToken) return;
+        renderBuilderFoodResults(data.results || [], data.message || "");
+      } catch (error) {
+        if (token !== lastBuilderSearchToken) return;
+        if (builderFoodResults) {
+          builderFoodResults.innerHTML = '<p class="muted" style="margin: 6px 0;">Ingredient search failed. Try again.</p>';
+        }
       }
     }
 
@@ -374,11 +843,76 @@
       });
     }
 
+    if (builderFoodSearchInput) {
+      builderFoodSearchInput.addEventListener("input", () => {
+        clearTimeout(builderDebounceTimer);
+        builderDebounceTimer = setTimeout(() => runBuilderFoodSearch(false), 220);
+      });
+    }
+
     if (searchUsdaButton) {
       searchUsdaButton.addEventListener("click", () => {
         runFoodSearch(true);
       });
     }
+
+    if (builderSearchUsdaButton) {
+      builderSearchUsdaButton.addEventListener("click", () => {
+        runBuilderFoodSearch(true);
+      });
+    }
+
+    if (builderToggle) {
+      builderToggle.addEventListener("click", () => {
+        const open = mealBuilderPanel && mealBuilderPanel.style.display !== "none";
+        setBuilderOpen(!open);
+      });
+    }
+
+    if (builderIngredientsBody) {
+      builderIngredientsBody.addEventListener("change", (event) => {
+        const target = event.target;
+        const rowId = target?.dataset?.rowId;
+        const field = target?.dataset?.field;
+        if (!rowId || !field) return;
+
+        const row = builderState.ingredients.find((item) => item.row_id === rowId);
+        if (!row) return;
+
+        if (field === "quantity") {
+          const quantity = Number(target.value);
+          row.quantity = Number.isFinite(quantity) && quantity > 0 ? quantity : 0;
+        } else if (field === "unit") {
+          row.unit = target.value || "serving";
+        }
+        renderBuilderIngredients();
+      });
+
+      builderIngredientsBody.addEventListener("click", (event) => {
+        const target = event.target;
+        const rowId = target?.dataset?.rowId;
+        const action = target?.dataset?.action;
+        if (!rowId || action !== "remove") return;
+        builderState.ingredients = builderState.ingredients.filter((item) => item.row_id !== rowId);
+        renderBuilderIngredients();
+      });
+    }
+
+    if (builderApplyButton) {
+      builderApplyButton.addEventListener("click", () => {
+        applyBuilderToMealForm();
+      });
+    }
+
+    if (builderClearButton) {
+      builderClearButton.addEventListener("click", () => {
+        builderState.ingredients = [];
+        renderBuilderIngredients();
+      });
+    }
+
+    renderBuilderIngredients();
+    setBuilderOpen(false);
   </script>
 {% endblock %}
 

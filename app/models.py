@@ -235,6 +235,7 @@ class FavoriteMeal(db.Model):
     fat_g = db.Column(db.Float, nullable=True)
     sugar_g = db.Column(db.Float, nullable=True)
     sodium_mg = db.Column(db.Float, nullable=True)
+    ingredients = db.Column(db.JSON, nullable=True)
 
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at = db.Column(

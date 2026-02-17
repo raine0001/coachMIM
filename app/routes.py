@@ -2,6 +2,7 @@ import os
 from datetime import date, datetime, timedelta
 from functools import wraps
 from uuid import uuid4
+from zoneinfo import available_timezones
 
 from flask import (
     Blueprint,
@@ -25,6 +26,20 @@ bp = Blueprint("main", __name__)
 
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "webp", "heic"}
 
+PREFERRED_TIMEZONES = [
+    "America/New_York",
+    "America/Chicago",
+    "America/Denver",
+    "America/Phoenix",
+    "America/Los_Angeles",
+    "America/Anchorage",
+    "Pacific/Honolulu",
+    "UTC",
+]
+ALL_TIMEZONES = sorted(available_timezones())
+PREFERRED_TIMEZONE_SET = set(PREFERRED_TIMEZONES)
+TIMEZONE_OPTIONS = PREFERRED_TIMEZONES + [tz for tz in ALL_TIMEZONES if tz not in PREFERRED_TIMEZONE_SET]
+
 
 def allowed_file(filename: str) -> bool:
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -36,6 +51,57 @@ def parse_int(value):
 
 def parse_float(value):
     return float(value) if value not in (None, "") else None
+
+
+def inches_to_cm(inches):
+    return round(inches * 2.54, 2) if inches is not None else None
+
+
+def cm_to_inches(cm):
+    return round(cm / 2.54, 2) if cm is not None else None
+
+
+def lb_to_kg(lb):
+    return round(lb / 2.2046226218, 2) if lb is not None else None
+
+
+def kg_to_lb(kg):
+    return round(kg * 2.2046226218, 1) if kg is not None else None
+
+
+def feet_inches_to_cm(feet, inches):
+    if feet is None and inches is None:
+        return None
+    return inches_to_cm((feet or 0) * 12 + (inches or 0))
+
+
+def cm_to_feet_inches(cm):
+    if cm is None:
+        return (None, None)
+    total_inches = cm / 2.54
+    feet = int(total_inches // 12)
+    inches = round(total_inches - (feet * 12), 1)
+    if inches >= 12:
+        feet += 1
+        inches -= 12
+    return (feet, inches)
+
+
+def build_profile_template_context(profile):
+    unit_system = profile.unit_system or "imperial"
+    height_ft, height_in = cm_to_feet_inches(profile.height_cm)
+
+    return {
+        "profile": profile,
+        "missing_required": profile.missing_required_fields(),
+        "timezones": TIMEZONE_OPTIONS,
+        "unit_system": unit_system,
+        "height_ft": height_ft,
+        "height_in": height_in,
+        "weight_lb": kg_to_lb(profile.weight_kg),
+        "waist_in": cm_to_inches(profile.waist_cm),
+        "body_fat_slider": profile.body_fat_pct if profile.body_fat_pct is not None else 25,
+    }
 
 
 def normalize_email(value: str | None):
@@ -200,14 +266,14 @@ def profile():
         email = normalize_email(request.form.get("email"))
         if not full_name:
             flash("Full name is required.", "error")
-            return render_template("profile.html", profile=profile, missing_required=profile.missing_required_fields())
+            return render_template("profile.html", **build_profile_template_context(profile))
         if not email:
             flash("Email is required.", "error")
-            return render_template("profile.html", profile=profile, missing_required=profile.missing_required_fields())
+            return render_template("profile.html", **build_profile_template_context(profile))
         existing_user = User.query.filter(User.email == email, User.id != g.user.id).first()
         if existing_user:
             flash("Email is already in use by another account.", "error")
-            return render_template("profile.html", profile=profile, missing_required=profile.missing_required_fields())
+            return render_template("profile.html", **build_profile_template_context(profile))
 
         g.user.full_name = full_name
         g.user.email = email
@@ -215,12 +281,24 @@ def profile():
         profile.age = parse_int(request.form.get("age"))
         profile.biological_sex = request.form.get("biological_sex") or None
         profile.time_zone = request.form.get("time_zone") or None
+        selected_unit_system = (request.form.get("unit_system") or "imperial").lower()
+        profile.unit_system = selected_unit_system if selected_unit_system in {"imperial", "metric"} else "imperial"
         profile.phone = request.form.get("phone") or None
 
-        profile.height_cm = parse_float(request.form.get("height_cm"))
-        profile.weight_kg = parse_float(request.form.get("weight_kg"))
+        if profile.unit_system == "imperial":
+            height_ft = parse_int(request.form.get("height_ft"))
+            height_in = parse_float(request.form.get("height_in"))
+            weight_lb = parse_float(request.form.get("weight_lb"))
+            waist_in = parse_float(request.form.get("waist_in"))
+            profile.height_cm = feet_inches_to_cm(height_ft, height_in)
+            profile.weight_kg = lb_to_kg(weight_lb)
+            profile.waist_cm = inches_to_cm(waist_in)
+        else:
+            profile.height_cm = parse_float(request.form.get("height_cm"))
+            profile.weight_kg = parse_float(request.form.get("weight_kg"))
+            profile.waist_cm = parse_float(request.form.get("waist_cm"))
+
         profile.body_fat_pct = parse_float(request.form.get("body_fat_pct"))
-        profile.waist_cm = parse_float(request.form.get("waist_cm"))
 
         profile.general_health_rating = parse_int(request.form.get("general_health_rating"))
         profile.medical_conditions = request.form.get("medical_conditions") or None
@@ -278,7 +356,7 @@ def profile():
             flash("Profile saved.", "success")
             return redirect(url_for("main.index"))
 
-    return render_template("profile.html", profile=profile, missing_required=profile.missing_required_fields())
+    return render_template("profile.html", **build_profile_template_context(profile))
 
 
 @bp.get("/checkin")

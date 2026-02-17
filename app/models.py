@@ -27,6 +27,7 @@ class UserProfile(db.Model):
     age = db.Column(db.Integer, nullable=True)
     biological_sex = db.Column(db.String(32), nullable=True)
     time_zone = db.Column(db.String(64), nullable=True)
+    unit_system = db.Column(db.String(12), nullable=True, default="imperial")
     phone = db.Column(db.String(32), nullable=True)
 
     height_cm = db.Column(db.Float, nullable=True)

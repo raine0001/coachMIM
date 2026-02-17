@@ -37,16 +37,40 @@
           </select>
         </div>
         <div>
+          <label for="unit_system">Units Preference</label>
+          <select id="unit_system" name="unit_system" required>
+            <option value="imperial" {% if unit_system == "imperial" %}selected{% endif %}>Imperial (ft, in, lb)</option>
+            <option value="metric" {% if unit_system == "metric" %}selected{% endif %}>Metric (cm, kg)</option>
+          </select>
+        </div>
+        <div>
           <label for="time_zone">Time Zone</label>
-          <input id="time_zone" name="time_zone" placeholder="e.g., America/Chicago" value="{{ profile.time_zone or '' }}" required />
+          <select id="time_zone" name="time_zone" required>
+            <option value="">Choose one</option>
+            {% for tz in timezones %}
+              <option value="{{ tz }}" {% if profile.time_zone == tz %}selected{% endif %}>{{ tz }}</option>
+            {% endfor %}
+          </select>
         </div>
-        <div>
+        <div class="metric-only">
           <label for="height_cm">Height (cm)</label>
-          <input id="height_cm" name="height_cm" type="number" min="50" max="260" step="0.1" value="{{ profile.height_cm or '' }}" required />
+          <input id="height_cm" name="height_cm" type="number" min="50" max="260" step="0.1" value="{{ profile.height_cm or '' }}" />
         </div>
-        <div>
+        <div class="metric-only">
           <label for="weight_kg">Weight (kg)</label>
-          <input id="weight_kg" name="weight_kg" type="number" min="20" max="350" step="0.1" value="{{ profile.weight_kg or '' }}" required />
+          <input id="weight_kg" name="weight_kg" type="number" min="20" max="350" step="0.1" value="{{ profile.weight_kg or '' }}" />
+        </div>
+        <div class="imperial-only">
+          <label for="height_ft">Height (ft)</label>
+          <input id="height_ft" name="height_ft" type="number" min="3" max="8" step="1" value="{{ height_ft or '' }}" />
+        </div>
+        <div class="imperial-only">
+          <label for="height_in">Height (in)</label>
+          <input id="height_in" name="height_in" type="number" min="0" max="11.9" step="0.1" value="{{ height_in or '' }}" />
+        </div>
+        <div class="imperial-only">
+          <label for="weight_lb">Weight (lb)</label>
+          <input id="weight_lb" name="weight_lb" type="number" min="40" max="800" step="0.1" value="{{ weight_lb or '' }}" />
         </div>
         <div>
           <label for="primary_goal">Primary Goal</label>
@@ -80,13 +104,29 @@
           <label for="phone">Cell Phone</label>
           <input id="phone" name="phone" value="{{ profile.phone or '' }}" />
         </div>
-        <div>
-          <label for="body_fat_pct">Body Fat %</label>
-          <input id="body_fat_pct" name="body_fat_pct" type="number" min="0" max="70" step="0.1" value="{{ profile.body_fat_pct or '' }}" />
+        <div style="grid-column: span 2;">
+          <label for="body_fat_pct_slider">Body Fat % (optional estimate)</label>
+          <div style="display: grid; grid-template-columns: 1fr 110px 70px; gap: 8px; align-items: center;">
+            <input
+              id="body_fat_pct_slider"
+              type="range"
+              min="5"
+              max="50"
+              step="0.5"
+              value="{{ body_fat_slider }}"
+            />
+            <input id="body_fat_pct" name="body_fat_pct" type="number" min="5" max="50" step="0.1" value="{{ profile.body_fat_pct or '' }}" />
+            <button id="clear_body_fat_pct" type="button">Clear</button>
+          </div>
+          <p class="muted" style="margin-top: 6px;">If unknown, leave blank and update later.</p>
         </div>
-        <div>
+        <div class="metric-only">
           <label for="waist_cm">Waist (cm)</label>
           <input id="waist_cm" name="waist_cm" type="number" min="30" max="220" step="0.1" value="{{ profile.waist_cm or '' }}" />
+        </div>
+        <div class="imperial-only">
+          <label for="waist_in">Waist (in)</label>
+          <input id="waist_in" name="waist_in" type="number" min="12" max="90" step="0.1" value="{{ waist_in or '' }}" />
         </div>
         <div>
           <label for="general_health_rating">General Health (1-10)</label>
@@ -254,4 +294,66 @@
       <button type="submit">Save Profile</button>
     </div>
   </form>
+
+  <script>
+    const unitSystemInput = document.getElementById("unit_system");
+    const metricFields = document.querySelectorAll(".metric-only");
+    const imperialFields = document.querySelectorAll(".imperial-only");
+
+    const metricRequiredInputs = [
+      document.getElementById("height_cm"),
+      document.getElementById("weight_kg"),
+    ];
+    const imperialRequiredInputs = [
+      document.getElementById("height_ft"),
+      document.getElementById("weight_lb"),
+    ];
+
+    function setUnitsVisibility() {
+      const isImperial = unitSystemInput.value === "imperial";
+      metricFields.forEach((el) => {
+        el.style.display = isImperial ? "none" : "";
+      });
+      imperialFields.forEach((el) => {
+        el.style.display = isImperial ? "" : "none";
+      });
+
+      metricRequiredInputs.forEach((input) => {
+        if (input) input.required = !isImperial;
+      });
+      imperialRequiredInputs.forEach((input) => {
+        if (input) input.required = isImperial;
+      });
+    }
+
+    unitSystemInput.addEventListener("change", setUnitsVisibility);
+    setUnitsVisibility();
+
+    const bodyFatInput = document.getElementById("body_fat_pct");
+    const bodyFatSlider = document.getElementById("body_fat_pct_slider");
+    const clearBodyFat = document.getElementById("clear_body_fat_pct");
+
+    if (bodyFatInput && bodyFatSlider) {
+      if (bodyFatInput.value) {
+        bodyFatSlider.value = bodyFatInput.value;
+      }
+
+      bodyFatSlider.addEventListener("input", () => {
+        bodyFatInput.value = bodyFatSlider.value;
+      });
+
+      bodyFatInput.addEventListener("input", () => {
+        if (bodyFatInput.value) {
+          bodyFatSlider.value = bodyFatInput.value;
+        }
+      });
+    }
+
+    if (clearBodyFat && bodyFatInput && bodyFatSlider) {
+      clearBodyFat.addEventListener("click", () => {
+        bodyFatInput.value = "";
+        bodyFatSlider.value = "25";
+      });
+    }
+  </script>
 {% endblock %}

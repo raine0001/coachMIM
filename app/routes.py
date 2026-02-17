@@ -102,6 +102,17 @@ def parse_tags(raw_value):
     return tags or None
 
 
+def normalize_text(value):
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.lower() in {"none", "null"}:
+        return None
+    return text
+
+
 def parse_ingredients_json(raw_value):
     if not raw_value:
         return None
@@ -420,9 +431,9 @@ def apply_meal_fields_from_request(meal: Meal):
     meal.user_id = g.user.id
     meal.food_item_id = food_item.id if food_item else None
     meal.eaten_at = eaten_at_dt
-    meal.label = request.form.get("label") or None
-    meal.description = request.form.get("description") or None
-    meal.portion_notes = request.form.get("portion_notes") or None
+    meal.label = normalize_text(request.form.get("label"))
+    meal.description = normalize_text(request.form.get("description"))
+    meal.portion_notes = normalize_text(request.form.get("portion_notes"))
     meal.tags = parse_tags(request.form.get("tags"))
     meal.is_beverage = parse_bool(request.form.get("is_beverage"))
 
@@ -452,6 +463,23 @@ def apply_meal_fields_from_request(meal: Meal):
     return eaten_at_dt
 
 
+def meal_has_meaningful_content(meal: Meal, has_new_photo: bool = False) -> bool:
+    if meal.food_item_id is not None:
+        return True
+    if any(value not in (None, "") for value in [meal.label, meal.description, meal.portion_notes]):
+        return True
+    if meal.tags:
+        return True
+    if any(
+        getattr(meal, field) is not None
+        for field in ["calories", "protein_g", "carbs_g", "fat_g", "sugar_g", "sodium_mg"]
+    ):
+        return True
+    if meal.photo_path or has_new_photo:
+        return True
+    return False
+
+
 def upsert_favorite_from_request():
     if not parse_bool(request.form.get("save_favorite")):
         return
@@ -465,9 +493,9 @@ def upsert_favorite_from_request():
         favorite = FavoriteMeal(user_id=g.user.id, name=favorite_name)
 
     favorite.food_item_id = parse_int(request.form.get("food_item_id"))
-    favorite.label = request.form.get("label") or None
-    favorite.description = request.form.get("description") or None
-    favorite.portion_notes = request.form.get("portion_notes") or None
+    favorite.label = normalize_text(request.form.get("label"))
+    favorite.description = normalize_text(request.form.get("description"))
+    favorite.portion_notes = normalize_text(request.form.get("portion_notes"))
     favorite.tags = parse_tags(request.form.get("tags"))
     favorite.is_beverage = parse_bool(request.form.get("is_beverage"))
 
@@ -961,6 +989,11 @@ def meal_save():
         return redirect(url_for("main.meal_form"))
 
     photo = request.files.get("photo")
+    has_new_photo = bool(photo and photo.filename)
+    if not meal_has_meaningful_content(meal, has_new_photo=has_new_photo):
+        flash("Meal entry is empty. Select a food or add nutrition/details before saving.", "error")
+        return redirect(url_for("main.meal_form", day=eaten_at_dt.date().isoformat()))
+
     if photo and photo.filename:
         if not allowed_file(photo.filename):
             flash("Unsupported file type. Use png, jpg, jpeg, webp, or heic.", "error")
@@ -992,9 +1025,14 @@ def meal_edit(meal_id: int):
         except ValueError:
             flash("Invalid meal timestamp. Use the date/time picker and try again.", "error")
             return redirect(url_for("main.meal_edit", meal_id=meal.id))
-        upsert_favorite_from_request()
 
         photo = request.files.get("photo")
+        has_new_photo = bool(photo and photo.filename)
+        if not meal_has_meaningful_content(meal, has_new_photo=has_new_photo):
+            flash("Meal entry is empty. Add at least one detail or delete the entry.", "error")
+            return redirect(url_for("main.meal_edit", meal_id=meal.id))
+
+        upsert_favorite_from_request()
         if photo and photo.filename:
             if not allowed_file(photo.filename):
                 flash("Unsupported file type. Use png, jpg, jpeg, webp, or heic.", "error")
@@ -1080,7 +1118,7 @@ def food_search():
             "id": item.id,
             "name": item.name,
             "brand": item.brand,
-            "display_name": item.display_name(),
+            "display_name": item.display_name() if item.name else (item.brand or "Unnamed food"),
             "serving_size": item.serving_size,
             "serving_unit": item.serving_unit,
             "calories": item.calories,

@@ -11,6 +11,15 @@
   </div>
 
   <div class="card">
+    <h2>Quick Flow</h2>
+    <ol style="margin-top: 0;">
+      <li>Start with local search. Use USDA only if local does not match.</li>
+      <li>If no match: add custom facts, paste a product link, or parse a nutrition-label photo.</li>
+      <li>Add ingredients to the builder, then click <strong>Use Builder Totals</strong>, then <strong>Save Meal</strong>.</li>
+    </ol>
+  </div>
+
+  <div class="card">
     <form method="get" action="{{ url_for('main.meal_form') }}">
       <div class="grid">
         <div>
@@ -79,7 +88,7 @@
             value="{{ edit_meal.food_item.display_name() if edit_meal and edit_meal.food_item else '' }}"
           />
           <p class="muted" style="margin: 6px 0 0;">Local catalog search first. Click USDA only when local results are not enough.</p>
-          <input id="food_item_id" name="food_item_id" type="hidden" value="{{ edit_meal.food_item_id if edit_meal else '' }}" />
+          <input id="food_item_id" name="food_item_id" type="hidden" value="{{ edit_meal.food_item_id if edit_meal and edit_meal.food_item_id is not none else '' }}" />
           <div id="food-results" style="margin-top: 8px;"></div>
         </div>
         <div>
@@ -318,11 +327,11 @@
         </div>
         <div>
           <label for="label">Meal Label</label>
-          <input id="label" name="label" placeholder="Breakfast / Lunch / Dinner / Snack" value="{{ edit_meal.label if edit_meal else '' }}" />
+          <input id="label" name="label" placeholder="Breakfast / Lunch / Dinner / Snack" value="{{ ((edit_meal.label if edit_meal else '') if (edit_meal and edit_meal.label not in ['None','none','NULL','null']) else '') }}" />
         </div>
         <div>
           <label for="portion_notes">Portion Notes</label>
-          <input id="portion_notes" name="portion_notes" placeholder="1 bowl, 2 slices..." value="{{ edit_meal.portion_notes if edit_meal else '' }}" />
+          <input id="portion_notes" name="portion_notes" placeholder="1 bowl, 2 slices..." value="{{ ((edit_meal.portion_notes if edit_meal else '') if (edit_meal and edit_meal.portion_notes not in ['None','none','NULL','null']) else '') }}" />
         </div>
         <div>
           <label for="tags">Tags (comma-separated)</label>
@@ -367,7 +376,7 @@
 
       <div style="margin-top: 12px;">
         <label for="description">Description</label>
-        <textarea id="description" name="description" placeholder="What you ate/drank and context (prep, sauce, cravings, etc).">{{ edit_meal.description if edit_meal else '' }}</textarea>
+        <textarea id="description" name="description" placeholder="What you ate/drank and context (prep, sauce, cravings, etc).">{{ ((edit_meal.description if edit_meal else '') if (edit_meal and edit_meal.description not in ['None','none','NULL','null']) else '') }}</textarea>
       </div>
 
       <div style="margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap;">
@@ -400,8 +409,22 @@
               <tr>
                 <td style="padding: 8px; border-bottom: 1px solid #eef3f8;">{{ meal.eaten_at.strftime("%H:%M") }}</td>
                 <td style="padding: 8px; border-bottom: 1px solid #eef3f8;">{{ "Drink" if meal.is_beverage else "Food" }}</td>
-                <td style="padding: 8px; border-bottom: 1px solid #eef3f8;">{{ meal.food_item.display_name() if meal.food_item else (meal.description or "Custom entry") }}</td>
-                <td style="padding: 8px; border-bottom: 1px solid #eef3f8;">{{ meal.portion_notes or "n/a" }}</td>
+                <td style="padding: 8px; border-bottom: 1px solid #eef3f8;">
+                  {% if meal.food_item %}
+                    {{ meal.food_item.display_name() }}
+                  {% elif meal.description and meal.description|lower not in ["none", "null"] %}
+                    {{ meal.description }}
+                  {% else %}
+                    Custom entry
+                  {% endif %}
+                </td>
+                <td style="padding: 8px; border-bottom: 1px solid #eef3f8;">
+                  {% if meal.portion_notes and meal.portion_notes|lower not in ["none", "null"] %}
+                    {{ meal.portion_notes }}
+                  {% else %}
+                    n/a
+                  {% endif %}
+                </td>
                 <td style="padding: 8px; border-bottom: 1px solid #eef3f8; text-align: right;">{{ meal.calories if meal.calories is not none else "-" }}</td>
                 <td style="padding: 8px; border-bottom: 1px solid #eef3f8; text-align: right;">
                   {{ meal.protein_g if meal.protein_g is not none else "-" }}/{{ meal.carbs_g if meal.carbs_g is not none else "-" }}/{{ meal.fat_g if meal.fat_g is not none else "-" }}
@@ -425,6 +448,7 @@
 
   <script>
     const favoritePayload = {{ favorite_payload | tojson }};
+    const mealForm = document.getElementById("meal-form");
     const favoriteSelector = document.getElementById("favorite_selector");
     const foodSearchInput = document.getElementById("food_search");
     const foodResults = document.getElementById("food-results");
@@ -1276,6 +1300,44 @@
     if (parseProductLinkButton) {
       parseProductLinkButton.addEventListener("click", () => {
         parseProductLink();
+      });
+    }
+
+    if (mealForm) {
+      mealForm.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter") return;
+        const target = event.target;
+        if (!target || target.tagName === "TEXTAREA") return;
+        const id = target.id || "";
+
+        if (id === "food_search") {
+          event.preventDefault();
+          runFoodSearch(false);
+          return;
+        }
+        if (id === "builder_food_search") {
+          event.preventDefault();
+          runBuilderFoodSearch(false);
+          return;
+        }
+
+        const builderFormIds = new Set([
+          "custom_ingredient_name",
+          "custom_product_url",
+          "custom_quantity",
+          "custom_serving_size_value",
+          "custom_serving_size_unit",
+          "custom_calories",
+          "custom_protein_g",
+          "custom_carbs_g",
+          "custom_fat_g",
+          "custom_sugar_g",
+          "custom_sodium_mg",
+        ]);
+        if (builderFormIds.has(id)) {
+          event.preventDefault();
+          return;
+        }
       });
     }
 

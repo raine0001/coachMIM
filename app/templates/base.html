@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CoachMIM</title>
+    <style>
+      :root {
+        --bg: #f6f8fb;
+        --card: #ffffff;
+        --text: #17212b;
+        --muted: #5a6b7d;
+        --accent: #0f766e;
+        --error: #b42318;
+        --ok: #067647;
+        --line: #d7dee7;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        background: linear-gradient(180deg, #eef4fa, #f8fbff 35%, #f7fafc 100%);
+        color: var(--text);
+      }
+      .wrap {
+        max-width: 960px;
+        margin: 0 auto;
+        padding: 20px 16px 48px;
+      }
+      nav {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-bottom: 16px;
+      }
+      nav a {
+        background: var(--card);
+        border: 1px solid var(--line);
+        color: var(--text);
+        text-decoration: none;
+        padding: 8px 12px;
+        border-radius: 8px;
+      }
+      h1, h2, h3 {
+        margin-top: 0;
+      }
+      .card {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 16px;
+        margin-bottom: 16px;
+      }
+      .muted {
+        color: var(--muted);
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 12px;
+      }
+      label {
+        display: block;
+        font-weight: 600;
+        margin-bottom: 4px;
+      }
+      input,
+      textarea,
+      select {
+        width: 100%;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 8px 10px;
+        font: inherit;
+        background: #fff;
+      }
+      textarea {
+        min-height: 90px;
+      }
+      button {
+        border: none;
+        background: var(--accent);
+        color: #fff;
+        border-radius: 8px;
+        padding: 10px 14px;
+        font: inherit;
+        cursor: pointer;
+      }
+      .flash {
+        border-radius: 8px;
+        padding: 10px 12px;
+        margin: 8px 0;
+      }
+      .flash.success {
+        background: #e7f8ef;
+        color: var(--ok);
+      }
+      .flash.error {
+        background: #fdeceb;
+        color: var(--error);
+      }
+      ul {
+        padding-left: 20px;
+      }
+      .metric {
+        font-size: 1.2rem;
+        font-weight: 700;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <nav>
+        <a href="{{ url_for('main.index') }}">Home</a>
+        <a href="{{ url_for('main.checkin_form') }}">Daily Check-In</a>
+        <a href="{{ url_for('main.meal_form') }}">Log Meal</a>
+        <a href="{{ url_for('main.substance_form') }}">Log Substance</a>
+        <a href="{{ url_for('main.timeline') }}">Timeline</a>
+        <a href="{{ url_for('main.insights') }}">Weekly Insights</a>
+      </nav>
+
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          {% for category, message in messages %}
+            <div class="flash {{ category }}">{{ message }}</div>
+          {% endfor %}
+        {% endif %}
+      {% endwith %}
+
+      {% block content %}{% endblock %}
+    </div>
+  </body>
+</html>

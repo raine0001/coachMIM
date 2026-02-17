@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block content %}
+  <div class="card">
+    <h1>Log Substance</h1>
+    <p class="muted">Optional detailed entries for alcohol, caffeine, nicotine, or other substances.</p>
+    <form method="post" action="{{ url_for('main.substance_save') }}">
+      <div class="grid">
+        <div>
+          <label for="taken_at">Taken At</label>
+          <input id="taken_at" name="taken_at" type="datetime-local" />
+        </div>
+        <div>
+          <label for="kind">Kind</label>
+          <select id="kind" name="kind" required>
+            <option value="">Choose one</option>
+            <option value="alcohol">Alcohol</option>
+            <option value="caffeine">Caffeine</option>
+            <option value="nicotine">Nicotine</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <div>
+          <label for="amount">Amount</label>
+          <input id="amount" name="amount" placeholder="2 beers, 300mg..." />
+        </div>
+      </div>
+      <div style="margin-top: 12px;">
+        <label for="notes">Notes</label>
+        <textarea id="notes" name="notes"></textarea>
+      </div>
+      <div style="margin-top: 12px;">
+        <button type="submit">Save Substance Entry</button>
+      </div>
+    </form>
+  </div>
+{% endblock %}

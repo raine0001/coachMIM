@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block content %}
+  <div class="card">
+    <h1>Weekly Insights</h1>
+    <p class="muted">{{ start_day }} to {{ today }}</p>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h3>Data Coverage</h3>
+      <div class="metric">{{ coverage }}%</div>
+    </div>
+    <div class="card">
+      <h3>Avg Sleep</h3>
+      <div class="metric">{{ avg_sleep if avg_sleep is not none else "n/a" }}</div>
+    </div>
+    <div class="card">
+      <h3>Avg Focus</h3>
+      <div class="metric">{{ avg_focus if avg_focus is not none else "n/a" }}</div>
+    </div>
+    <div class="card">
+      <h3>Avg Mood</h3>
+      <div class="metric">{{ avg_mood if avg_mood is not none else "n/a" }}</div>
+    </div>
+    <div class="card">
+      <h3>Avg Productivity</h3>
+      <div class="metric">{{ avg_productivity if avg_productivity is not none else "n/a" }}</div>
+    </div>
+    <div class="card">
+      <h3>Sleep &lt; 6.5h Days</h3>
+      <div class="metric">{{ short_sleep_days }}</div>
+    </div>
+    <div class="card">
+      <h3>Alcohol Drinks</h3>
+      <div class="metric">{{ total_alcohol }}</div>
+    </div>
+    <div class="card">
+      <h3>Meals Logged</h3>
+      <div class="metric">{{ meal_count }}</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>AI Reflection</h2>
+    <p>{{ reflection }}</p>
+  </div>
+{% endblock %}

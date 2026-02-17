@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block content %}
+  <div class="card">
+    <h1>Timeline</h1>
+    <p class="muted">Recent check-ins, meals, and pre-emptive data quality prompts.</p>
+  </div>
+
+  <div class="card">
+    <h2>Pre-Emptive Prompts</h2>
+    <ul>
+      {% for prompt in prompts %}
+        <li>{{ prompt }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2>Recent Check-Ins</h2>
+    {% if checkins %}
+      <ul>
+        {% for c in checkins %}
+          <li>
+            <strong>{{ c.day }}</strong> |
+            Sleep: {{ c.sleep_hours if c.sleep_hours is not none else "n/a" }}h |
+            Energy: {{ c.energy if c.energy is not none else "n/a" }} |
+            Focus: {{ c.focus if c.focus is not none else "n/a" }} |
+            Mood: {{ c.mood if c.mood is not none else "n/a" }} |
+            Stress: {{ c.stress if c.stress is not none else "n/a" }} |
+            Productivity: {{ c.productivity if c.productivity is not none else "n/a" }} |
+            Alcohol: {{ c.alcohol_drinks if c.alcohol_drinks is not none else "n/a" }}
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="muted">No check-ins logged yet.</p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h2>Recent Meals</h2>
+    {% if meals %}
+      <ul>
+        {% for meal in meals %}
+          <li>
+            <strong>{{ meal.eaten_at.strftime("%Y-%m-%d %H:%M") }}</strong> |
+            {{ meal.label or "Meal" }} |
+            {{ meal.description or "No description" }}
+            {% if meal.tags %}
+              | Tags: {{ meal.tags | join(", ") }}
+            {% endif %}
+            {% if meal.photo_path %}
+              <div style="margin-top: 8px;">
+                <img src="{{ url_for('static', filename=meal.photo_path) }}" alt="meal photo" style="max-width: 220px; border-radius: 8px; border: 1px solid #d7dee7;" />
+              </div>
+            {% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="muted">No meals logged yet.</p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h2>Recent Substance Entries</h2>
+    {% if substances %}
+      <ul>
+        {% for s in substances %}
+          <li>
+            <strong>{{ s.taken_at.strftime("%Y-%m-%d %H:%M") }}</strong> |
+            {{ s.kind }} |
+            {{ s.amount or "amount not specified" }}
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="muted">No substance entries logged yet.</p>
+    {% endif %}
+  </div>
+{% endblock %}

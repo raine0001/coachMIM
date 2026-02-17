@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block content %}
+  <div class="card">
+    <h1>CoachMIM</h1>
+    <p>
+      Structured self-report for longitudinal behavioral pattern detection.
+      Phase I focuses on clean baseline capture for 30-60 days.
+    </p>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h3>Check-Ins Logged</h3>
+      <div class="metric">{{ checkin_count }}</div>
+    </div>
+    <div class="card">
+      <h3>Meals Logged</h3>
+      <div class="metric">{{ meal_count }}</div>
+    </div>
+    <div class="card">
+      <h3>Substances Logged</h3>
+      <div class="metric">{{ substance_count }}</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Phase I Workflow</h2>
+    <ol>
+      <li>Log a daily check-in.</li>
+      <li>Log meals with timestamps, tags, and optional photo.</li>
+      <li>Log alcohol/caffeine/nicotine entries if used.</li>
+      <li>Review timeline prompts and weekly insights.</li>
+    </ol>
+  </div>
+{% endblock %}

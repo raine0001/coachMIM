@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block content %}
+  <div class="card">
+    <h1>Daily Check-In</h1>
+    <p class="muted">Capture baseline inputs and outputs. No interventions yet.</p>
+    <form method="post" action="{{ url_for('main.checkin_save') }}">
+      <div class="grid">
+        <div>
+          <label for="day">Day</label>
+          <input id="day" name="day" type="date" value="{{ selected_day }}" />
+        </div>
+        <div>
+          <label for="sleep_hours">Sleep Hours</label>
+          <input id="sleep_hours" name="sleep_hours" type="number" min="0" max="24" step="0.1" value="{{ record.sleep_hours if record else '' }}" />
+        </div>
+        <div>
+          <label for="sleep_quality">Sleep Quality (1-10)</label>
+          <input id="sleep_quality" name="sleep_quality" type="number" min="1" max="10" value="{{ record.sleep_quality if record else '' }}" />
+        </div>
+        <div>
+          <label for="energy">Energy (1-10)</label>
+          <input id="energy" name="energy" type="number" min="1" max="10" value="{{ record.energy if record else '' }}" />
+        </div>
+        <div>
+          <label for="focus">Focus (1-10)</label>
+          <input id="focus" name="focus" type="number" min="1" max="10" value="{{ record.focus if record else '' }}" />
+        </div>
+        <div>
+          <label for="mood">Mood (1-10)</label>
+          <input id="mood" name="mood" type="number" min="1" max="10" value="{{ record.mood if record else '' }}" />
+        </div>
+        <div>
+          <label for="stress">Stress (1-10)</label>
+          <input id="stress" name="stress" type="number" min="1" max="10" value="{{ record.stress if record else '' }}" />
+        </div>
+        <div>
+          <label for="anxiety">Anxiety (1-10)</label>
+          <input id="anxiety" name="anxiety" type="number" min="1" max="10" value="{{ record.anxiety if record else '' }}" />
+        </div>
+        <div>
+          <label for="productivity">Productivity (1-10)</label>
+          <input id="productivity" name="productivity" type="number" min="1" max="10" value="{{ record.productivity if record else '' }}" />
+        </div>
+        <div>
+          <label for="workout_timing">Workout Timing</label>
+          <input id="workout_timing" name="workout_timing" placeholder="e.g., 7:00am strength" value="{{ record.workout_timing if record else '' }}" />
+        </div>
+        <div>
+          <label for="workout_intensity">Workout Intensity (1-10)</label>
+          <input id="workout_intensity" name="workout_intensity" type="number" min="1" max="10" value="{{ record.workout_intensity if record else '' }}" />
+        </div>
+        <div>
+          <label for="alcohol_drinks">Alcohol (drinks)</label>
+          <input id="alcohol_drinks" name="alcohol_drinks" type="number" min="0" step="0.5" value="{{ record.alcohol_drinks if record else '' }}" />
+        </div>
+        <div>
+          <label for="headache">Headache Severity (0-10)</label>
+          <input id="headache" name="headache" type="number" min="0" max="10" value="{{ record.symptoms.get('headache') if record and record.symptoms else '' }}" />
+        </div>
+        <div>
+          <label for="stomach">Stomach Severity (0-10)</label>
+          <input id="stomach" name="stomach" type="number" min="0" max="10" value="{{ record.symptoms.get('stomach') if record and record.symptoms else '' }}" />
+        </div>
+        <div>
+          <label for="nausea">Nausea Severity (0-10)</label>
+          <input id="nausea" name="nausea" type="number" min="0" max="10" value="{{ record.symptoms.get('nausea') if record and record.symptoms else '' }}" />
+        </div>
+        <div>
+          <label for="bm_count">BM Count</label>
+          <input id="bm_count" name="bm_count" type="number" min="0" value="{{ record.digestion.get('bm_count') if record and record.digestion else '' }}" />
+        </div>
+        <div>
+          <label for="digestion_issues">Digestion Issues (comma-separated)</label>
+          <input id="digestion_issues" name="digestion_issues" placeholder="bloat, cramp, reflux" value="{{ (record.digestion.get('issues') | join(', ')) if record and record.digestion and record.digestion.get('issues') else '' }}" />
+        </div>
+      </div>
+
+      <div style="margin-top: 12px;">
+        <label for="accomplishments">Accomplishments</label>
+        <textarea id="accomplishments" name="accomplishments">{{ record.accomplishments if record else '' }}</textarea>
+      </div>
+      <div style="margin-top: 12px;">
+        <label for="notes">Notes</label>
+        <textarea id="notes" name="notes">{{ record.notes if record else '' }}</textarea>
+      </div>
+      <div style="margin-top: 12px;">
+        <button type="submit">Save Check-In</button>
+      </div>
+    </form>
+  </div>
+{% endblock %}

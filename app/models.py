@@ -7,12 +7,96 @@ class User(db.Model):
     __tablename__ = "users"
 
     id = db.Column(db.Integer, primary_key=True)
+    full_name = db.Column(db.String(255), nullable=True)
     email = db.Column(db.String(255), unique=True, nullable=True)
+    password_hash = db.Column(db.String(255), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
+    profile = db.relationship("UserProfile", backref="user", uselist=False, lazy=True)
     checkins = db.relationship("DailyCheckIn", backref="user", lazy=True)
     meals = db.relationship("Meal", backref="user", lazy=True)
     substances = db.relationship("Substance", backref="user", lazy=True)
+
+
+class UserProfile(db.Model):
+    __tablename__ = "user_profiles"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), unique=True, nullable=False)
+
+    age = db.Column(db.Integer, nullable=True)
+    biological_sex = db.Column(db.String(32), nullable=True)
+    time_zone = db.Column(db.String(64), nullable=True)
+    phone = db.Column(db.String(32), nullable=True)
+
+    height_cm = db.Column(db.Float, nullable=True)
+    weight_kg = db.Column(db.Float, nullable=True)
+    body_fat_pct = db.Column(db.Float, nullable=True)
+    waist_cm = db.Column(db.Float, nullable=True)
+
+    general_health_rating = db.Column(db.Integer, nullable=True)  # 1-10
+    medical_conditions = db.Column(db.Text, nullable=True)
+    known_sleep_issues = db.Column(db.Text, nullable=True)
+    family_history_flags = db.Column(db.Text, nullable=True)
+    medications = db.Column(db.Text, nullable=True)
+    supplements = db.Column(db.Text, nullable=True)
+    resting_blood_pressure = db.Column(db.String(32), nullable=True)
+
+    fitness_level = db.Column(db.String(32), nullable=True)  # sedentary/light/moderate/intense
+    typical_sleep_duration_hours = db.Column(db.Float, nullable=True)
+    work_type = db.Column(db.String(32), nullable=True)
+    work_stress_baseline = db.Column(db.Integer, nullable=True)  # 1-10
+    typical_alcohol_frequency = db.Column(db.String(120), nullable=True)
+    caffeine_baseline = db.Column(db.String(120), nullable=True)
+    nicotine_use = db.Column(db.String(120), nullable=True)
+    recreational_drug_use = db.Column(db.String(120), nullable=True)
+
+    diet_style = db.Column(db.String(120), nullable=True)
+    food_intolerances = db.Column(db.Text, nullable=True)
+    food_sensitivities = db.Column(db.Text, nullable=True)
+    typical_meal_timing = db.Column(db.String(120), nullable=True)
+    cravings_patterns = db.Column(db.String(255), nullable=True)
+
+    baseline_mood = db.Column(db.Integer, nullable=True)  # 1-10
+    baseline_anxiety = db.Column(db.Integer, nullable=True)  # 1-10
+    baseline_focus = db.Column(db.Integer, nullable=True)  # 1-10
+    energy_consistency = db.Column(db.String(32), nullable=True)  # stable/fluctuates
+    attention_issues = db.Column(db.String(255), nullable=True)
+    emotional_volatility = db.Column(db.String(32), nullable=True)  # low/moderate/high
+    burnout_history = db.Column(db.Text, nullable=True)
+
+    primary_goal = db.Column(db.String(255), nullable=True)
+    secondary_goals = db.Column(db.Text, nullable=True)
+    time_horizon = db.Column(db.String(120), nullable=True)
+    great_day_definition = db.Column(db.Text, nullable=True)
+
+    chronotype = db.Column(db.String(32), nullable=True)
+    digestive_sensitivity = db.Column(db.Text, nullable=True)
+    stress_reactivity = db.Column(db.Text, nullable=True)
+    social_pattern = db.Column(db.Text, nullable=True)
+    screen_time_evening_hours = db.Column(db.Float, nullable=True)
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(
+        db.DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
+
+    def missing_required_fields(self):
+        required = {
+            "age": self.age,
+            "biological_sex": self.biological_sex,
+            "time_zone": self.time_zone,
+            "height_cm": self.height_cm,
+            "weight_kg": self.weight_kg,
+            "primary_goal": self.primary_goal,
+            "fitness_level": self.fitness_level,
+            "diet_style": self.diet_style,
+            "medical_conditions": self.medical_conditions,
+        }
+        return [key for key, value in required.items() if value in (None, "")]
 
 
 class DailyCheckIn(db.Model):

@@ -4,6 +4,8 @@ CoachMIM is a structured self-report system for longitudinal behavioral pattern 
 
 Phase I (MVP) focuses on 30-day baseline capture:
 
+- Basic account login per user
+- Core profile baseline (required fields) + optional profile enrichment
 - Daily check-ins (sleep, mood, focus, energy, stress, productivity, symptoms, digestion, workout, alcohol)
 - Meal logging (time, composition, tags, notes)
 - Optional meal photo upload
@@ -47,6 +49,10 @@ flask run
 ## Core Routes
 
 - `/` dashboard
+- `/register` create account
+- `/login` login
+- `/logout` logout
+- `/profile` profile setup/update
 - `/checkin` daily check-in form
 - `/meal` meal logger
 - `/substance` substance logger
@@ -56,6 +62,7 @@ flask run
 ## Data Model
 
 - `User`
+- `UserProfile`
 - `DailyCheckIn`
 - `Meal`
 - `Substance`
@@ -65,11 +72,11 @@ flask run
 `render.yaml` provisions:
 
 - One web service (`coachmim-web`)
-- One PostgreSQL database (`coachmim-db`)
-- `DATABASE_URL` wiring from managed Postgres
+- `DATABASE_URL` wiring from existing managed Postgres (`coachMIMdb`)
 - Build migration step (`flask db upgrade`)
 
 ## Notes
 
 - OpenAI is optional for MVP. If `OPENAI_API_KEY` is unset, weekly AI reflection shows a fallback message.
 - Uploads are stored in `app/static/uploads` for local/dev. Production object storage can replace this later.
+- For production cookie security, set `SESSION_COOKIE_SECURE=true`.

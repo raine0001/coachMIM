@@ -1,0 +1,257 @@
+{% extends "base.html" %}
+{% block content %}
+  <div class="card">
+    <h1>Profile Setup</h1>
+    <p class="muted">
+      Phase I onboarding captures core baseline fields first, then optional context.
+    </p>
+    {% if missing_required %}
+      <p class="muted">Missing required fields: {{ missing_required | join(", ") }}</p>
+    {% endif %}
+  </div>
+
+  <form method="post" action="{{ url_for('main.profile') }}">
+    <div class="card">
+      <h2>Required Core Baseline</h2>
+      <div class="grid">
+        <div>
+          <label for="full_name">Full Name</label>
+          <input id="full_name" name="full_name" value="{{ current_user.full_name or '' }}" required />
+        </div>
+        <div>
+          <label for="email">Email</label>
+          <input id="email" name="email" type="email" value="{{ current_user.email or '' }}" required />
+        </div>
+        <div>
+          <label for="age">Age</label>
+          <input id="age" name="age" type="number" min="1" max="120" value="{{ profile.age or '' }}" required />
+        </div>
+        <div>
+          <label for="biological_sex">Biological Sex</label>
+          <select id="biological_sex" name="biological_sex" required>
+            <option value="">Choose one</option>
+            <option value="female" {% if profile.biological_sex == "female" %}selected{% endif %}>Female</option>
+            <option value="male" {% if profile.biological_sex == "male" %}selected{% endif %}>Male</option>
+            <option value="intersex" {% if profile.biological_sex == "intersex" %}selected{% endif %}>Intersex</option>
+            <option value="other" {% if profile.biological_sex == "other" %}selected{% endif %}>Other</option>
+          </select>
+        </div>
+        <div>
+          <label for="time_zone">Time Zone</label>
+          <input id="time_zone" name="time_zone" placeholder="e.g., America/Chicago" value="{{ profile.time_zone or '' }}" required />
+        </div>
+        <div>
+          <label for="height_cm">Height (cm)</label>
+          <input id="height_cm" name="height_cm" type="number" min="50" max="260" step="0.1" value="{{ profile.height_cm or '' }}" required />
+        </div>
+        <div>
+          <label for="weight_kg">Weight (kg)</label>
+          <input id="weight_kg" name="weight_kg" type="number" min="20" max="350" step="0.1" value="{{ profile.weight_kg or '' }}" required />
+        </div>
+        <div>
+          <label for="primary_goal">Primary Goal</label>
+          <input id="primary_goal" name="primary_goal" placeholder="e.g., more consistent energy" value="{{ profile.primary_goal or '' }}" required />
+        </div>
+        <div>
+          <label for="fitness_level">Fitness Level</label>
+          <select id="fitness_level" name="fitness_level" required>
+            <option value="">Choose one</option>
+            <option value="sedentary" {% if profile.fitness_level == "sedentary" %}selected{% endif %}>Sedentary</option>
+            <option value="light" {% if profile.fitness_level == "light" %}selected{% endif %}>Light</option>
+            <option value="moderate" {% if profile.fitness_level == "moderate" %}selected{% endif %}>Moderate</option>
+            <option value="intense" {% if profile.fitness_level == "intense" %}selected{% endif %}>Intense</option>
+          </select>
+        </div>
+        <div>
+          <label for="diet_style">Diet Style</label>
+          <input id="diet_style" name="diet_style" placeholder="omnivore, low-carb, vegetarian..." value="{{ profile.diet_style or '' }}" required />
+        </div>
+      </div>
+      <div style="margin-top: 12px;">
+        <label for="medical_conditions">Known Medical Conditions</label>
+        <textarea id="medical_conditions" name="medical_conditions" required>{{ profile.medical_conditions or '' }}</textarea>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Optional Health Context</h2>
+      <div class="grid">
+        <div>
+          <label for="phone">Cell Phone</label>
+          <input id="phone" name="phone" value="{{ profile.phone or '' }}" />
+        </div>
+        <div>
+          <label for="body_fat_pct">Body Fat %</label>
+          <input id="body_fat_pct" name="body_fat_pct" type="number" min="0" max="70" step="0.1" value="{{ profile.body_fat_pct or '' }}" />
+        </div>
+        <div>
+          <label for="waist_cm">Waist (cm)</label>
+          <input id="waist_cm" name="waist_cm" type="number" min="30" max="220" step="0.1" value="{{ profile.waist_cm or '' }}" />
+        </div>
+        <div>
+          <label for="general_health_rating">General Health (1-10)</label>
+          <input id="general_health_rating" name="general_health_rating" type="number" min="1" max="10" value="{{ profile.general_health_rating or '' }}" />
+        </div>
+        <div>
+          <label for="resting_blood_pressure">Resting BP</label>
+          <input id="resting_blood_pressure" name="resting_blood_pressure" placeholder="e.g., 118/76" value="{{ profile.resting_blood_pressure or '' }}" />
+        </div>
+        <div>
+          <label for="known_sleep_issues">Sleep Issues</label>
+          <input id="known_sleep_issues" name="known_sleep_issues" placeholder="insomnia, apnea..." value="{{ profile.known_sleep_issues or '' }}" />
+        </div>
+      </div>
+      <div style="margin-top: 12px;">
+        <label for="family_history_flags">Family History Flags</label>
+        <textarea id="family_history_flags" name="family_history_flags">{{ profile.family_history_flags or '' }}</textarea>
+      </div>
+      <div style="margin-top: 12px;">
+        <label for="medications">Medications</label>
+        <textarea id="medications" name="medications">{{ profile.medications or '' }}</textarea>
+      </div>
+      <div style="margin-top: 12px;">
+        <label for="supplements">Supplements</label>
+        <textarea id="supplements" name="supplements">{{ profile.supplements or '' }}</textarea>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Optional Lifestyle Baseline</h2>
+      <div class="grid">
+        <div>
+          <label for="typical_sleep_duration_hours">Typical Sleep Duration (hours)</label>
+          <input id="typical_sleep_duration_hours" name="typical_sleep_duration_hours" type="number" min="0" max="14" step="0.1" value="{{ profile.typical_sleep_duration_hours or '' }}" />
+        </div>
+        <div>
+          <label for="work_type">Work Type</label>
+          <select id="work_type" name="work_type">
+            <option value="">Choose one</option>
+            <option value="desk" {% if profile.work_type == "desk" %}selected{% endif %}>Desk</option>
+            <option value="hybrid" {% if profile.work_type == "hybrid" %}selected{% endif %}>Hybrid</option>
+            <option value="physical" {% if profile.work_type == "physical" %}selected{% endif %}>Physical</option>
+          </select>
+        </div>
+        <div>
+          <label for="work_stress_baseline">Work Stress (1-10)</label>
+          <input id="work_stress_baseline" name="work_stress_baseline" type="number" min="1" max="10" value="{{ profile.work_stress_baseline or '' }}" />
+        </div>
+        <div>
+          <label for="typical_alcohol_frequency">Alcohol Frequency</label>
+          <input id="typical_alcohol_frequency" name="typical_alcohol_frequency" placeholder="e.g., 2 nights/week" value="{{ profile.typical_alcohol_frequency or '' }}" />
+        </div>
+        <div>
+          <label for="caffeine_baseline">Caffeine Baseline</label>
+          <input id="caffeine_baseline" name="caffeine_baseline" placeholder="e.g., 250mg/day" value="{{ profile.caffeine_baseline or '' }}" />
+        </div>
+        <div>
+          <label for="nicotine_use">Nicotine Use</label>
+          <input id="nicotine_use" name="nicotine_use" value="{{ profile.nicotine_use or '' }}" />
+        </div>
+        <div>
+          <label for="recreational_drug_use">Recreational Drug Use</label>
+          <input id="recreational_drug_use" name="recreational_drug_use" value="{{ profile.recreational_drug_use or '' }}" />
+        </div>
+        <div>
+          <label for="typical_meal_timing">Typical Meal Timing</label>
+          <input id="typical_meal_timing" name="typical_meal_timing" placeholder="late eater, early eater..." value="{{ profile.typical_meal_timing or '' }}" />
+        </div>
+        <div>
+          <label for="cravings_patterns">Cravings Patterns</label>
+          <input id="cravings_patterns" name="cravings_patterns" placeholder="sweet, salty, late-night..." value="{{ profile.cravings_patterns or '' }}" />
+        </div>
+        <div>
+          <label for="chronotype">Chronotype</label>
+          <select id="chronotype" name="chronotype">
+            <option value="">Choose one</option>
+            <option value="morning" {% if profile.chronotype == "morning" %}selected{% endif %}>Morning</option>
+            <option value="night" {% if profile.chronotype == "night" %}selected{% endif %}>Night</option>
+            <option value="unsure" {% if profile.chronotype == "unsure" %}selected{% endif %}>Unsure</option>
+          </select>
+        </div>
+        <div>
+          <label for="screen_time_evening_hours">Evening Screen Time (hours)</label>
+          <input id="screen_time_evening_hours" name="screen_time_evening_hours" type="number" min="0" max="12" step="0.1" value="{{ profile.screen_time_evening_hours or '' }}" />
+        </div>
+      </div>
+      <div style="margin-top: 12px;">
+        <label for="food_intolerances">Food Intolerances</label>
+        <textarea id="food_intolerances" name="food_intolerances">{{ profile.food_intolerances or '' }}</textarea>
+      </div>
+      <div style="margin-top: 12px;">
+        <label for="food_sensitivities">Food Sensitivities</label>
+        <textarea id="food_sensitivities" name="food_sensitivities">{{ profile.food_sensitivities or '' }}</textarea>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Optional Psychological + Goal Baseline</h2>
+      <div class="grid">
+        <div>
+          <label for="baseline_mood">Baseline Mood (1-10)</label>
+          <input id="baseline_mood" name="baseline_mood" type="number" min="1" max="10" value="{{ profile.baseline_mood or '' }}" />
+        </div>
+        <div>
+          <label for="baseline_anxiety">Baseline Anxiety (1-10)</label>
+          <input id="baseline_anxiety" name="baseline_anxiety" type="number" min="1" max="10" value="{{ profile.baseline_anxiety or '' }}" />
+        </div>
+        <div>
+          <label for="baseline_focus">Baseline Focus (1-10)</label>
+          <input id="baseline_focus" name="baseline_focus" type="number" min="1" max="10" value="{{ profile.baseline_focus or '' }}" />
+        </div>
+        <div>
+          <label for="energy_consistency">Energy Consistency</label>
+          <select id="energy_consistency" name="energy_consistency">
+            <option value="">Choose one</option>
+            <option value="stable" {% if profile.energy_consistency == "stable" %}selected{% endif %}>Stable</option>
+            <option value="fluctuates" {% if profile.energy_consistency == "fluctuates" %}selected{% endif %}>Fluctuates</option>
+          </select>
+        </div>
+        <div>
+          <label for="emotional_volatility">Emotional Volatility</label>
+          <select id="emotional_volatility" name="emotional_volatility">
+            <option value="">Choose one</option>
+            <option value="low" {% if profile.emotional_volatility == "low" %}selected{% endif %}>Low</option>
+            <option value="moderate" {% if profile.emotional_volatility == "moderate" %}selected{% endif %}>Moderate</option>
+            <option value="high" {% if profile.emotional_volatility == "high" %}selected{% endif %}>High</option>
+          </select>
+        </div>
+        <div>
+          <label for="time_horizon">Goal Time Horizon</label>
+          <input id="time_horizon" name="time_horizon" placeholder="30 days, 6 months..." value="{{ profile.time_horizon or '' }}" />
+        </div>
+      </div>
+      <div style="margin-top: 12px;">
+        <label for="secondary_goals">Secondary Goals</label>
+        <textarea id="secondary_goals" name="secondary_goals">{{ profile.secondary_goals or '' }}</textarea>
+      </div>
+      <div style="margin-top: 12px;">
+        <label for="great_day_definition">What does a great day look like?</label>
+        <textarea id="great_day_definition" name="great_day_definition">{{ profile.great_day_definition or '' }}</textarea>
+      </div>
+      <div style="margin-top: 12px;">
+        <label for="attention_issues">Attention Issues</label>
+        <textarea id="attention_issues" name="attention_issues">{{ profile.attention_issues or '' }}</textarea>
+      </div>
+      <div style="margin-top: 12px;">
+        <label for="burnout_history">Burnout History</label>
+        <textarea id="burnout_history" name="burnout_history">{{ profile.burnout_history or '' }}</textarea>
+      </div>
+      <div style="margin-top: 12px;">
+        <label for="digestive_sensitivity">Digestive Sensitivity</label>
+        <textarea id="digestive_sensitivity" name="digestive_sensitivity">{{ profile.digestive_sensitivity or '' }}</textarea>
+      </div>
+      <div style="margin-top: 12px;">
+        <label for="stress_reactivity">Stress Reactivity</label>
+        <textarea id="stress_reactivity" name="stress_reactivity">{{ profile.stress_reactivity or '' }}</textarea>
+      </div>
+      <div style="margin-top: 12px;">
+        <label for="social_pattern">Social Pattern</label>
+        <textarea id="social_pattern" name="social_pattern">{{ profile.social_pattern or '' }}</textarea>
+      </div>
+    </div>
+
+    <div class="card">
+      <button type="submit">Save Profile</button>
+    </div>
+  </form>
+{% endblock %}

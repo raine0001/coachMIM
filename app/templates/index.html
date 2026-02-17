@@ -8,28 +8,47 @@
     </p>
   </div>
 
-  <div class="grid">
+  {% if is_authenticated %}
     <div class="card">
-      <h3>Check-Ins Logged</h3>
-      <div class="metric">{{ checkin_count }}</div>
+      <h2>Welcome back, {{ current_user.full_name or "CoachMIM user" }}</h2>
+      {% if missing_required %}
+        <p class="muted">
+          Core profile fields still missing:
+          {{ missing_required | join(", ") }}.
+        </p>
+        <p><a href="{{ url_for('main.profile') }}">Complete profile setup</a></p>
+      {% else %}
+        <p class="muted">Profile baseline complete. Continue daily logging.</p>
+      {% endif %}
     </div>
-    <div class="card">
-      <h3>Meals Logged</h3>
-      <div class="metric">{{ meal_count }}</div>
-    </div>
-    <div class="card">
-      <h3>Substances Logged</h3>
-      <div class="metric">{{ substance_count }}</div>
-    </div>
-  </div>
 
-  <div class="card">
-    <h2>Phase I Workflow</h2>
-    <ol>
-      <li>Log a daily check-in.</li>
-      <li>Log meals with timestamps, tags, and optional photo.</li>
-      <li>Log alcohol/caffeine/nicotine entries if used.</li>
-      <li>Review timeline prompts and weekly insights.</li>
-    </ol>
-  </div>
+    <div class="grid">
+      <div class="card">
+        <h3>Check-Ins Logged</h3>
+        <div class="metric">{{ checkin_count }}</div>
+      </div>
+      <div class="card">
+        <h3>Meals Logged</h3>
+        <div class="metric">{{ meal_count }}</div>
+      </div>
+      <div class="card">
+        <h3>Substances Logged</h3>
+        <div class="metric">{{ substance_count }}</div>
+      </div>
+    </div>
+  {% else %}
+    <div class="card">
+      <h2>Start Here</h2>
+      <ol>
+        <li>Create an account.</li>
+        <li>Complete your core profile baseline.</li>
+        <li>Begin daily check-ins and meal logging.</li>
+      </ol>
+      <p>
+        <a href="{{ url_for('main.register') }}">Create account</a>
+        or
+        <a href="{{ url_for('main.login') }}">log in</a>.
+      </p>
+    </div>
+  {% endif %}
 {% endblock %}

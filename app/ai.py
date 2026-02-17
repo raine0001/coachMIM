@@ -67,6 +67,339 @@ def ai_reflection(summary_text: str) -> str:
     return resp.output_text or "No reflection generated."
 
 
+MEAL_PARSE_ALLOWED_UNITS = {"serving", "g", "ml", "oz", "lb", "cup", "tbsp", "tsp", "item"}
+MEAL_PARSE_UNIT_ALIASES = {
+    "serving": "serving",
+    "servings": "serving",
+    "portion": "serving",
+    "portions": "serving",
+    "g": "g",
+    "gram": "g",
+    "grams": "g",
+    "ml": "ml",
+    "milliliter": "ml",
+    "milliliters": "ml",
+    "oz": "oz",
+    "ounce": "oz",
+    "ounces": "oz",
+    "lb": "lb",
+    "lbs": "lb",
+    "pound": "lb",
+    "pounds": "lb",
+    "cup": "cup",
+    "cups": "cup",
+    "tbsp": "tbsp",
+    "tablespoon": "tbsp",
+    "tablespoons": "tbsp",
+    "tbs": "tbsp",
+    "tsp": "tsp",
+    "teaspoon": "tsp",
+    "teaspoons": "tsp",
+    "item": "item",
+    "items": "item",
+    "piece": "item",
+    "pieces": "item",
+    "slice": "item",
+    "slices": "item",
+    "scoop": "item",
+    "scoops": "item",
+    "clove": "item",
+    "cloves": "item",
+}
+MEAL_PARSE_NUMBER_WORDS = {
+    "a": 1.0,
+    "an": 1.0,
+    "one": 1.0,
+    "two": 2.0,
+    "three": 3.0,
+    "four": 4.0,
+    "five": 5.0,
+    "six": 6.0,
+    "seven": 7.0,
+    "eight": 8.0,
+    "nine": 9.0,
+    "ten": 10.0,
+    "half": 0.5,
+    "quarter": 0.25,
+}
+MEAL_PARSE_GENERIC_DISH_NAMES = {
+    "hot choc",
+    "hot chocolate",
+    "hot cocoa",
+    "protein shake",
+    "shake",
+    "smoothie",
+    "drink",
+}
+
+
+def _as_bool(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    text = str(value or "").strip().lower()
+    return text in {"1", "true", "yes", "y", "on"}
+
+
+def _normalize_meal_unit(value) -> str:
+    raw = str(value or "").strip().lower().replace(".", "")
+    unit = MEAL_PARSE_UNIT_ALIASES.get(raw, raw)
+    return unit if unit in MEAL_PARSE_ALLOWED_UNITS else "serving"
+
+
+def _normalize_quantity_unit(quantity: float, unit_value) -> tuple[float, str]:
+    raw = str(unit_value or "").strip().lower().replace(".", "")
+    if raw in {"kg", "kilogram", "kilograms"}:
+        return (quantity * 1000.0, "g")
+    if raw in {"l", "liter", "liters"}:
+        return (quantity * 1000.0, "ml")
+    return (quantity, _normalize_meal_unit(raw))
+
+
+def _parse_quantity_value(value) -> float | None:
+    if value in (None, ""):
+        return None
+    if isinstance(value, (int, float)):
+        if float(value) > 0:
+            return float(value)
+        return None
+
+    text = str(value).strip().lower()
+    text = text.replace("-", " ")
+    text = text.replace("½", " 1/2 ")
+    text = text.replace("¼", " 1/4 ")
+    text = text.replace("¾", " 3/4 ")
+    text = re.sub(r"\s+", " ", text).strip()
+    if not text:
+        return None
+
+    if text in MEAL_PARSE_NUMBER_WORDS:
+        return MEAL_PARSE_NUMBER_WORDS[text]
+
+    mixed_match = re.fullmatch(r"(\d+)\s+(\d+)\/(\d+)", text)
+    if mixed_match:
+        whole = float(mixed_match.group(1))
+        numerator = float(mixed_match.group(2))
+        denominator = float(mixed_match.group(3))
+        if denominator != 0:
+            return whole + (numerator / denominator)
+
+    fraction_match = re.fullmatch(r"(\d+)\/(\d+)", text)
+    if fraction_match:
+        numerator = float(fraction_match.group(1))
+        denominator = float(fraction_match.group(2))
+        if denominator != 0:
+            return numerator / denominator
+
+    number_match = re.search(r"\d+(?:\.\d+)?", text)
+    if number_match:
+        try:
+            parsed = float(number_match.group(0))
+            return parsed if parsed > 0 else None
+        except ValueError:
+            return None
+    return None
+
+
+def _normalize_parsed_ingredients(raw_ingredients) -> list[dict]:
+    if not isinstance(raw_ingredients, list):
+        return []
+
+    normalized = []
+    for item in raw_ingredients[:24]:
+        if isinstance(item, str):
+            item = {"name": item}
+        if not isinstance(item, dict):
+            continue
+
+        name = str(item.get("name") or item.get("ingredient") or item.get("item") or "").strip()
+        if not name:
+            continue
+
+        quantity = _parse_quantity_value(item.get("quantity"))
+        if quantity is None:
+            quantity = 1.0
+        quantity, unit = _normalize_quantity_unit(float(quantity), item.get("unit"))
+
+        normalized.append(
+            {
+                "name": name[:255],
+                "quantity": float(quantity),
+                "unit": unit,
+                "calories": _as_float(item.get("calories")),
+                "protein_g": _as_float(item.get("protein_g")),
+                "carbs_g": _as_float(item.get("carbs_g")),
+                "fat_g": _as_float(item.get("fat_g")),
+                "sugar_g": _as_float(item.get("sugar_g")),
+                "sodium_mg": _as_float(item.get("sodium_mg")),
+            }
+        )
+
+    return normalized
+
+
+def _looks_like_beverage(text: str) -> bool:
+    lowered = (text or "").lower()
+    beverage_tokens = {
+        "shake",
+        "smoothie",
+        "coffee",
+        "tea",
+        "juice",
+        "drink",
+        "latte",
+        "cocoa",
+        "hot chocolate",
+        "hot choc",
+        "protein drink",
+        "milk",
+    }
+    return any(token in lowered for token in beverage_tokens)
+
+
+def _derive_meal_title_from_text(text: str) -> str | None:
+    lowered = (text or "").lower()
+    if "hot chocolate" in lowered or "hot choc" in lowered or "hot cocoa" in lowered:
+        return "Hot Chocolate"
+    if "protein shake" in lowered or "shake" in lowered:
+        return "Protein Shake"
+    if "smoothie" in lowered:
+        return "Smoothie"
+    if "salad" in lowered:
+        return "Salad"
+    return None
+
+
+def _fallback_parse_meal_sentence(text: str) -> dict:
+    sentence = str(text or "").strip()
+    if not sentence:
+        return {"meal_title": None, "meal_label": None, "is_beverage": False, "ingredients": [], "source": "regex"}
+
+    working = sentence
+    working = re.sub(r"\btable\s*spoons?\b", "tablespoon", working, flags=re.IGNORECASE)
+    working = re.sub(r"\btea\s*spoons?\b", "teaspoon", working, flags=re.IGNORECASE)
+    working = re.sub(r"\b(?:using|utilizing|with|plus)\b", ",", working, flags=re.IGNORECASE)
+    working = re.sub(r"\s+and\s+", ", ", working, flags=re.IGNORECASE)
+    working = re.sub(r"\s+", " ", working).strip(" .")
+
+    segments = [part.strip(" .") for part in working.split(",") if part.strip(" .")]
+    ingredients: list[dict] = []
+
+    lead_strip = re.compile(r"^(?:i\s+)?(?:make|made|had|having|drink|drank|ate)\s+(?:a|an|my)?\s*", flags=re.IGNORECASE)
+    item_pattern = re.compile(
+        r"^(?:(?P<qty>\d+\s+\d+\/\d+|\d+\/\d+|\d+(?:\.\d+)?|a|an|one|two|three|four|five|six|seven|eight|nine|ten|half|quarter)\s+)?"
+        r"(?:(?P<unit>tablespoons?|tbsp|teaspoons?|tsp|cups?|oz|ounces?|pounds?|lbs?|grams?|g|ml|milliliters?|liters?|servings?|items?|pieces?|slices?|scoops?)\s+)?"
+        r"(?:(?:of)\s+)?(?P<name>.+)$",
+        flags=re.IGNORECASE,
+    )
+
+    for segment in segments[:24]:
+        cleaned = lead_strip.sub("", segment).strip()
+        if not cleaned:
+            continue
+
+        match = item_pattern.match(cleaned)
+        if not match:
+            continue
+
+        name = str(match.group("name") or "").strip(" .")
+        if not name:
+            continue
+
+        raw_qty = match.group("qty")
+        raw_unit = match.group("unit")
+        normalized_name = re.sub(r"\s+", " ", name.lower()).strip()
+        if not raw_qty and not raw_unit and normalized_name in MEAL_PARSE_GENERIC_DISH_NAMES:
+            continue
+
+        quantity = _parse_quantity_value(raw_qty) or 1.0
+        quantity, unit = _normalize_quantity_unit(float(quantity), match.group("unit"))
+        ingredients.append({"name": name[:255], "quantity": float(quantity), "unit": unit})
+
+    if not ingredients:
+        ingredients = [{"name": sentence[:255], "quantity": 1.0, "unit": "serving"}]
+
+    return {
+        "meal_title": _derive_meal_title_from_text(sentence),
+        "meal_label": "Drink" if _looks_like_beverage(sentence) else None,
+        "is_beverage": _looks_like_beverage(sentence),
+        "ingredients": ingredients,
+        "source": "regex",
+    }
+
+
+def _ai_parse_meal_sentence(text: str) -> dict:
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return {}
+
+    model = os.getenv("OPENAI_MEAL_PARSE_MODEL", "gpt-4.1-mini")
+    prompt = (
+        "Parse this one-sentence meal description into structured JSON.\n"
+        "Return JSON only using this schema:\n"
+        "{\n"
+        '  "meal_title": string or null,\n'
+        '  "meal_label": string or null,\n'
+        '  "is_beverage": boolean,\n'
+        '  "ingredients": [\n'
+        "    {\n"
+        '      "name": string,\n'
+        '      "quantity": number,\n'
+        '      "unit": "serving" | "g" | "ml" | "oz" | "lb" | "cup" | "tbsp" | "tsp" | "item"\n'
+        "    }\n"
+        "  ]\n"
+        "}\n"
+        "Rules:\n"
+        "- Do not include markdown.\n"
+        "- Use numbers for quantity (convert fractions like 1/4 to 0.25).\n"
+        "- Use unit='serving' when unit is unknown.\n"
+        "- Keep ingredient names concise.\n"
+        f"Sentence: {text}"
+    )
+
+    client = OpenAI(api_key=api_key)
+    response = client.responses.create(model=model, input=prompt)
+    parsed = _extract_json_object(response.output_text or "")
+    ingredients = _normalize_parsed_ingredients(parsed.get("ingredients"))
+    if not ingredients:
+        return {}
+
+    return {
+        "meal_title": str(parsed.get("meal_title") or "").strip()[:120] or None,
+        "meal_label": str(parsed.get("meal_label") or "").strip()[:120] or None,
+        "is_beverage": _as_bool(parsed.get("is_beverage")),
+        "ingredients": ingredients,
+        "source": "ai",
+    }
+
+
+def parse_meal_sentence(sentence_text: str) -> dict:
+    text = str(sentence_text or "").strip()
+    if len(text) < 6:
+        raise RuntimeError("Provide a longer sentence so MIM can parse ingredients.")
+
+    ai_result = {}
+    try:
+        ai_result = _ai_parse_meal_sentence(text)
+    except Exception:
+        ai_result = {}
+
+    if ai_result.get("ingredients"):
+        if not ai_result.get("meal_title"):
+            ai_result["meal_title"] = _derive_meal_title_from_text(text)
+        if not ai_result.get("meal_label") and ai_result.get("is_beverage"):
+            ai_result["meal_label"] = "Drink"
+        if not ai_result.get("is_beverage"):
+            ai_result["is_beverage"] = _looks_like_beverage(text)
+        return ai_result
+
+    fallback = _fallback_parse_meal_sentence(text)
+    if not fallback.get("ingredients"):
+        raise RuntimeError("MIM could not parse ingredients from that sentence.")
+    return fallback
+
+
 def _extract_json_object(raw_text: str) -> dict:
     text = (raw_text or "").strip()
     if not text:

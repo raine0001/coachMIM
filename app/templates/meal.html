@@ -37,8 +37,9 @@
   <div class="card">
     <h2>Quick Flow</h2>
     <ol style="margin-top: 0;">
-      <li>Type a food, then tap <strong>Use</strong> on the closest match to load nutrition.</li>
-      <li>If no good match: type your description or add custom facts/product link/label photo.</li>
+      <li>For recipes, open Build Recipe and use <strong>Describe (AI)</strong> with one sentence.</li>
+      <li>For single foods, type a food then tap <strong>Use</strong> on the closest match.</li>
+      <li>If no good match: add custom facts, product link, or label photo.</li>
       <li>Press <strong>Save Meal</strong>. Confirm it appears in the Entries table below.</li>
     </ol>
   </div>
@@ -167,12 +168,13 @@
           <div style="margin-top: 4px;">
             <label>Ingredient Source</label>
             <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+              <button id="builder_source_describe" type="button" style="background: #fff; color: #17212b; border: 1px solid #d7dee7;">Describe (AI)</button>
               <button id="builder_source_catalog" type="button">Catalog</button>
               <button id="builder_source_product" type="button" style="background: #fff; color: #17212b; border: 1px solid #d7dee7;">Product Link</button>
               <button id="builder_source_label" type="button" style="background: #fff; color: #17212b; border: 1px solid #d7dee7;">Label Photo</button>
               <button id="builder_source_manual" type="button" style="background: #fff; color: #17212b; border: 1px solid #d7dee7;">Manual Facts</button>
             </div>
-            <p id="builder_source_hint" class="muted" style="margin: 8px 0 0;">Catalog mode: search local foods first, USDA secondary.</p>
+            <p id="builder_source_hint" class="muted" style="margin: 8px 0 0;">Describe mode: paste one sentence and MIM parses ingredients into the builder.</p>
           </div>
 
           <div class="grid" style="margin-top: 12px;">
@@ -184,6 +186,25 @@
               <label for="builder_label">Meal Label</label>
               <input id="builder_label" name="builder_label" placeholder="Breakfast / Snack / Post-workout" />
             </div>
+          </div>
+
+          <div id="builder-source-describe" style="margin-top: 12px;">
+            <label for="builder_meal_sentence">Describe Your Meal In One Sentence</label>
+            <textarea
+              id="builder_meal_sentence"
+              rows="3"
+              placeholder="e.g., Hot chocolate with 2 tbsp organic cacao powder, 1 tbsp honey, 1/4 cup almond milk, and 1/2 tsp vanilla"
+            ></textarea>
+            <div style="margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap;">
+              <button id="builder_parse_sentence_btn" type="button">Parse To Ingredients</button>
+            </div>
+            <div id="builder-parse-loading" class="loading-row" style="display: none;">
+              <span class="inline-spinner"></span>
+              <span>Parsing sentence and matching foods...</span>
+            </div>
+            <p id="builder_parse_status" class="muted" style="margin: 8px 0 0;">
+              MIM will break the sentence into ingredients, estimate units, and load editable rows below.
+            </p>
           </div>
 
           <div id="builder-source-catalog">
@@ -592,15 +613,21 @@
     const builderIngredientsBody = document.getElementById("builder-ingredients-body");
     const builderApplyButton = document.getElementById("builder_apply_to_form");
     const builderClearButton = document.getElementById("builder_clear");
+    const builderSourceDescribeButton = document.getElementById("builder_source_describe");
     const builderSourceCatalogButton = document.getElementById("builder_source_catalog");
     const builderSourceProductButton = document.getElementById("builder_source_product");
     const builderSourceLabelButton = document.getElementById("builder_source_label");
     const builderSourceManualButton = document.getElementById("builder_source_manual");
     const builderSourceHint = document.getElementById("builder_source_hint");
+    const builderSourceDescribePanel = document.getElementById("builder-source-describe");
     const builderSourceCatalogPanel = document.getElementById("builder-source-catalog");
     const builderCustomCard = document.getElementById("builder-custom-card");
     const builderProductControls = document.getElementById("builder-product-controls");
     const builderLabelControls = document.getElementById("builder-label-controls");
+    const builderMealSentenceInput = document.getElementById("builder_meal_sentence");
+    const builderParseSentenceButton = document.getElementById("builder_parse_sentence_btn");
+    const builderParseLoading = document.getElementById("builder-parse-loading");
+    const builderParseStatus = document.getElementById("builder_parse_status");
 
     const customIngredientName = document.getElementById("custom_ingredient_name");
     const customProductUrl = document.getElementById("custom_product_url");
@@ -628,7 +655,7 @@
       sodium: document.getElementById("builder_total_sodium"),
     };
 
-    const builderState = { ingredients: [], editingRowId: null, source: "catalog", mode: "single" };
+    const builderState = { ingredients: [], editingRowId: null, source: "describe", mode: "single" };
     const unitOptions = ["serving", "g", "oz", "lb", "ml", "cup", "tbsp", "tsp", "item"];
 
     const fieldMap = {
@@ -705,20 +732,24 @@
     }
 
     function setBuilderSource(source) {
-      const allowed = new Set(["catalog", "product", "label", "manual"]);
+      const allowed = new Set(["describe", "catalog", "product", "label", "manual"]);
       const nextSource = allowed.has(source) ? source : "catalog";
       builderState.source = nextSource;
 
+      setToggleButtonState(builderSourceDescribeButton, nextSource === "describe");
       setToggleButtonState(builderSourceCatalogButton, nextSource === "catalog");
       setToggleButtonState(builderSourceProductButton, nextSource === "product");
       setToggleButtonState(builderSourceLabelButton, nextSource === "label");
       setToggleButtonState(builderSourceManualButton, nextSource === "manual");
 
+      if (builderSourceDescribePanel) {
+        builderSourceDescribePanel.style.display = nextSource === "describe" ? "block" : "none";
+      }
       if (builderSourceCatalogPanel) {
         builderSourceCatalogPanel.style.display = nextSource === "catalog" ? "block" : "none";
       }
       if (builderCustomCard) {
-        builderCustomCard.style.display = nextSource === "catalog" ? "none" : "block";
+        builderCustomCard.style.display = ["product", "label", "manual"].includes(nextSource) ? "block" : "none";
       }
       if (builderProductControls) {
         builderProductControls.style.display = nextSource === "product" ? "grid" : "none";
@@ -728,7 +759,9 @@
       }
 
       if (builderSourceHint) {
-        if (nextSource === "catalog") {
+        if (nextSource === "describe") {
+          builderSourceHint.textContent = "Describe mode: type one sentence, parse ingredients, then adjust rows if needed.";
+        } else if (nextSource === "catalog") {
           builderSourceHint.textContent = "Catalog mode: search your local foods first. Use USDA only if needed.";
         } else if (nextSource === "product") {
           builderSourceHint.textContent = "Product Link mode: paste a product URL, fetch nutrition, then add ingredient.";
@@ -1092,6 +1125,27 @@
       labelParseStatus.style.color = isError ? "#b42318" : "";
     }
 
+    function setBuilderParseStatus(message, isError = false) {
+      if (!builderParseStatus) return;
+      builderParseStatus.textContent = message || "";
+      builderParseStatus.style.color = isError ? "#b42318" : "";
+    }
+
+    function setBuilderParseLoading(isLoading) {
+      if (builderParseLoading) {
+        builderParseLoading.style.display = isLoading ? "flex" : "none";
+      }
+      if (builderParseSentenceButton) {
+        builderParseSentenceButton.disabled = isLoading;
+        if (isLoading) {
+          builderParseSentenceButton.dataset.originalText = builderParseSentenceButton.textContent;
+          builderParseSentenceButton.textContent = "Parsing...";
+        } else if (builderParseSentenceButton.dataset.originalText) {
+          builderParseSentenceButton.textContent = builderParseSentenceButton.dataset.originalText;
+        }
+      }
+    }
+
     function clearCustomIngredientInputs(resetStatus = true) {
       if (customIngredientName) customIngredientName.value = "";
       if (customProductUrl) customProductUrl.value = "";
@@ -1216,6 +1270,89 @@
       if (customFat && parsed.fat_g !== null && parsed.fat_g !== undefined) customFat.value = parsed.fat_g;
       if (customSugar && parsed.sugar_g !== null && parsed.sugar_g !== undefined) customSugar.value = parsed.sugar_g;
       if (customSodium && parsed.sodium_mg !== null && parsed.sodium_mg !== undefined) customSodium.value = parsed.sodium_mg;
+    }
+
+    function applyParsedMealToBuilder(parsed) {
+      const ingredients = Array.isArray(parsed?.ingredients) ? parsed.ingredients : [];
+      if (!ingredients.length) {
+        setBuilderParseStatus("No ingredients detected. Try commas between ingredients.", true);
+        return;
+      }
+
+      builderState.ingredients = ingredients.map((item, index) => ({
+        row_id: `parsed_${Date.now()}_${index}`,
+        food_item_id: item.food_item_id || null,
+        food_name: item.food_name || item.matched_display_name || "Ingredient",
+        quantity: Number(item.quantity || 0) > 0 ? Number(item.quantity) : 1,
+        unit: normalizeUnit(item.unit || "serving"),
+        serving_size: item.serving_size ?? null,
+        serving_unit: item.serving_unit ?? null,
+        calories: item.calories ?? null,
+        protein_g: item.protein_g ?? null,
+        carbs_g: item.carbs_g ?? null,
+        fat_g: item.fat_g ?? null,
+        sugar_g: item.sugar_g ?? null,
+        sodium_mg: item.sodium_mg ?? null,
+      }));
+
+      const parsedTitle = cleanText(parsed.meal_title);
+      if (parsedTitle && builderTitleInput && !cleanText(builderTitleInput.value)) {
+        builderTitleInput.value = parsedTitle;
+      }
+
+      const parsedLabel = cleanText(parsed.meal_label);
+      if (parsedLabel && builderLabelInput && !cleanText(builderLabelInput.value)) {
+        builderLabelInput.value = parsedLabel;
+      }
+
+      if (typeof parsed.is_beverage === "boolean" && fieldMap.is_beverage) {
+        fieldMap.is_beverage.checked = parsed.is_beverage;
+      }
+
+      setEntryMode("recipe");
+      setBuilderSource("describe");
+      setBuilderOpen(true);
+      setCustomIngredientEditMode(null);
+      clearCustomIngredientInputs();
+      renderBuilderIngredients();
+
+      const totalCount = Number(parsed.total_count || ingredients.length);
+      const matchCount = Number(parsed.match_count || 0);
+      const sourceName = cleanText(parsed.source || "parser");
+      setBuilderParseStatus(
+        `Parsed ${totalCount} ingredient${totalCount === 1 ? "" : "s"} (${matchCount} matched local catalog via ${sourceName}). Review Qty/Unit, then click Use Builder Totals.`,
+      );
+    }
+
+    async function parseMealSentenceToBuilder() {
+      const text = cleanText(builderMealSentenceInput?.value);
+      if (text.length < 6) {
+        setBuilderParseStatus("Type one sentence describing ingredients first.", true);
+        return;
+      }
+
+      const body = new URLSearchParams();
+      body.set("text", text);
+
+      setBuilderParseLoading(true);
+      setBuilderParseStatus("Parsing sentence...");
+      try {
+        const response = await fetch("/meal/parse-text", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: body.toString(),
+        });
+        const data = await response.json();
+        if (!response.ok || !data.ok) {
+          setBuilderParseStatus(data.error || "Sentence parse failed. Try a simpler format.", true);
+          return;
+        }
+        applyParsedMealToBuilder(data.parsed || {});
+      } catch (error) {
+        setBuilderParseStatus("Sentence parse request failed. You can still add ingredients manually.", true);
+      } finally {
+        setBuilderParseLoading(false);
+      }
     }
 
     async function parseNutritionLabelPhoto() {
@@ -1673,6 +1810,12 @@
       });
     }
 
+    if (builderSourceDescribeButton) {
+      builderSourceDescribeButton.addEventListener("click", () => {
+        setBuilderSource("describe");
+      });
+    }
+
     if (builderSourceCatalogButton) {
       builderSourceCatalogButton.addEventListener("click", () => {
         setBuilderSource("catalog");
@@ -1788,6 +1931,12 @@
       });
     }
 
+    if (builderParseSentenceButton) {
+      builderParseSentenceButton.addEventListener("click", () => {
+        parseMealSentenceToBuilder();
+      });
+    }
+
     if (mealForm) {
       mealForm.addEventListener("submit", () => {
         if (saveFavoriteCheckbox?.checked) {
@@ -1836,7 +1985,7 @@
     setCustomIngredientEditMode(null);
     clearCustomIngredientInputs();
     renderBuilderIngredients();
-    setBuilderSource("catalog");
+    setBuilderSource("describe");
     setEntryMode("single");
     setSubmitLoading(false);
     setSearchLoading("single", false, false);

@@ -27,6 +27,7 @@ from app import db
 from app.ai import (
     ai_reflection,
     coach_prompt_missing_fields,
+    parse_meal_sentence,
     parse_nutrition_label_image,
     parse_product_page_url,
 )
@@ -1353,6 +1354,122 @@ def fuzzy_food_matches(query: str, existing_ids: set[int], limit: int = 8):
     return [item for _, item in scored[:limit]]
 
 
+def normalize_builder_unit(value: str | None) -> str:
+    raw = (value or "").strip().lower().replace(".", "")
+    mapping = {
+        "serving": "serving",
+        "servings": "serving",
+        "portion": "serving",
+        "portions": "serving",
+        "g": "g",
+        "gram": "g",
+        "grams": "g",
+        "oz": "oz",
+        "ounce": "oz",
+        "ounces": "oz",
+        "lb": "lb",
+        "lbs": "lb",
+        "pound": "lb",
+        "pounds": "lb",
+        "ml": "ml",
+        "milliliter": "ml",
+        "milliliters": "ml",
+        "cup": "cup",
+        "cups": "cup",
+        "tbsp": "tbsp",
+        "tablespoon": "tbsp",
+        "tablespoons": "tbsp",
+        "tsp": "tsp",
+        "teaspoon": "tsp",
+        "teaspoons": "tsp",
+        "item": "item",
+        "items": "item",
+        "piece": "item",
+        "pieces": "item",
+        "slice": "item",
+        "slices": "item",
+    }
+    normalized = mapping.get(raw, raw)
+    return normalized if normalized in {"serving", "g", "oz", "lb", "ml", "cup", "tbsp", "tsp", "item"} else "serving"
+
+
+def _food_item_to_payload(item: FoodItem) -> dict:
+    return {
+        "id": item.id,
+        "name": ((item.name or "").strip() or None),
+        "brand": ((item.brand or "").strip() or None),
+        "display_name": (
+            f"{(item.name or '').strip()} ({(item.brand or '').strip()})"
+            if (item.name or "").strip() and (item.brand or "").strip()
+            else ((item.name or "").strip() or (item.brand or "").strip() or f"Food item #{item.id}")
+        ),
+        "serving_size": item.serving_size,
+        "serving_unit": item.serving_unit,
+        "calories": item.calories,
+        "protein_g": item.protein_g,
+        "carbs_g": item.carbs_g,
+        "fat_g": item.fat_g,
+        "sugar_g": item.sugar_g,
+        "sodium_mg": item.sodium_mg,
+        "source": item.source,
+    }
+
+
+def find_best_food_item_match(query: str) -> tuple[FoodItem | None, float]:
+    q = (query or "").strip()
+    if len(q) < 2:
+        return (None, 0.0)
+
+    tokens = tokenize_search_text(q)
+    if not tokens:
+        return (None, 0.0)
+
+    conditions = [FoodItem.name.ilike(f"%{q}%"), FoodItem.brand.ilike(f"%{q}%")]
+    for token in tokens[:5]:
+        conditions.append(FoodItem.name.ilike(f"%{token}%"))
+        conditions.append(FoodItem.brand.ilike(f"%{token}%"))
+        if len(token) >= 3:
+            snippet = token[:3]
+            conditions.append(FoodItem.name.ilike(f"%{snippet}%"))
+            conditions.append(FoodItem.brand.ilike(f"%{snippet}%"))
+
+    candidates = (
+        FoodItem.query.filter(or_(*conditions))
+        .order_by(
+            case(
+                (FoodItem.source == "seed", 0),
+                (FoodItem.source == "community", 1),
+                (FoodItem.source == "usda", 2),
+                else_=3,
+            ),
+            case((FoodItem.calories.isnot(None), 0), else_=1),
+            FoodItem.name.asc(),
+        )
+        .limit(250)
+        .all()
+    )
+
+    best_item: FoodItem | None = None
+    best_score = 0.0
+    for item in candidates:
+        score = score_food_match(q, tokens, item)
+        if score > best_score:
+            best_score = score
+            best_item = item
+
+    if best_item and best_score >= 0.42:
+        return (best_item, best_score)
+
+    fuzzy = fuzzy_food_matches(q, existing_ids=set(), limit=1)
+    if fuzzy:
+        fuzzy_item = fuzzy[0]
+        fuzzy_score = score_food_match(q, tokens, fuzzy_item)
+        if fuzzy_score > best_score and fuzzy_score >= 0.42:
+            return (fuzzy_item, fuzzy_score)
+
+    return (None, best_score)
+
+
 @bp.get("/foods/search")
 @login_required
 @profile_required
@@ -1419,29 +1536,121 @@ def food_search():
         deduped_results.append(item)
     results = deduped_results[:15]
 
-    payload = [
-        {
-            "id": item.id,
-            "name": ((item.name or "").strip() or None),
-            "brand": ((item.brand or "").strip() or None),
-            "display_name": (
-                f"{(item.name or '').strip()} ({(item.brand or '').strip()})"
-                if (item.name or "").strip() and (item.brand or "").strip()
-                else ((item.name or "").strip() or (item.brand or "").strip() or f"Food item #{item.id}")
-            ),
-            "serving_size": item.serving_size,
-            "serving_unit": item.serving_unit,
-            "calories": item.calories,
-            "protein_g": item.protein_g,
-            "carbs_g": item.carbs_g,
-            "fat_g": item.fat_g,
-            "sugar_g": item.sugar_g,
-            "sodium_mg": item.sodium_mg,
-            "source": item.source,
-        }
-        for item in results
-    ]
+    payload = [_food_item_to_payload(item) for item in results]
     return jsonify({"results": payload, "message": message, "imported": imported, "used_fuzzy": used_fuzzy})
+
+
+@bp.post("/meal/parse-text")
+@login_required
+@profile_required
+def meal_parse_text():
+    if request.is_json:
+        body = request.get_json(silent=True) or {}
+        sentence = normalize_text(body.get("text"))
+    else:
+        sentence = normalize_text(request.form.get("text"))
+
+    if not sentence or len(sentence) < 6:
+        return jsonify({"ok": False, "error": "Enter one sentence with ingredients (for example: 2 tbsp honey, 1 cup milk)."}), 400
+
+    try:
+        parsed = parse_meal_sentence(sentence)
+    except RuntimeError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    except Exception:
+        return jsonify({"ok": False, "error": "Meal parse failed. Try a clearer sentence or add ingredients manually."}), 500
+
+    seed_common_foods_if_needed()
+
+    parsed_ingredients = parsed.get("ingredients") if isinstance(parsed.get("ingredients"), list) else []
+    resolved_ingredients = []
+    matched_count = 0
+
+    for item in parsed_ingredients[:24]:
+        if not isinstance(item, dict):
+            continue
+
+        ingredient_name = normalize_text(item.get("name"))
+        if not ingredient_name:
+            continue
+
+        quantity = parse_float(item.get("quantity"))
+        if quantity is None or quantity <= 0:
+            quantity = 1.0
+
+        parsed_unit = normalize_builder_unit(item.get("unit"))
+        matched_item, score = find_best_food_item_match(ingredient_name)
+
+        calories = parse_float(item.get("calories"))
+        protein_g = parse_float(item.get("protein_g"))
+        carbs_g = parse_float(item.get("carbs_g"))
+        fat_g = parse_float(item.get("fat_g"))
+        sugar_g = parse_float(item.get("sugar_g"))
+        sodium_mg = parse_float(item.get("sodium_mg"))
+
+        payload_item = {
+            "food_item_id": None,
+            "food_name": ingredient_name,
+            "quantity": round(float(quantity), 3),
+            "unit": parsed_unit,
+            "serving_size": None,
+            "serving_unit": None,
+            "calories": int(round(calories)) if calories is not None else None,
+            "protein_g": protein_g,
+            "carbs_g": carbs_g,
+            "fat_g": fat_g,
+            "sugar_g": sugar_g,
+            "sodium_mg": sodium_mg,
+            "match_score": round(float(score), 3) if score else 0.0,
+            "match_source": "none",
+            "matched_display_name": None,
+        }
+
+        if matched_item:
+            matched_count += 1
+            payload_item.update(
+                {
+                    "food_item_id": matched_item.id,
+                    "food_name": matched_item.display_name(),
+                    "serving_size": matched_item.serving_size,
+                    "serving_unit": matched_item.serving_unit,
+                    "calories": matched_item.calories if matched_item.calories is not None else payload_item["calories"],
+                    "protein_g": matched_item.protein_g if matched_item.protein_g is not None else payload_item["protein_g"],
+                    "carbs_g": matched_item.carbs_g if matched_item.carbs_g is not None else payload_item["carbs_g"],
+                    "fat_g": matched_item.fat_g if matched_item.fat_g is not None else payload_item["fat_g"],
+                    "sugar_g": matched_item.sugar_g if matched_item.sugar_g is not None else payload_item["sugar_g"],
+                    "sodium_mg": matched_item.sodium_mg if matched_item.sodium_mg is not None else payload_item["sodium_mg"],
+                    "match_source": matched_item.source or "local",
+                    "matched_display_name": matched_item.display_name(),
+                }
+            )
+            if parsed_unit == "serving":
+                payload_item["unit"] = "serving"
+        resolved_ingredients.append(payload_item)
+
+    if not resolved_ingredients:
+        return jsonify({"ok": False, "error": "No ingredients detected. Try commas between ingredients."}), 400
+
+    meal_title = normalize_text(parsed.get("meal_title"))
+    meal_label = normalize_text(parsed.get("meal_label"))
+    is_beverage = parse_bool(parsed.get("is_beverage")) if parsed.get("is_beverage") is not None else False
+    if not meal_label and is_beverage:
+        meal_label = "Drink"
+
+    return jsonify(
+        {
+            "ok": True,
+            "parsed": {
+                "source": parsed.get("source") or "parser",
+                "meal_title": meal_title,
+                "meal_label": meal_label,
+                "is_beverage": is_beverage,
+                "ingredients": resolved_ingredients,
+                "match_count": matched_count,
+                "total_count": len(resolved_ingredients),
+            },
+        }
+    )
 
 
 @bp.post("/nutrition/label/parse")

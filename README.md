@@ -7,7 +7,9 @@ Phase I (MVP) focuses on 30-day baseline capture:
 - Basic account login per user
 - Core profile baseline (required fields) + optional profile enrichment
 - Daily check-ins (sleep, mood, focus, energy, stress, productivity, symptoms, digestion, workout, alcohol)
-- Meal logging (time, composition, tags, notes)
+- Meal logging with searchable food catalog + USDA-backed import/caching
+- Favorite meals (save/reuse defaults)
+- Daily meal table with edit/delete
 - Optional meal photo upload
 - Pre-emptive prompts for missing or inconsistent data
 - Lightweight weekly insights
@@ -55,6 +57,9 @@ flask run
 - `/profile` profile setup/update
 - `/checkin` daily check-in form
 - `/meal` meal logger
+- `/meal/<id>/edit` update meal entry
+- `/meal/<id>/delete` delete meal entry
+- `/foods/search` autocomplete endpoint for local + USDA food catalog lookup
 - `/substance` substance logger
 - `/timeline` recent logs + pre-emptive prompts
 - `/insights` weekly summary and reflection
@@ -65,6 +70,8 @@ flask run
 - `UserProfile`
 - `DailyCheckIn`
 - `Meal`
+- `FoodItem`
+- `FavoriteMeal`
 - `Substance`
 
 ## Render Deployment
@@ -78,5 +85,7 @@ flask run
 ## Notes
 
 - OpenAI is optional for MVP. If `OPENAI_API_KEY` is unset, weekly AI reflection shows a fallback message.
+- USDA food import is optional. Add `USDA_API_KEY` to enable search-time USDA imports into your local DB cache.
+- Optional bulk import command: `python -m scripts.import_foods chicken rice yogurt coffee --max-results 50`
 - Uploads are stored in `app/static/uploads` for local/dev. Production object storage can replace this later.
 - For production cookie security, set `SESSION_COOKIE_SECURE=true`.

@@ -1,62 +1,339 @@
 {% extends "base.html" %}
 {% block content %}
   <div class="card">
-    <h1>Log Meal</h1>
-    <p class="muted">Log timing, composition, portions, tags, and optional photo.</p>
-    <form method="post" action="{{ url_for('main.meal_save') }}" enctype="multipart/form-data">
+    <h1>{{ "Edit Meal Entry" if edit_meal else "Log Meal" }}</h1>
+    <p class="muted">
+      Search common foods, pull defaults, save reusable favorites, and track all entries for the day.
+    </p>
+    {% if edit_meal %}
+      <p><a href="{{ url_for('main.meal_form', day=selected_day) }}">Create a new meal entry instead</a></p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <form method="get" action="{{ url_for('main.meal_form') }}">
       <div class="grid">
         <div>
-          <label for="eaten_at">Eaten At</label>
-          <input id="eaten_at" name="eaten_at" type="datetime-local" />
+          <label for="day">Viewing Day</label>
+          <input id="day" name="day" type="date" value="{{ selected_day }}" />
+        </div>
+      </div>
+      <div style="margin-top: 12px;">
+        <button type="submit">Load Day</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="card">
+    <form id="meal-form" method="post" action="{{ form_action }}" enctype="multipart/form-data">
+      <div class="grid">
+        <div style="grid-column: span 2;">
+          <label for="food_search">Food / Drink Search</label>
+          <input
+            id="food_search"
+            placeholder="Type food name (e.g., chicken breast, greek yogurt, coffee)"
+            autocomplete="off"
+            value="{{ edit_meal.food_item.display_name() if edit_meal and edit_meal.food_item else '' }}"
+          />
+          <input id="food_item_id" name="food_item_id" type="hidden" value="{{ edit_meal.food_item_id if edit_meal else '' }}" />
+          <div id="food-results" style="margin-top: 8px;"></div>
         </div>
         <div>
-          <label for="label">Label</label>
-          <input id="label" name="label" placeholder="Breakfast / Lunch / Dinner" />
+          <label for="search_usda">&nbsp;</label>
+          <button id="search_usda" type="button">Search USDA</button>
+        </div>
+      </div>
+
+      <div class="grid" style="margin-top: 12px;">
+        <div>
+          <label for="favorite_selector">Load Favorite</label>
+          <select id="favorite_selector">
+            <option value="">Choose a favorite</option>
+            {% for favorite in favorites %}
+              <option value="{{ favorite.id }}">{{ favorite.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label for="save_favorite">&nbsp;</label>
+          <label style="display: inline-flex; align-items: center; gap: 8px; font-weight: 400;">
+            <input id="save_favorite" name="save_favorite" type="checkbox" />
+            Save this entry as a favorite
+          </label>
+        </div>
+        <div>
+          <label for="favorite_name">Favorite Name</label>
+          <input id="favorite_name" name="favorite_name" placeholder="e.g., weekday breakfast" />
+        </div>
+      </div>
+
+      <div class="grid" style="margin-top: 12px;">
+        <div>
+          <label for="eaten_at">Eaten At</label>
+          <input
+            id="eaten_at"
+            name="eaten_at"
+            type="datetime-local"
+            value="{{ edit_meal.eaten_at.strftime('%Y-%m-%dT%H:%M') if edit_meal else default_eaten_at }}"
+            required
+          />
+        </div>
+        <div>
+          <label for="label">Meal Label</label>
+          <input id="label" name="label" placeholder="Breakfast / Lunch / Dinner / Snack" value="{{ edit_meal.label if edit_meal else '' }}" />
         </div>
         <div>
           <label for="portion_notes">Portion Notes</label>
-          <input id="portion_notes" name="portion_notes" placeholder="1 bowl, 2 slices..." />
+          <input id="portion_notes" name="portion_notes" placeholder="1 bowl, 2 slices..." value="{{ edit_meal.portion_notes if edit_meal else '' }}" />
         </div>
         <div>
           <label for="tags">Tags (comma-separated)</label>
-          <input id="tags" name="tags" placeholder="high_carb, processed, salty" />
+          <input id="tags" name="tags" placeholder="high_carb, processed, salty" value="{{ (edit_meal.tags | join(', ')) if edit_meal and edit_meal.tags else '' }}" />
         </div>
         <div>
           <label for="calories">Calories</label>
-          <input id="calories" name="calories" type="number" min="0" />
+          <input id="calories" name="calories" type="number" min="0" value="{{ edit_meal.calories if edit_meal and edit_meal.calories is not none else '' }}" />
         </div>
         <div>
           <label for="protein_g">Protein (g)</label>
-          <input id="protein_g" name="protein_g" type="number" min="0" step="0.1" />
+          <input id="protein_g" name="protein_g" type="number" min="0" step="0.1" value="{{ edit_meal.protein_g if edit_meal and edit_meal.protein_g is not none else '' }}" />
         </div>
         <div>
           <label for="carbs_g">Carbs (g)</label>
-          <input id="carbs_g" name="carbs_g" type="number" min="0" step="0.1" />
+          <input id="carbs_g" name="carbs_g" type="number" min="0" step="0.1" value="{{ edit_meal.carbs_g if edit_meal and edit_meal.carbs_g is not none else '' }}" />
         </div>
         <div>
           <label for="fat_g">Fat (g)</label>
-          <input id="fat_g" name="fat_g" type="number" min="0" step="0.1" />
+          <input id="fat_g" name="fat_g" type="number" min="0" step="0.1" value="{{ edit_meal.fat_g if edit_meal and edit_meal.fat_g is not none else '' }}" />
         </div>
         <div>
           <label for="sugar_g">Sugar (g)</label>
-          <input id="sugar_g" name="sugar_g" type="number" min="0" step="0.1" />
+          <input id="sugar_g" name="sugar_g" type="number" min="0" step="0.1" value="{{ edit_meal.sugar_g if edit_meal and edit_meal.sugar_g is not none else '' }}" />
         </div>
         <div>
           <label for="sodium_mg">Sodium (mg)</label>
-          <input id="sodium_mg" name="sodium_mg" type="number" min="0" step="0.1" />
+          <input id="sodium_mg" name="sodium_mg" type="number" min="0" step="0.1" value="{{ edit_meal.sodium_mg if edit_meal and edit_meal.sodium_mg is not none else '' }}" />
         </div>
         <div>
           <label for="photo">Photo (optional)</label>
           <input id="photo" name="photo" type="file" accept=".png,.jpg,.jpeg,.webp,.heic" />
         </div>
+        <div>
+          <label for="is_beverage">&nbsp;</label>
+          <label style="display: inline-flex; align-items: center; gap: 8px; font-weight: 400;">
+            <input id="is_beverage" name="is_beverage" type="checkbox" {% if edit_meal and edit_meal.is_beverage %}checked{% endif %} />
+            This is a drink
+          </label>
+        </div>
       </div>
+
       <div style="margin-top: 12px;">
         <label for="description">Description</label>
-        <textarea id="description" name="description" placeholder="What you ate and anything relevant (prep style, sauce, cravings, etc)."></textarea>
+        <textarea id="description" name="description" placeholder="What you ate/drank and context (prep, sauce, cravings, etc).">{{ edit_meal.description if edit_meal else '' }}</textarea>
       </div>
-      <div style="margin-top: 12px;">
-        <button type="submit">Save Meal</button>
+
+      <div style="margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap;">
+        <button type="submit">{{ "Update Meal" if edit_meal else "Save Meal" }}</button>
+        {% if edit_meal %}
+          <a href="{{ url_for('main.meal_form', day=selected_day) }}" style="padding: 10px 14px; background: #fff; border: 1px solid #d7dee7; border-radius: 8px; text-decoration: none; color: #17212b;">Cancel Edit</a>
+        {% endif %}
       </div>
     </form>
   </div>
+
+  <div class="card">
+    <h2>Entries For {{ selected_day }}</h2>
+    {% if day_meals %}
+      <div style="overflow-x: auto;">
+        <table style="width: 100%; border-collapse: collapse;">
+          <thead>
+            <tr>
+              <th style="text-align: left; padding: 8px; border-bottom: 1px solid #d7dee7;">Time</th>
+              <th style="text-align: left; padding: 8px; border-bottom: 1px solid #d7dee7;">Type</th>
+              <th style="text-align: left; padding: 8px; border-bottom: 1px solid #d7dee7;">Item</th>
+              <th style="text-align: left; padding: 8px; border-bottom: 1px solid #d7dee7;">Portion</th>
+              <th style="text-align: right; padding: 8px; border-bottom: 1px solid #d7dee7;">Calories</th>
+              <th style="text-align: right; padding: 8px; border-bottom: 1px solid #d7dee7;">P/C/F</th>
+              <th style="text-align: left; padding: 8px; border-bottom: 1px solid #d7dee7;">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for meal in day_meals %}
+              <tr>
+                <td style="padding: 8px; border-bottom: 1px solid #eef3f8;">{{ meal.eaten_at.strftime("%H:%M") }}</td>
+                <td style="padding: 8px; border-bottom: 1px solid #eef3f8;">{{ "Drink" if meal.is_beverage else "Food" }}</td>
+                <td style="padding: 8px; border-bottom: 1px solid #eef3f8;">{{ meal.food_item.display_name() if meal.food_item else (meal.description or "Custom entry") }}</td>
+                <td style="padding: 8px; border-bottom: 1px solid #eef3f8;">{{ meal.portion_notes or "n/a" }}</td>
+                <td style="padding: 8px; border-bottom: 1px solid #eef3f8; text-align: right;">{{ meal.calories if meal.calories is not none else "-" }}</td>
+                <td style="padding: 8px; border-bottom: 1px solid #eef3f8; text-align: right;">
+                  {{ meal.protein_g if meal.protein_g is not none else "-" }}/{{ meal.carbs_g if meal.carbs_g is not none else "-" }}/{{ meal.fat_g if meal.fat_g is not none else "-" }}
+                </td>
+                <td style="padding: 8px; border-bottom: 1px solid #eef3f8;">
+                  <a href="{{ url_for('main.meal_edit', meal_id=meal.id) }}">Edit</a>
+                  <form method="post" action="{{ url_for('main.meal_delete', meal_id=meal.id) }}" style="display: inline;">
+                    <input type="hidden" name="day" value="{{ selected_day }}" />
+                    <button type="submit" style="margin-left: 8px; background: #fff; color: #b42318; border: 1px solid #f1c0bc;">Delete</button>
+                  </form>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p class="muted">No food or drink entries yet for this day.</p>
+    {% endif %}
+  </div>
+
+  <script>
+    const favoritePayload = {{ favorite_payload | tojson }};
+    const favoriteSelector = document.getElementById("favorite_selector");
+    const foodSearchInput = document.getElementById("food_search");
+    const foodResults = document.getElementById("food-results");
+    const foodItemIdInput = document.getElementById("food_item_id");
+    const searchUsdaButton = document.getElementById("search_usda");
+
+    const fieldMap = {
+      label: document.getElementById("label"),
+      description: document.getElementById("description"),
+      portion_notes: document.getElementById("portion_notes"),
+      tags: document.getElementById("tags"),
+      calories: document.getElementById("calories"),
+      protein_g: document.getElementById("protein_g"),
+      carbs_g: document.getElementById("carbs_g"),
+      fat_g: document.getElementById("fat_g"),
+      sugar_g: document.getElementById("sugar_g"),
+      sodium_mg: document.getElementById("sodium_mg"),
+      is_beverage: document.getElementById("is_beverage"),
+    };
+
+    function applyFoodOrFavorite(data) {
+      if (!data) return;
+      if (data.id !== undefined && data.id !== null) {
+        foodItemIdInput.value = data.id;
+      } else if (data.food_item_id) {
+        foodItemIdInput.value = data.food_item_id;
+      }
+
+      if (data.display_name) {
+        foodSearchInput.value = data.display_name;
+      }
+
+      if (fieldMap.description && !fieldMap.description.value) {
+        fieldMap.description.value = data.display_name || data.description || data.name || "";
+      } else if (data.description && !fieldMap.description.value) {
+        fieldMap.description.value = data.description;
+      }
+
+      if (data.serving_size && data.serving_unit && fieldMap.portion_notes && !fieldMap.portion_notes.value) {
+        fieldMap.portion_notes.value = `${data.serving_size} ${data.serving_unit}`;
+      } else if (data.portion_notes && !fieldMap.portion_notes.value) {
+        fieldMap.portion_notes.value = data.portion_notes;
+      }
+
+      if (data.label && fieldMap.label && !fieldMap.label.value) fieldMap.label.value = data.label;
+      if (data.tags && fieldMap.tags && !fieldMap.tags.value) fieldMap.tags.value = data.tags;
+
+      ["calories", "protein_g", "carbs_g", "fat_g", "sugar_g", "sodium_mg"].forEach((key) => {
+        if (fieldMap[key] && (fieldMap[key].value === "" || fieldMap[key].value === null)) {
+          if (data[key] !== undefined && data[key] !== null) {
+            fieldMap[key].value = data[key];
+          }
+        }
+      });
+
+      if (typeof data.is_beverage === "boolean" && fieldMap.is_beverage) {
+        fieldMap.is_beverage.checked = data.is_beverage;
+      }
+    }
+
+    if (favoriteSelector) {
+      favoriteSelector.addEventListener("change", () => {
+        const selectedId = Number(favoriteSelector.value);
+        if (!selectedId) return;
+        const favorite = favoritePayload.find((item) => item.id === selectedId);
+        applyFoodOrFavorite(favorite);
+      });
+    }
+
+    let lastSearchToken = 0;
+    let debounceTimer;
+
+    function renderFoodResults(items) {
+      if (!foodResults) return;
+      if (!items || items.length === 0) {
+        foodResults.innerHTML = '<p class="muted" style="margin: 6px 0;">No matching foods found.</p>';
+        return;
+      }
+
+      foodResults.innerHTML = "";
+      items.forEach((item) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "food-result";
+        button.style.display = "block";
+        button.style.width = "100%";
+        button.style.textAlign = "left";
+        button.style.margin = "4px 0";
+        button.style.padding = "8px 10px";
+        button.style.border = "1px solid #d7dee7";
+        button.style.borderRadius = "8px";
+        button.style.background = "#fff";
+        button.style.cursor = "pointer";
+
+        const title = document.createElement("strong");
+        title.textContent = item.display_name;
+        button.appendChild(title);
+
+        const meta = document.createElement("span");
+        meta.className = "muted";
+        meta.style.marginLeft = "6px";
+        const kcal = item.calories !== null && item.calories !== undefined ? `${item.calories} kcal` : "kcal n/a";
+        meta.textContent = `${kcal} · ${item.source}`;
+        button.appendChild(meta);
+
+        button.addEventListener("click", () => {
+          applyFoodOrFavorite(item);
+          foodResults.innerHTML = "";
+        });
+        foodResults.appendChild(button);
+      });
+    }
+
+    async function runFoodSearch(remote = false) {
+      const query = (foodSearchInput.value || "").trim();
+      if (query.length < 2) {
+        foodResults.innerHTML = "";
+        return;
+      }
+
+      const token = ++lastSearchToken;
+      const params = new URLSearchParams({ q: query });
+      if (remote) params.set("remote", "1");
+
+      try {
+        const response = await fetch(`/foods/search?${params.toString()}`);
+        const data = await response.json();
+        if (token !== lastSearchToken) return;
+        renderFoodResults(data.results || []);
+      } catch (error) {
+        if (token !== lastSearchToken) return;
+        foodResults.innerHTML = '<p class="muted" style="margin: 6px 0;">Search failed. Try again.</p>';
+      }
+    }
+
+    if (foodSearchInput) {
+      foodSearchInput.addEventListener("input", () => {
+        foodItemIdInput.value = "";
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => runFoodSearch(false), 220);
+      });
+    }
+
+    if (searchUsdaButton) {
+      searchUsdaButton.addEventListener("click", () => {
+        runFoodSearch(true);
+      });
+    }
+  </script>
 {% endblock %}

@@ -16,6 +16,7 @@ class User(db.Model):
     checkins = db.relationship("DailyCheckIn", backref="user", lazy=True)
     meals = db.relationship("Meal", backref="user", lazy=True)
     substances = db.relationship("Substance", backref="user", lazy=True)
+    favorite_meals = db.relationship("FavoriteMeal", backref="user", lazy=True)
 
 
 class UserProfile(db.Model):
@@ -136,6 +137,7 @@ class Meal(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    food_item_id = db.Column(db.Integer, db.ForeignKey("food_items.id"), nullable=True)
 
     eaten_at = db.Column(db.DateTime, index=True, nullable=False)
     label = db.Column(db.String(120), nullable=True)
@@ -150,9 +152,80 @@ class Meal(db.Model):
     fat_g = db.Column(db.Float, nullable=True)
     sugar_g = db.Column(db.Float, nullable=True)
     sodium_mg = db.Column(db.Float, nullable=True)
+    is_beverage = db.Column(db.Boolean, default=False, nullable=False)
 
     photo_path = db.Column(db.String(500), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(
+        db.DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
+
+    food_item = db.relationship("FoodItem", backref="meals", lazy=True)
+
+
+class FoodItem(db.Model):
+    __tablename__ = "food_items"
+
+    id = db.Column(db.Integer, primary_key=True)
+    external_id = db.Column(db.String(64), unique=True, nullable=True)
+    name = db.Column(db.String(255), index=True, nullable=False)
+    brand = db.Column(db.String(255), nullable=True)
+    serving_size = db.Column(db.Float, nullable=True)
+    serving_unit = db.Column(db.String(32), nullable=True)
+
+    calories = db.Column(db.Integer, nullable=True)
+    protein_g = db.Column(db.Float, nullable=True)
+    carbs_g = db.Column(db.Float, nullable=True)
+    fat_g = db.Column(db.Float, nullable=True)
+    sugar_g = db.Column(db.Float, nullable=True)
+    sodium_mg = db.Column(db.Float, nullable=True)
+
+    source = db.Column(db.String(50), nullable=False, default="seed")
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (db.UniqueConstraint("name", "brand", "source", name="uq_food_items_name_brand_source"),)
+
+    def display_name(self):
+        if self.brand:
+            return f"{self.name} ({self.brand})"
+        return self.name
+
+
+class FavoriteMeal(db.Model):
+    __tablename__ = "favorite_meals"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    food_item_id = db.Column(db.Integer, db.ForeignKey("food_items.id"), nullable=True)
+
+    name = db.Column(db.String(120), nullable=False)
+    label = db.Column(db.String(120), nullable=True)
+    description = db.Column(db.Text, nullable=True)
+    portion_notes = db.Column(db.String(255), nullable=True)
+    tags = db.Column(db.JSON, nullable=True)
+    is_beverage = db.Column(db.Boolean, default=False, nullable=False)
+
+    calories = db.Column(db.Integer, nullable=True)
+    protein_g = db.Column(db.Float, nullable=True)
+    carbs_g = db.Column(db.Float, nullable=True)
+    fat_g = db.Column(db.Float, nullable=True)
+    sugar_g = db.Column(db.Float, nullable=True)
+    sodium_mg = db.Column(db.Float, nullable=True)
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(
+        db.DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
+
+    food_item = db.relationship("FoodItem", backref="favorite_meals", lazy=True)
+
+    __table_args__ = (db.UniqueConstraint("user_id", "name", name="uq_favorite_meals_user_name"),)
 
 
 class Substance(db.Model):

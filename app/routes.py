@@ -9,18 +9,21 @@ from flask import (
     current_app,
     flash,
     g,
+    jsonify,
     redirect,
     render_template,
     request,
     session,
     url_for,
 )
+from sqlalchemy import or_
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
 from app import db
 from app.ai import ai_reflection, coach_prompt_missing_fields
-from app.models import DailyCheckIn, Meal, Substance, User, UserProfile
+from app.food_catalog import import_foods_from_usda, seed_common_foods_if_needed
+from app.models import DailyCheckIn, FavoriteMeal, FoodItem, Meal, Substance, User, UserProfile
 
 bp = Blueprint("main", __name__)
 
@@ -51,6 +54,139 @@ def parse_int(value):
 
 def parse_float(value):
     return float(value) if value not in (None, "") else None
+
+
+def parse_bool(value):
+    return str(value).lower() in {"1", "true", "yes", "on"}
+
+
+def parse_tags(raw_value):
+    raw = raw_value or ""
+    tags = [item.strip() for item in raw.split(",") if item.strip()]
+    return tags or None
+
+
+def day_bounds(target_day: date):
+    start = datetime.combine(target_day, datetime.min.time())
+    end = start + timedelta(days=1)
+    return start, end
+
+
+def build_meal_context(selected_day: date, edit_meal: Meal | None = None):
+    seed_common_foods_if_needed()
+
+    start, end = day_bounds(selected_day)
+    day_meals = (
+        Meal.query.filter(
+            Meal.user_id == g.user.id,
+            Meal.eaten_at >= start,
+            Meal.eaten_at < end,
+        )
+        .order_by(Meal.eaten_at.asc())
+        .all()
+    )
+    favorites = FavoriteMeal.query.filter_by(user_id=g.user.id).order_by(FavoriteMeal.name.asc()).all()
+
+    favorite_payload = [
+        {
+            "id": f.id,
+            "name": f.name,
+            "label": f.label,
+            "food_item_id": f.food_item_id,
+            "description": f.description,
+            "portion_notes": f.portion_notes,
+            "tags": ", ".join(f.tags) if f.tags else "",
+            "calories": f.calories,
+            "protein_g": f.protein_g,
+            "carbs_g": f.carbs_g,
+            "fat_g": f.fat_g,
+            "sugar_g": f.sugar_g,
+            "sodium_mg": f.sodium_mg,
+            "is_beverage": f.is_beverage,
+        }
+        for f in favorites
+    ]
+
+    default_time = datetime.now().strftime("%H:%M") if selected_day == date.today() else "12:00"
+
+    return {
+        "selected_day": selected_day.isoformat(),
+        "day_meals": day_meals,
+        "favorites": favorites,
+        "favorite_payload": favorite_payload,
+        "edit_meal": edit_meal,
+        "default_eaten_at": f"{selected_day.isoformat()}T{default_time}",
+    }
+
+
+def apply_meal_fields_from_request(meal: Meal):
+    eaten_at_raw = request.form.get("eaten_at") or datetime.utcnow().strftime("%Y-%m-%dT%H:%M")
+    eaten_at_dt = datetime.fromisoformat(eaten_at_raw)
+    food_item_id = parse_int(request.form.get("food_item_id"))
+    food_item = db.session.get(FoodItem, food_item_id) if food_item_id else None
+
+    meal.user_id = g.user.id
+    meal.food_item_id = food_item.id if food_item else None
+    meal.eaten_at = eaten_at_dt
+    meal.label = request.form.get("label") or None
+    meal.description = request.form.get("description") or None
+    meal.portion_notes = request.form.get("portion_notes") or None
+    meal.tags = parse_tags(request.form.get("tags"))
+    meal.is_beverage = parse_bool(request.form.get("is_beverage"))
+
+    meal.calories = parse_int(request.form.get("calories"))
+    meal.protein_g = parse_float(request.form.get("protein_g"))
+    meal.carbs_g = parse_float(request.form.get("carbs_g"))
+    meal.fat_g = parse_float(request.form.get("fat_g"))
+    meal.sugar_g = parse_float(request.form.get("sugar_g"))
+    meal.sodium_mg = parse_float(request.form.get("sodium_mg"))
+
+    if food_item:
+        if not meal.description:
+            meal.description = food_item.display_name()
+        if meal.calories is None:
+            meal.calories = food_item.calories
+        if meal.protein_g is None:
+            meal.protein_g = food_item.protein_g
+        if meal.carbs_g is None:
+            meal.carbs_g = food_item.carbs_g
+        if meal.fat_g is None:
+            meal.fat_g = food_item.fat_g
+        if meal.sugar_g is None:
+            meal.sugar_g = food_item.sugar_g
+        if meal.sodium_mg is None:
+            meal.sodium_mg = food_item.sodium_mg
+
+    return eaten_at_dt
+
+
+def upsert_favorite_from_request():
+    if not parse_bool(request.form.get("save_favorite")):
+        return
+
+    favorite_name = (request.form.get("favorite_name") or "").strip()
+    if not favorite_name:
+        return
+
+    favorite = FavoriteMeal.query.filter_by(user_id=g.user.id, name=favorite_name).first()
+    if not favorite:
+        favorite = FavoriteMeal(user_id=g.user.id, name=favorite_name)
+
+    favorite.food_item_id = parse_int(request.form.get("food_item_id"))
+    favorite.label = request.form.get("label") or None
+    favorite.description = request.form.get("description") or None
+    favorite.portion_notes = request.form.get("portion_notes") or None
+    favorite.tags = parse_tags(request.form.get("tags"))
+    favorite.is_beverage = parse_bool(request.form.get("is_beverage"))
+
+    favorite.calories = parse_int(request.form.get("calories"))
+    favorite.protein_g = parse_float(request.form.get("protein_g"))
+    favorite.carbs_g = parse_float(request.form.get("carbs_g"))
+    favorite.fat_g = parse_float(request.form.get("fat_g"))
+    favorite.sugar_g = parse_float(request.form.get("sugar_g"))
+    favorite.sodium_mg = parse_float(request.form.get("sodium_mg"))
+
+    db.session.add(favorite)
 
 
 def inches_to_cm(inches):
@@ -427,33 +563,21 @@ def checkin_save():
 @login_required
 @profile_required
 def meal_form():
-    return render_template("meal.html")
+    day_str = request.args.get("day")
+    selected_day = date.fromisoformat(day_str) if day_str else date.today()
+    return render_template("meal.html", form_action=url_for("main.meal_save"), **build_meal_context(selected_day))
 
 
 @bp.post("/meal")
 @login_required
 @profile_required
 def meal_save():
-    eaten_at_raw = request.form.get("eaten_at") or datetime.utcnow().strftime("%Y-%m-%dT%H:%M")
-    eaten_at_dt = datetime.fromisoformat(eaten_at_raw)
-
-    tags_raw = request.form.get("tags") or ""
-    tags = [item.strip() for item in tags_raw.split(",") if item.strip()]
-
-    meal = Meal(
-        user_id=g.user.id,
-        eaten_at=eaten_at_dt,
-        label=request.form.get("label") or None,
-        description=request.form.get("description") or None,
-        portion_notes=request.form.get("portion_notes") or None,
-        tags=tags or None,
-        calories=parse_int(request.form.get("calories")),
-        protein_g=parse_float(request.form.get("protein_g")),
-        carbs_g=parse_float(request.form.get("carbs_g")),
-        fat_g=parse_float(request.form.get("fat_g")),
-        sugar_g=parse_float(request.form.get("sugar_g")),
-        sodium_mg=parse_float(request.form.get("sodium_mg")),
-    )
+    meal = Meal()
+    try:
+        eaten_at_dt = apply_meal_fields_from_request(meal)
+    except ValueError:
+        flash("Invalid meal timestamp. Use the date/time picker and try again.", "error")
+        return redirect(url_for("main.meal_form"))
 
     photo = request.files.get("photo")
     if photo and photo.filename:
@@ -468,10 +592,121 @@ def meal_save():
         photo.save(local_path)
         meal.photo_path = f"uploads/{upload_name}"
 
+    upsert_favorite_from_request()
     db.session.add(meal)
     db.session.commit()
     flash("Meal logged.", "success")
-    return redirect(url_for("main.timeline"))
+    return redirect(url_for("main.meal_form", day=eaten_at_dt.date().isoformat()))
+
+
+@bp.route("/meal/<int:meal_id>/edit", methods=["GET", "POST"])
+@login_required
+@profile_required
+def meal_edit(meal_id: int):
+    meal = Meal.query.filter_by(id=meal_id, user_id=g.user.id).first_or_404()
+
+    if request.method == "POST":
+        try:
+            eaten_at_dt = apply_meal_fields_from_request(meal)
+        except ValueError:
+            flash("Invalid meal timestamp. Use the date/time picker and try again.", "error")
+            return redirect(url_for("main.meal_edit", meal_id=meal.id))
+        upsert_favorite_from_request()
+
+        photo = request.files.get("photo")
+        if photo and photo.filename:
+            if not allowed_file(photo.filename):
+                flash("Unsupported file type. Use png, jpg, jpeg, webp, or heic.", "error")
+                return redirect(url_for("main.meal_edit", meal_id=meal.id))
+            safe_name = secure_filename(photo.filename)
+            upload_name = f"{uuid4().hex}_{safe_name}"
+            upload_dir = current_app.config["UPLOAD_FOLDER"]
+            os.makedirs(upload_dir, exist_ok=True)
+            local_path = os.path.join(upload_dir, upload_name)
+            photo.save(local_path)
+            meal.photo_path = f"uploads/{upload_name}"
+
+        db.session.add(meal)
+        db.session.commit()
+        flash("Meal updated.", "success")
+        return redirect(url_for("main.meal_form", day=eaten_at_dt.date().isoformat()))
+
+    selected_day = meal.eaten_at.date()
+    return render_template(
+        "meal.html",
+        form_action=url_for("main.meal_edit", meal_id=meal.id),
+        **build_meal_context(selected_day, edit_meal=meal),
+    )
+
+
+@bp.post("/meal/<int:meal_id>/delete")
+@login_required
+@profile_required
+def meal_delete(meal_id: int):
+    meal = Meal.query.filter_by(id=meal_id, user_id=g.user.id).first_or_404()
+    selected_day = request.form.get("day") or meal.eaten_at.date().isoformat()
+    db.session.delete(meal)
+    db.session.commit()
+    flash("Meal deleted.", "success")
+    return redirect(url_for("main.meal_form", day=selected_day))
+
+
+@bp.get("/foods/search")
+@login_required
+@profile_required
+def food_search():
+    query = (request.args.get("q") or "").strip()
+    include_remote = parse_bool(request.args.get("remote"))
+    if len(query) < 2:
+        return jsonify({"results": []})
+
+    seed_common_foods_if_needed()
+    results = (
+        FoodItem.query.filter(
+            or_(
+                FoodItem.name.ilike(f"%{query}%"),
+                FoodItem.brand.ilike(f"%{query}%"),
+            )
+        )
+        .order_by(FoodItem.name.asc())
+        .limit(15)
+        .all()
+    )
+
+    if include_remote and len(results) < 8:
+        imported = import_foods_from_usda(query, max_results=12)
+        if imported > 0:
+            results = (
+                FoodItem.query.filter(
+                    or_(
+                        FoodItem.name.ilike(f"%{query}%"),
+                        FoodItem.brand.ilike(f"%{query}%"),
+                    )
+                )
+                .order_by(FoodItem.name.asc())
+                .limit(15)
+                .all()
+            )
+
+    payload = [
+        {
+            "id": item.id,
+            "name": item.name,
+            "brand": item.brand,
+            "display_name": item.display_name(),
+            "serving_size": item.serving_size,
+            "serving_unit": item.serving_unit,
+            "calories": item.calories,
+            "protein_g": item.protein_g,
+            "carbs_g": item.carbs_g,
+            "fat_g": item.fat_g,
+            "sugar_g": item.sugar_g,
+            "sodium_mg": item.sodium_mg,
+            "source": item.source,
+        }
+        for item in results
+    ]
+    return jsonify({"results": payload})
 
 
 @bp.get("/substance")

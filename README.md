@@ -11,6 +11,7 @@ Phase I (MVP) focuses on 30-day baseline capture:
 - Meal logging with searchable food catalog + USDA-backed import/caching
 - Ingredient-based meal builder (multi-item recipes) with reusable favorites
 - Custom ingredient entry (manual nutrition facts) + optional nutrition-label photo parsing
+- Product link parsing (fetch nutrition from product pages, with manual/USDA/photo fallback)
 - Favorite meals (save/reuse defaults)
 - Daily meal table with edit/delete
 - Optional meal photo upload
@@ -63,6 +64,8 @@ flask run
 - `/meal/<id>/edit` update meal entry
 - `/meal/<id>/delete` delete meal entry
 - `/foods/search` autocomplete endpoint for local + USDA food catalog lookup
+- `/nutrition/product/parse` parse nutrition from product URL
+- `/nutrition/label/parse` parse nutrition from label photo
 - `/substance` substance logger
 - `/timeline` recent logs + pre-emptive prompts
 - `/insights` weekly summary and reflection
@@ -89,6 +92,7 @@ flask run
 
 - OpenAI is optional for MVP. If `OPENAI_API_KEY` is unset, weekly AI reflection shows a fallback message.
 - Nutrition-label photo parsing also requires `OPENAI_API_KEY`.
+- Product link parsing works with direct page extraction; `OPENAI_API_KEY` enables AI fallback parsing for harder pages.
 - USDA food import is optional. Add `USDA_API_KEY` to enable search-time USDA imports into your local DB cache.
 - If `USDA_API_KEY` is unset, app falls back to USDA `DEMO_KEY` (lower rate limits).
 - Optional bulk import command: `python -m scripts.import_foods chicken rice yogurt coffee --max-results 50`

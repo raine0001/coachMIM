@@ -139,6 +139,14 @@
                 <label for="custom_ingredient_name">Ingredient Title</label>
                 <input id="custom_ingredient_name" placeholder="e.g., Premium Organic Cacao Powder" />
               </div>
+              <div style="grid-column: span 2;">
+                <label for="custom_product_url">Product Link (optional)</label>
+                <input id="custom_product_url" type="url" placeholder="https://..." />
+              </div>
+              <div>
+                <label for="parse_product_link_btn">&nbsp;</label>
+                <button id="parse_product_link_btn" type="button">Fetch Product Data</button>
+              </div>
               <div>
                 <label for="custom_quantity">Servings Used</label>
                 <input id="custom_quantity" type="number" min="0" step="0.1" value="1" />
@@ -425,6 +433,8 @@
     const builderApplyButton = document.getElementById("builder_apply_to_form");
     const builderClearButton = document.getElementById("builder_clear");
     const customIngredientName = document.getElementById("custom_ingredient_name");
+    const customProductUrl = document.getElementById("custom_product_url");
+    const parseProductLinkButton = document.getElementById("parse_product_link_btn");
     const customQuantity = document.getElementById("custom_quantity");
     const customServingSizeValue = document.getElementById("custom_serving_size_value");
     const customServingSizeUnit = document.getElementById("custom_serving_size_unit");
@@ -793,6 +803,45 @@
       }
     }
 
+    async function parseProductLink() {
+      const url = (customProductUrl?.value || "").trim();
+      if (!url) {
+        setLabelStatus("Paste a product link first.", true);
+        return;
+      }
+
+      const body = new URLSearchParams();
+      body.set("product_url", url);
+      body.set("ingredient_name", (customIngredientName?.value || "").trim());
+
+      setLabelStatus("Fetching product page...");
+      try {
+        const response = await fetch("/nutrition/product/parse", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: body.toString(),
+        });
+        const data = await response.json();
+        if (!response.ok || !data.ok) {
+          setLabelStatus(data.error || "Could not parse product page.", true);
+          return;
+        }
+
+        populateCustomInputsFromParsed(data.parsed || {});
+        const confidence = data.parsed?.confidence;
+        const sourceMethod = data.parsed?.source_method ? ` (${data.parsed.source_method})` : "";
+        if (confidence !== null && confidence !== undefined) {
+          setLabelStatus(
+            `Product data loaded${sourceMethod}. Confidence ${displayNumber(Number(confidence) * 100, 0)}%. Review before adding.`,
+          );
+        } else {
+          setLabelStatus(`Product data loaded${sourceMethod}. Review before adding.`);
+        }
+      } catch (error) {
+        setLabelStatus("Product link request failed. Use manual data or label photo.", true);
+      }
+    }
+
     function loadFavoriteIngredients(ingredients) {
       if (!Array.isArray(ingredients) || ingredients.length === 0) return;
       builderState.ingredients = ingredients.map((item, index) => ({
@@ -1115,6 +1164,12 @@
     if (parseLabelButton) {
       parseLabelButton.addEventListener("click", () => {
         parseNutritionLabelPhoto();
+      });
+    }
+
+    if (parseProductLinkButton) {
+      parseProductLinkButton.addEventListener("click", () => {
+        parseProductLink();
       });
     }
 

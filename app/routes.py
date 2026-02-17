@@ -22,7 +22,12 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
 from app import db
-from app.ai import ai_reflection, coach_prompt_missing_fields, parse_nutrition_label_image
+from app.ai import (
+    ai_reflection,
+    coach_prompt_missing_fields,
+    parse_nutrition_label_image,
+    parse_product_page_url,
+)
 from app.food_catalog import import_foods_from_usda, seed_common_foods_if_needed
 from app.models import DailyCheckIn, FavoriteMeal, FoodItem, Meal, Substance, User, UserProfile
 
@@ -1114,6 +1119,23 @@ def nutrition_label_parse():
         return jsonify({"ok": False, "error": str(exc)}), 400
     except Exception:
         return jsonify({"ok": False, "error": "Label parsing failed. Enter values manually or retry."}), 500
+
+    return jsonify({"ok": True, "parsed": parsed})
+
+
+@bp.post("/nutrition/product/parse")
+@login_required
+@profile_required
+def nutrition_product_parse():
+    product_url = (request.form.get("product_url") or "").strip()
+    ingredient_name = (request.form.get("ingredient_name") or "").strip() or None
+
+    try:
+        parsed = parse_product_page_url(product_url, hint_name=ingredient_name)
+    except RuntimeError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    except Exception:
+        return jsonify({"ok": False, "error": "Product link parse failed. Use manual entry or label photo."}), 500
 
     return jsonify({"ok": True, "parsed": parsed})
 

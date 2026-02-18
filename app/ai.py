@@ -67,6 +67,65 @@ def ai_reflection(summary_text: str) -> str:
     return resp.output_text or "No reflection generated."
 
 
+def ask_mim_general_chat(
+    *,
+    first_name: str,
+    question: str | None,
+    history: Sequence[dict] | None = None,
+    image_bytes: bytes | None = None,
+    image_mime_type: str | None = None,
+) -> str:
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return (
+            "MIM chat needs OPENAI_API_KEY configured. "
+            "I can still save your message, but AI response is disabled right now."
+        )
+
+    model = os.getenv("OPENAI_CHAT_MODEL", "gpt-4.1-mini")
+    client = OpenAI(api_key=api_key)
+
+    system_prompt = (
+        "You are MIM, a practical health-performance assistant. "
+        "Provide general educational guidance only. "
+        "Do not diagnose conditions, and do not prescribe medication. "
+        "If user asks medical diagnosis or urgent symptoms, advise seeing a licensed clinician. "
+        "Keep answers concise, useful, and action-oriented. "
+        f"Address the user as {first_name} when natural."
+    )
+
+    chat_input = [{"role": "system", "content": [{"type": "input_text", "text": system_prompt}]}]
+
+    for entry in list(history or [])[-16:]:
+        role = str(entry.get("role") or "").strip().lower()
+        if role not in {"user", "assistant"}:
+            continue
+        content = str(entry.get("content") or "").strip()
+        if not content:
+            continue
+        chat_input.append(
+            {
+                "role": role,
+                "content": [{"type": "input_text", "text": content[:5000]}],
+            }
+        )
+
+    user_text = (question or "").strip() or "Can you help me understand this?"
+    user_content = [{"type": "input_text", "text": user_text[:6000]}]
+
+    if image_bytes:
+        mime = (image_mime_type or "image/jpeg").split(";")[0].strip()
+        if not mime.startswith("image/"):
+            mime = "image/jpeg"
+        image_b64 = base64.b64encode(image_bytes).decode("utf-8")
+        user_content.append({"type": "input_image", "image_url": f"data:{mime};base64,{image_b64}"})
+
+    chat_input.append({"role": "user", "content": user_content})
+    response = client.responses.create(model=model, input=chat_input)
+    answer = (response.output_text or "").strip()
+    return answer or "I couldn't generate a response. Please try rephrasing your question."
+
+
 MEAL_PARSE_ALLOWED_UNITS = {"serving", "g", "ml", "oz", "lb", "cup", "tbsp", "tsp", "item"}
 MEAL_PARSE_UNIT_ALIASES = {
     "serving": "serving",

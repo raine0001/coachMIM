@@ -25,6 +25,7 @@ from werkzeug.utils import secure_filename
 
 from app import db
 from app.ai import (
+    ask_mim_general_chat,
     ai_reflection,
     coach_prompt_missing_fields,
     parse_day_manager_context_assist,
@@ -33,7 +34,16 @@ from app.ai import (
     parse_product_page_url,
 )
 from app.food_catalog import import_foods_from_usda, seed_common_foods_if_needed
-from app.models import DailyCheckIn, FavoriteMeal, FoodItem, Meal, Substance, User, UserProfile
+from app.models import (
+    DailyCheckIn,
+    FavoriteMeal,
+    FoodItem,
+    MIMChatMessage,
+    Meal,
+    Substance,
+    User,
+    UserProfile,
+)
 from app.security import encrypt_model_fields, hydrate_model_fields
 
 bp = Blueprint("main", __name__)
@@ -190,6 +200,7 @@ FAVORITE_ENCRYPTED_FIELDS = [
     "ingredients",
 ]
 SUBSTANCE_ENCRYPTED_FIELDS = ["amount", "notes"]
+CHAT_ENCRYPTED_FIELDS = ["content"]
 
 
 def hydrate_profile_secure_fields(user: User, profile: UserProfile | None):
@@ -299,6 +310,28 @@ def persist_favorite_secure_fields(user: User, favorite: FavoriteMeal):
         encrypted_attr="encrypted_payload",
         fields=FAVORITE_ENCRYPTED_FIELDS,
         scope="favorite_meal",
+    )
+
+
+def hydrate_chat_secure_fields(user: User, message: MIMChatMessage | None):
+    if user is None or message is None:
+        return
+    hydrate_model_fields(
+        user=user,
+        model=message,
+        encrypted_attr="encrypted_payload",
+        fields=CHAT_ENCRYPTED_FIELDS,
+        scope="mim_chat_message",
+    )
+
+
+def persist_chat_secure_fields(user: User, message: MIMChatMessage):
+    encrypt_model_fields(
+        user=user,
+        model=message,
+        encrypted_attr="encrypted_payload",
+        fields=CHAT_ENCRYPTED_FIELDS,
+        scope="mim_chat_message",
     )
 
 
@@ -2975,6 +3008,136 @@ def nutrition_product_parse():
         return jsonify({"ok": False, "error": "Product link parse failed. Use manual entry or label photo."}), 500
 
     return jsonify({"ok": True, "parsed": parsed})
+
+
+def _chat_history_for_user(user: User, limit: int = 80):
+    rows = (
+        MIMChatMessage.query.filter_by(user_id=user.id)
+        .order_by(MIMChatMessage.created_at.desc(), MIMChatMessage.id.desc())
+        .limit(limit)
+        .all()
+    )
+    rows.reverse()
+    for row in rows:
+        hydrate_chat_secure_fields(user, row)
+    return rows
+
+
+@bp.get("/ask-mim")
+@login_required
+def ask_mim_page():
+    messages = _chat_history_for_user(g.user, limit=120)
+    return render_template("ask_mim.html", messages=messages)
+
+
+@bp.post("/ask-mim/send")
+@login_required
+def ask_mim_send():
+    message_text = normalize_text(request.form.get("message"))
+    image = request.files.get("image")
+
+    has_image = bool(image and image.filename)
+    if not message_text and not has_image:
+        return jsonify({"ok": False, "error": "Enter a question or attach an image."}), 400
+
+    image_bytes = None
+    image_path = None
+    image_mime = None
+
+    if has_image:
+        filename = image.filename or ""
+        mime_type = (image.mimetype or "").lower()
+        if not allowed_file(filename) and not mime_type.startswith("image/"):
+            return jsonify({"ok": False, "error": "Unsupported image format. Use png/jpg/jpeg/webp/heic."}), 400
+
+        image_bytes = image.read()
+        if not image_bytes:
+            return jsonify({"ok": False, "error": "Uploaded image was empty."}), 400
+
+        image_mime = image.mimetype or "image/jpeg"
+        safe_name = secure_filename(filename or "mim-question.jpg")
+        upload_name = f"{uuid4().hex}_{safe_name}"
+        upload_dir = current_app.config["UPLOAD_FOLDER"]
+        os.makedirs(upload_dir, exist_ok=True)
+        local_path = os.path.join(upload_dir, upload_name)
+        with open(local_path, "wb") as fh:
+            fh.write(image_bytes)
+        image_path = f"uploads/{upload_name}"
+
+    history_rows = _chat_history_for_user(g.user, limit=32)
+    history_payload = []
+    for row in history_rows:
+        if row.role not in {"user", "assistant"}:
+            continue
+        if row.content:
+            history_payload.append({"role": row.role, "content": row.content})
+
+    first_name = (normalize_text(g.user.full_name) or "there").split(" ", 1)[0]
+    user_prompt = message_text or "What is this and what should I know about it?"
+
+    try:
+        answer = ask_mim_general_chat(
+            first_name=first_name,
+            question=user_prompt,
+            history=history_payload,
+            image_bytes=image_bytes,
+            image_mime_type=image_mime,
+        )
+    except Exception:
+        current_app.logger.exception("ask-mim response generation failed for user_id=%s", g.user.id)
+        answer = (
+            "I couldn't process that request right now. "
+            "Try again in a moment, or ask with slightly more detail."
+        )
+
+    user_message = MIMChatMessage(
+        user_id=g.user.id,
+        role="user",
+        content=user_prompt,
+        image_path=image_path,
+        context="general",
+    )
+    persist_chat_secure_fields(g.user, user_message)
+
+    assistant_message = MIMChatMessage(
+        user_id=g.user.id,
+        role="assistant",
+        content=answer,
+        context="general",
+    )
+    persist_chat_secure_fields(g.user, assistant_message)
+
+    db.session.add(user_message)
+    db.session.add(assistant_message)
+    db.session.commit()
+
+    return jsonify(
+        {
+            "ok": True,
+            "user_message": {
+                "id": user_message.id,
+                "role": "user",
+                "content": user_prompt,
+                "image_path": image_path,
+                "created_at": user_message.created_at.isoformat(),
+            },
+            "assistant_message": {
+                "id": assistant_message.id,
+                "role": "assistant",
+                "content": answer,
+                "created_at": assistant_message.created_at.isoformat(),
+            },
+        }
+    )
+
+
+@bp.post("/ask-mim/clear")
+@login_required
+def ask_mim_clear():
+    MIMChatMessage.query.filter_by(user_id=g.user.id).delete(synchronize_session=False)
+    db.session.commit()
+    flash("MIM chat history cleared.", "success")
+    return redirect(url_for("main.ask_mim_page"))
 
 
 @bp.get("/substance")

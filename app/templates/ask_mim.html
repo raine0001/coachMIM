@@ -1,0 +1,341 @@
+{% extends "base.html" %}
+{% block content %}
+  <style>
+    .mim-chat-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .mim-chat-log {
+      border: 1px solid #d7dee7;
+      border-radius: 12px;
+      background: #f8fbff;
+      padding: 12px;
+      min-height: 320px;
+      max-height: 62vh;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .mim-row {
+      display: flex;
+      width: 100%;
+    }
+    .mim-row.user {
+      justify-content: flex-end;
+    }
+    .mim-row.assistant {
+      justify-content: flex-start;
+    }
+    .mim-bubble {
+      max-width: 82%;
+      border-radius: 12px;
+      padding: 10px 12px;
+      border: 1px solid #d7dee7;
+      background: #fff;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      line-height: 1.35;
+    }
+    .mim-row.user .mim-bubble {
+      background: #e8f7f5;
+      border-color: #b9e7e2;
+    }
+    .mim-row.assistant .mim-bubble {
+      background: #ffffff;
+    }
+    .mim-meta {
+      font-size: 0.78rem;
+      margin-top: 6px;
+      color: var(--muted);
+    }
+    .mim-image {
+      display: block;
+      margin-top: 8px;
+      max-width: 240px;
+      border: 1px solid #d7dee7;
+      border-radius: 8px;
+    }
+    .mim-controls {
+      display: grid;
+      grid-template-columns: 1fr auto auto;
+      gap: 8px;
+      align-items: start;
+    }
+    .mim-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+    .mim-spinner {
+      width: 14px;
+      height: 14px;
+      border: 2px solid #d7dee7;
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: mim-spin 0.7s linear infinite;
+      display: inline-block;
+      vertical-align: middle;
+      margin-right: 6px;
+    }
+    .mim-status {
+      font-size: 0.9rem;
+      color: var(--muted);
+      min-height: 18px;
+      margin-top: 6px;
+    }
+    .mim-file-label {
+      font-size: 0.88rem;
+      color: var(--muted);
+    }
+    @keyframes mim-spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+    @media (max-width: 720px) {
+      .mim-controls {
+        grid-template-columns: 1fr;
+      }
+      .mim-bubble {
+        max-width: 96%;
+      }
+    }
+  </style>
+
+  <div class="card">
+    <h1>Ask MIM</h1>
+    <p class="muted">
+      Ask general health, food, and performance questions. MIM gives educational guidance, not diagnosis.
+    </p>
+    <form method="post" action="{{ url_for('main.ask_mim_clear') }}">
+      <button type="submit" style="background: #fff; color: #17212b; border: 1px solid #d7dee7;">Clear Chat History</button>
+    </form>
+  </div>
+
+  <div class="card mim-chat-wrap">
+    <div id="mimChatLog" class="mim-chat-log" aria-live="polite">
+      {% if messages %}
+        {% for message in messages %}
+          <div class="mim-row {{ 'assistant' if message.role == 'assistant' else 'user' }}">
+            <div class="mim-bubble">
+              {{ message.content or ("Image question" if message.image_path else "") }}
+              {% if message.image_path %}
+                <img class="mim-image" src="{{ url_for('static', filename=message.image_path) }}" alt="Uploaded question image" />
+              {% endif %}
+              <div class="mim-meta">
+                {{ "MIM" if message.role == "assistant" else "You" }} - {{ message.created_at.strftime("%Y-%m-%d %H:%M") }}
+              </div>
+            </div>
+          </div>
+        {% endfor %}
+      {% else %}
+        <p class="muted" id="mimEmptyHint">No chat history yet. Ask MIM a question to get started.</p>
+      {% endif %}
+    </div>
+
+    <form id="mimChatForm" enctype="multipart/form-data">
+      <div class="mim-controls">
+        <textarea
+          id="mimMessage"
+          name="message"
+          rows="3"
+          placeholder="Ask MIM... e.g., What are the benefits of honey, and how much is too much?"
+        ></textarea>
+        <button id="mimSendBtn" type="submit">Send</button>
+        <label style="display: inline-flex; align-items: center; gap: 6px; font-weight: 500;">
+          <input id="mimTtsEnabled" type="checkbox" checked />
+          Read replies
+        </label>
+      </div>
+
+      <div class="mim-actions" style="margin-top: 8px;">
+        <label class="mim-file-label">
+          Image (optional)
+          <input id="mimImage" name="image" type="file" accept="image/*" capture="environment" />
+        </label>
+        <button id="mimVoiceStart" type="button">Voice Input</button>
+        <button id="mimVoiceStop" type="button" style="background: #fff; color: #17212b; border: 1px solid #d7dee7;">Stop Voice</button>
+      </div>
+      <div id="mimFileName" class="mim-status"></div>
+      <div id="mimStatus" class="mim-status"></div>
+    </form>
+  </div>
+
+  <script>
+    const chatForm = document.getElementById("mimChatForm");
+    const chatLog = document.getElementById("mimChatLog");
+    const messageInput = document.getElementById("mimMessage");
+    const imageInput = document.getElementById("mimImage");
+    const sendBtn = document.getElementById("mimSendBtn");
+    const statusEl = document.getElementById("mimStatus");
+    const fileNameEl = document.getElementById("mimFileName");
+    const ttsEnabled = document.getElementById("mimTtsEnabled");
+    const emptyHint = document.getElementById("mimEmptyHint");
+    const voiceStartBtn = document.getElementById("mimVoiceStart");
+    const voiceStopBtn = document.getElementById("mimVoiceStop");
+
+    function scrollChatToBottom() {
+      chatLog.scrollTop = chatLog.scrollHeight;
+    }
+
+    function escapeHtml(input) {
+      return String(input || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/\"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    function appendMessage(role, content, createdAtIso, imagePath) {
+      if (emptyHint) {
+        emptyHint.remove();
+      }
+      const row = document.createElement("div");
+      row.className = `mim-row ${role === "assistant" ? "assistant" : "user"}`;
+
+      const bubble = document.createElement("div");
+      bubble.className = "mim-bubble";
+      bubble.innerHTML = escapeHtml(content || (imagePath ? "Image question" : ""));
+
+      if (imagePath) {
+        const image = document.createElement("img");
+        image.className = "mim-image";
+        image.alt = "Uploaded question image";
+        image.src = `/static/${imagePath}`;
+        bubble.appendChild(image);
+      }
+
+      const meta = document.createElement("div");
+      meta.className = "mim-meta";
+      const timestamp = createdAtIso ? new Date(createdAtIso) : new Date();
+      const timestampText = Number.isNaN(timestamp.getTime())
+        ? ""
+        : `${timestamp.getFullYear()}-${String(timestamp.getMonth() + 1).padStart(2, "0")}-${String(timestamp.getDate()).padStart(2, "0")} ${String(timestamp.getHours()).padStart(2, "0")}:${String(timestamp.getMinutes()).padStart(2, "0")}`;
+      meta.textContent = `${role === "assistant" ? "MIM" : "You"}${timestampText ? " - " + timestampText : ""}`;
+      bubble.appendChild(meta);
+
+      row.appendChild(bubble);
+      chatLog.appendChild(row);
+      scrollChatToBottom();
+    }
+
+    function setBusy(isBusy, text) {
+      sendBtn.disabled = isBusy;
+      if (isBusy) {
+        statusEl.innerHTML = `<span class="mim-spinner"></span>${text || "MIM is thinking..."}`;
+      } else {
+        statusEl.textContent = text || "";
+      }
+    }
+
+    function maybeSpeak(text) {
+      if (!ttsEnabled.checked) return;
+      if (!("speechSynthesis" in window)) return;
+      if (!text) return;
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.rate = 1.0;
+      utterance.pitch = 1.0;
+      utterance.volume = 1.0;
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(utterance);
+    }
+
+    imageInput.addEventListener("change", () => {
+      const file = imageInput.files && imageInput.files[0];
+      fileNameEl.textContent = file ? `Attached image: ${file.name}` : "";
+    });
+
+    chatForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const message = (messageInput.value || "").trim();
+      const file = imageInput.files && imageInput.files[0];
+      if (!message && !file) {
+        setBusy(false, "Enter a message or attach an image.");
+        return;
+      }
+
+      const formData = new FormData();
+      if (message) formData.append("message", message);
+      if (file) formData.append("image", file);
+
+      setBusy(true, "MIM is thinking...");
+      try {
+        const response = await fetch("{{ url_for('main.ask_mim_send') }}", {
+          method: "POST",
+          body: formData,
+        });
+        const payload = await response.json();
+        if (!response.ok || !payload.ok) {
+          throw new Error(payload.error || "Request failed.");
+        }
+
+        appendMessage(
+          "user",
+          payload.user_message?.content,
+          payload.user_message?.created_at,
+          payload.user_message?.image_path
+        );
+        appendMessage(
+          "assistant",
+          payload.assistant_message?.content,
+          payload.assistant_message?.created_at,
+          null
+        );
+        maybeSpeak(payload.assistant_message?.content || "");
+        messageInput.value = "";
+        imageInput.value = "";
+        fileNameEl.textContent = "";
+        setBusy(false, "");
+      } catch (error) {
+        setBusy(false, error.message || "MIM request failed.");
+      }
+    });
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    let recognition = null;
+    if (SpeechRecognition) {
+      recognition = new SpeechRecognition();
+      recognition.lang = "en-US";
+      recognition.interimResults = true;
+      recognition.continuous = false;
+
+      recognition.onresult = (event) => {
+        let transcript = "";
+        for (let i = event.resultIndex; i < event.results.length; i += 1) {
+          transcript += event.results[i][0].transcript;
+        }
+        messageInput.value = transcript.trim();
+      };
+      recognition.onerror = () => {
+        statusEl.textContent = "Voice input failed. You can still type your question.";
+      };
+      recognition.onend = () => {
+        voiceStartBtn.disabled = false;
+      };
+    } else {
+      voiceStartBtn.disabled = true;
+      voiceStopBtn.disabled = true;
+      statusEl.textContent = "Voice input is not supported in this browser.";
+    }
+
+    voiceStartBtn.addEventListener("click", () => {
+      if (!recognition) return;
+      voiceStartBtn.disabled = true;
+      statusEl.textContent = "Listening...";
+      recognition.start();
+    });
+
+    voiceStopBtn.addEventListener("click", () => {
+      if (!recognition) return;
+      recognition.stop();
+      voiceStartBtn.disabled = false;
+      statusEl.textContent = "";
+    });
+
+    scrollChatToBottom();
+  </script>
+{% endblock %}

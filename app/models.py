@@ -18,6 +18,7 @@ class User(db.Model):
     meals = db.relationship("Meal", backref="user", lazy=True)
     substances = db.relationship("Substance", backref="user", lazy=True)
     favorite_meals = db.relationship("FavoriteMeal", backref="user", lazy=True)
+    mim_chat_messages = db.relationship("MIMChatMessage", backref="user", lazy=True)
 
 
 class UserProfile(db.Model):
@@ -270,3 +271,16 @@ class Substance(db.Model):
     notes = db.Column(db.Text, nullable=True)
     encrypted_payload = db.Column(db.LargeBinary, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+class MIMChatMessage(db.Model):
+    __tablename__ = "mim_chat_messages"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
+    role = db.Column(db.String(20), nullable=False)  # user | assistant
+    content = db.Column(db.Text, nullable=True)
+    image_path = db.Column(db.String(500), nullable=True)
+    context = db.Column(db.String(40), nullable=True, default="general")
+    encrypted_payload = db.Column(db.LargeBinary, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)

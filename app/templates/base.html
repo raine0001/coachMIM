@@ -43,6 +43,19 @@
         padding: 8px 12px;
         border-radius: 8px;
       }
+      nav a.mim-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-weight: 700;
+      }
+      nav a.mim-link img {
+        width: 18px;
+        height: 18px;
+        object-fit: cover;
+        object-position: 50% 26%;
+        border-radius: 50%;
+      }
       nav .logout-btn {
         background: #fff;
         border: 1px solid var(--line);
@@ -131,6 +144,10 @@
           <a href="{{ url_for('main.checkin_form') }}">Daily Check-In</a>
           <a href="{{ url_for('main.meal_form') }}">Log Meal</a>
           <a href="{{ url_for('main.substance_form') }}">Log Substance</a>
+          <a class="mim-link" href="{{ url_for('main.ask_mim_page') }}">
+            <img src="{{ url_for('static', filename='mim-logo.png') }}" alt="MIM" />
+            MIM
+          </a>
           <a href="{{ url_for('main.timeline') }}">Timeline</a>
           <a href="{{ url_for('main.insights') }}">Weekly Insights</a>
           <form method="post" action="{{ url_for('main.logout') }}">

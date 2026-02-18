@@ -8,7 +8,7 @@ from uuid import uuid4
 from werkzeug.security import generate_password_hash
 
 from app import create_app, db
-from app.models import DailyCheckIn, FavoriteMeal, Meal, Substance, User, UserProfile
+from app.models import DailyCheckIn, FavoriteMeal, MIMChatMessage, Meal, Substance, User, UserProfile
 
 
 def _complete_profile(user_id: int) -> UserProfile:
@@ -115,6 +115,12 @@ class DataIsolationTestCase(unittest.TestCase):
                     FavoriteMeal(user_id=user2.id, name="U2_PRIVATE_FAVORITE"),
                 ]
             )
+            db.session.add_all(
+                [
+                    MIMChatMessage(user_id=user1.id, role="user", content="U1_CHAT_SECRET"),
+                    MIMChatMessage(user_id=user2.id, role="user", content="U2_CHAT_SECRET"),
+                ]
+            )
 
             db.session.commit()
             cls.user2_meal_id = meal_u2.id
@@ -167,6 +173,13 @@ class DataIsolationTestCase(unittest.TestCase):
         self.assertIn("U1_PRIVATE_FAVORITE", html)
         self.assertNotIn("U2_PRIVATE_FAVORITE", html)
         self.assertNotIn("1999-12-31", html)
+
+    def test_ask_mim_history_is_user_scoped(self):
+        response = self.client.get("/ask-mim")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("U1_CHAT_SECRET", html)
+        self.assertNotIn("U2_CHAT_SECRET", html)
 
 
 if __name__ == "__main__":

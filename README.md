@@ -15,6 +15,7 @@ Phase I (MVP) focuses on 30-day baseline capture:
 - Favorite meals (save/reuse defaults)
 - Daily meal table with edit/delete
 - Optional meal photo upload
+- Ask MIM chat workspace (chat history, image questions, browser voice input, optional TTS)
 - Pre-emptive prompts for missing or inconsistent data
 - Lightweight weekly insights
 
@@ -90,6 +91,7 @@ flask run
 - `/nutrition/product/parse` parse nutrition from product URL
 - `/nutrition/label/parse` parse nutrition from label photo
 - `/substance` substance logger
+- `/ask-mim` AI chat workspace
 - `/timeline` recent logs + pre-emptive prompts
 - `/insights` weekly summary and reflection
 

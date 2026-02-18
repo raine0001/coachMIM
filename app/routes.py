@@ -93,6 +93,18 @@ GENERIC_MEAL_NAMES = {
 SEARCH_STOPWORDS = {"and", "or", "the", "a", "an", "of", "with", "to", "for"}
 DAY_MANAGER_VIEWS = {"checkin", "meal", "drink", "substance", "activity", "medications"}
 DAY_MANAGER_FAVORITE_SCOPE_PREFIX = "__dmv:"
+MASS_UNIT_TO_GRAMS = {
+    "g": 1.0,
+    "oz": 28.349523125,
+    "lb": 453.59237,
+}
+VOLUME_UNIT_TO_ML = {
+    "ml": 1.0,
+    "cup": 240.0,
+    "tbsp": 15.0,
+    "tsp": 5.0,
+    "oz": 29.5735,
+}
 
 
 def _favorite_scope_from_tags(tags: list[str] | None):
@@ -2239,6 +2251,79 @@ def find_best_food_item_match(query: str) -> tuple[FoodItem | None, float]:
     return (None, best_score)
 
 
+def _safe_float(value, fallback: float = 0.0) -> float:
+    try:
+        if value in (None, ""):
+            return fallback
+        return float(value)
+    except (TypeError, ValueError):
+        return fallback
+
+
+def _estimate_meal_factor(quantity: float, unit: str, item: FoodItem) -> float:
+    qty = _safe_float(quantity, fallback=1.0)
+    if qty <= 0:
+        qty = 1.0
+
+    unit_norm = normalize_builder_unit(unit)
+    serving_size = _safe_float(item.serving_size, fallback=0.0)
+    serving_unit = normalize_builder_unit(item.serving_unit)
+
+    if unit_norm == "serving":
+        return qty
+
+    if serving_size > 0:
+        if serving_unit == unit_norm:
+            return qty / serving_size
+
+        if unit_norm in MASS_UNIT_TO_GRAMS and serving_unit in MASS_UNIT_TO_GRAMS:
+            qty_g = qty * MASS_UNIT_TO_GRAMS[unit_norm]
+            serving_g = serving_size * MASS_UNIT_TO_GRAMS[serving_unit]
+            if serving_g > 0:
+                return qty_g / serving_g
+
+        if unit_norm in VOLUME_UNIT_TO_ML and serving_unit in VOLUME_UNIT_TO_ML:
+            qty_ml = qty * VOLUME_UNIT_TO_ML[unit_norm]
+            serving_ml = serving_size * VOLUME_UNIT_TO_ML[serving_unit]
+            if serving_ml > 0:
+                return qty_ml / serving_ml
+
+    if unit_norm == "item":
+        if serving_size > 0 and serving_unit == "item":
+            return qty / serving_size
+        return qty
+
+    return 1.0
+
+
+def _round_or_none(value: float, digits: int = 1):
+    if value is None:
+        return None
+    return round(float(value), digits)
+
+
+def _compact_ingredient_summary(ingredients: list[dict]) -> str | None:
+    if not ingredients:
+        return None
+    chunks = []
+    for item in ingredients[:3]:
+        qty = _safe_float(item.get("quantity"), fallback=1.0)
+        unit = normalize_builder_unit(item.get("unit"))
+        name = normalize_text(item.get("name"))
+        if not name:
+            continue
+        qty_text = str(int(qty)) if abs(qty - int(qty)) < 0.01 else f"{qty:.2f}".rstrip("0").rstrip(".")
+        if unit == "serving":
+            chunks.append(f"{qty_text} serving {name}")
+        else:
+            chunks.append(f"{qty_text} {unit} {name}")
+    if not chunks:
+        return None
+    extra_count = max(0, len(ingredients) - len(chunks))
+    tail = f" +{extra_count} more" if extra_count else ""
+    return ", ".join(chunks) + tail
+
+
 @bp.get("/foods/search")
 @login_required
 @profile_required
@@ -2421,6 +2506,163 @@ def meal_parse_text():
                 "match_count": matched_count,
                 "total_count": len(resolved_ingredients),
             },
+        }
+    )
+
+
+@bp.post("/ai/day-manager-assist")
+@login_required
+@profile_required
+def ai_day_manager_assist():
+    body = request.get_json(silent=True) if request.is_json else {}
+    context = (body.get("context") if isinstance(body, dict) else None) or request.form.get("context")
+    context = (context or "meal").strip().lower()
+    if context not in {"meal", "drink"}:
+        return jsonify({"ok": False, "error": "Invalid context. Use meal or drink."}), 400
+
+    raw_text = (body.get("text") if isinstance(body, dict) else None) or request.form.get("text")
+    text = normalize_text(raw_text)
+    first_name = (normalize_text(g.user.full_name) or "there").split(" ", 1)[0]
+    entry_word = "drink" if context == "drink" else "meal"
+
+    if not text or len(text) < 6:
+        return jsonify(
+            {
+                "ok": True,
+                "needs_more": True,
+                "reply": f"Hi {first_name}, tell me more about what was in your {entry_word} and I'll get this form started.",
+                "follow_up_prompt": "Include ingredients and rough amounts (for example: pasta with chicken, olive oil, and parmesan).",
+                "suggested_fields": {},
+                "matches": [],
+                "unmatched_ingredients": [],
+            }
+        )
+
+    try:
+        parsed = parse_meal_sentence(text)
+    except RuntimeError as exc:
+        return jsonify(
+            {
+                "ok": True,
+                "needs_more": True,
+                "reply": f"Hi {first_name}, {str(exc)}",
+                "follow_up_prompt": "Try one sentence with ingredient amounts (for example: 2 cups pasta, 4 oz chicken, 1 tbsp olive oil).",
+                "suggested_fields": {"description": text},
+                "matches": [],
+                "unmatched_ingredients": [],
+            }
+        )
+    except Exception:
+        return jsonify(
+            {
+                "ok": False,
+                "error": "MIM could not parse that description. Try a clearer sentence with ingredient amounts.",
+            }
+        ), 500
+
+    ingredients = parsed.get("ingredients") if isinstance(parsed.get("ingredients"), list) else []
+    if not ingredients:
+        return jsonify(
+            {
+                "ok": True,
+                "needs_more": True,
+                "reply": f"Hi {first_name}, I need more detail to estimate nutrition. Add ingredients and rough amounts.",
+                "follow_up_prompt": "Example: pasta with tomato sauce, chicken breast, and parmesan.",
+                "suggested_fields": {"description": text},
+                "matches": [],
+                "unmatched_ingredients": [],
+            }
+        )
+
+    totals = {
+        "calories": 0.0,
+        "protein_g": 0.0,
+        "carbs_g": 0.0,
+        "fat_g": 0.0,
+        "sugar_g": 0.0,
+        "sodium_mg": 0.0,
+        "caffeine_mg": 0.0,
+    }
+    matched_items = []
+    unmatched_ingredients = []
+
+    for ingredient in ingredients[:20]:
+        ingredient_name = normalize_text(ingredient.get("name"))
+        if not ingredient_name:
+            continue
+
+        quantity = _safe_float(ingredient.get("quantity"), fallback=1.0)
+        unit = normalize_builder_unit(ingredient.get("unit"))
+        matched_item, score = find_best_food_item_match(ingredient_name)
+        if not matched_item:
+            unmatched_ingredients.append(ingredient_name)
+            continue
+
+        factor = _estimate_meal_factor(quantity, unit, matched_item)
+        totals["calories"] += _safe_float(matched_item.calories) * factor
+        totals["protein_g"] += _safe_float(matched_item.protein_g) * factor
+        totals["carbs_g"] += _safe_float(matched_item.carbs_g) * factor
+        totals["fat_g"] += _safe_float(matched_item.fat_g) * factor
+        totals["sugar_g"] += _safe_float(matched_item.sugar_g) * factor
+        totals["sodium_mg"] += _safe_float(matched_item.sodium_mg) * factor
+        totals["caffeine_mg"] += _safe_float(matched_item.caffeine_mg) * factor
+        matched_items.append(
+            {
+                "ingredient": ingredient_name,
+                "food_item_id": matched_item.id,
+                "display_name": matched_item.display_name(),
+                "score": round(float(score), 3),
+            }
+        )
+
+    is_beverage = context == "drink" or parse_bool(parsed.get("is_beverage"))
+    label_value = "Drink" if is_beverage else (normalize_text(parsed.get("meal_label")) or None)
+    suggested_fields = {
+        "description": text,
+        "label": label_value,
+        "is_beverage": is_beverage,
+        "portion_notes": _compact_ingredient_summary(ingredients),
+    }
+
+    if matched_items:
+        suggested_fields.update(
+            {
+                "calories": int(round(totals["calories"])) if totals["calories"] > 0 else None,
+                "protein_g": _round_or_none(totals["protein_g"], 1),
+                "carbs_g": _round_or_none(totals["carbs_g"], 1),
+                "fat_g": _round_or_none(totals["fat_g"], 1),
+                "sugar_g": _round_or_none(totals["sugar_g"], 1),
+                "sodium_mg": _round_or_none(totals["sodium_mg"], 1),
+                "caffeine_mg": _round_or_none(totals["caffeine_mg"], 1),
+            }
+        )
+
+    matched_count = len(matched_items)
+    total_count = len(ingredients)
+    if matched_count == 0:
+        reply = (
+            f"Hi {first_name}, I captured your {entry_word} description but I could not confidently match ingredients "
+            "to nutrition data yet. Use Food Search or add nutrition manually."
+        )
+    elif matched_count < total_count:
+        reply = (
+            f"Hi {first_name}, I matched {matched_count} of {total_count} ingredients and prefilled estimated nutrition. "
+            "Please review unmatched items."
+        )
+    else:
+        reply = (
+            f"Hi {first_name}, I matched your ingredients and prefilled estimated calories/macros. "
+            "Review and adjust before saving."
+        )
+
+    return jsonify(
+        {
+            "ok": True,
+            "needs_more": False,
+            "reply": reply,
+            "suggested_fields": suggested_fields,
+            "matches": matched_items,
+            "unmatched_ingredients": unmatched_ingredients,
         }
     )
 

@@ -184,6 +184,65 @@
       color: #17212b;
       font-size: 0.92rem;
     }
+    .mim-field-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .mim-icon-btn {
+      border: 1px solid #0f766e;
+      background: #e8f7f5;
+      color: #0f766e;
+      border-radius: 999px;
+      min-width: 38px;
+      height: 38px;
+      padding: 0 10px;
+      font-weight: 700;
+      letter-spacing: 0.2px;
+      cursor: pointer;
+    }
+    .mim-assist-panel {
+      margin-top: 8px;
+      border: 1px solid #cfe3ff;
+      background: #f9fcff;
+      border-radius: 8px;
+      padding: 8px;
+    }
+    .mim-assist-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .mim-assist-row input {
+      flex: 1 1 260px;
+    }
+    .mim-note {
+      margin: 7px 0 0;
+      font-size: 0.9rem;
+      line-height: 1.35;
+    }
+    .loading-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 6px 0;
+      color: var(--muted);
+    }
+    .inline-spinner {
+      width: 14px;
+      height: 14px;
+      border: 2px solid #d7dee7;
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: mim-spin 0.7s linear infinite;
+      flex-shrink: 0;
+    }
+    @keyframes mim-spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
     @media (max-width: 860px) {
       .checkin-page .grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -234,6 +293,13 @@
       }
       .inline-list {
         padding-left: 16px;
+      }
+      .mim-assist-row {
+        flex-direction: column;
+        align-items: stretch;
+      }
+      .mim-icon-btn {
+        min-width: 44px;
       }
     }
   </style>
@@ -535,7 +601,21 @@
         </div>
         <div>
           <label for="meal_description">Meal Name</label>
-          <input id="meal_description" name="description" placeholder="e.g., Turkey sandwich" required />
+          <div class="mim-field-row">
+            <input id="meal_description" name="description" placeholder="e.g., Turkey sandwich" required />
+            <button id="meal_mim_toggle" class="mim-icon-btn" type="button" title="Ask MIM for help">MIM</button>
+          </div>
+          <div id="meal_mim_panel" class="mim-assist-panel" style="display: none;">
+            <div class="mim-assist-row">
+              <input id="meal_mim_prompt" type="text" placeholder="Tell MIM what was in it (ingredients + amounts)" />
+              <button id="meal_mim_run" type="button">Ask MIM</button>
+            </div>
+            <div id="meal_mim_loading" class="loading-row" style="display: none;">
+              <span class="inline-spinner"></span>
+              <span>MIM is estimating nutrition...</span>
+            </div>
+            <p id="meal_mim_status" class="muted mim-note"></p>
+          </div>
         </div>
         <div>
           <label for="meal_portion_notes">Portion Notes</label>
@@ -642,7 +722,21 @@
         </div>
         <div>
           <label for="drink_description">Drink Name</label>
-          <input id="drink_description" name="description" placeholder="e.g., Iced coffee, Diet soda" required />
+          <div class="mim-field-row">
+            <input id="drink_description" name="description" placeholder="e.g., Iced coffee, Diet soda" required />
+            <button id="drink_mim_toggle" class="mim-icon-btn" type="button" title="Ask MIM for help">MIM</button>
+          </div>
+          <div id="drink_mim_panel" class="mim-assist-panel" style="display: none;">
+            <div class="mim-assist-row">
+              <input id="drink_mim_prompt" type="text" placeholder="Tell MIM ingredients and amounts (for example: 12 oz tea + 1 tbsp honey)" />
+              <button id="drink_mim_run" type="button">Ask MIM</button>
+            </div>
+            <div id="drink_mim_loading" class="loading-row" style="display: none;">
+              <span class="inline-spinner"></span>
+              <span>MIM is estimating drink nutrition...</span>
+            </div>
+            <p id="drink_mim_status" class="muted mim-note"></p>
+          </div>
         </div>
         <div>
           <label for="drink_portion_notes">Volume / Portion</label>
@@ -1114,6 +1208,158 @@
       },
       "med_favorite_name"
     );
+
+    const mimAssistEndpoint = "{{ url_for('main.ai_day_manager_assist') }}";
+
+    function sanitizePrompt(value) {
+      return String(value || "").replace(/\s+/g, " ").trim();
+    }
+
+    function applySuggestedFields(fieldMap, suggestedFields) {
+      if (!suggestedFields || typeof suggestedFields !== "object") {
+        return;
+      }
+      Object.entries(fieldMap).forEach(([suggestedKey, fieldId]) => {
+        if (!(suggestedKey in suggestedFields)) {
+          return;
+        }
+        const field = document.getElementById(fieldId);
+        if (!field) {
+          return;
+        }
+        const value = suggestedFields[suggestedKey];
+        if (field.type === "checkbox") {
+          field.checked = Boolean(value);
+          return;
+        }
+        if (value === null || value === undefined || value === "") {
+          return;
+        }
+        field.value = String(value);
+      });
+    }
+
+    function wireMimAssist(config) {
+      const toggleButton = document.getElementById(config.toggleId);
+      const panel = document.getElementById(config.panelId);
+      const promptInput = document.getElementById(config.promptId);
+      const runButton = document.getElementById(config.runId);
+      const loadingRow = document.getElementById(config.loadingId);
+      const statusEl = document.getElementById(config.statusId);
+      const sourceInput = document.getElementById(config.sourceFieldId);
+      if (!toggleButton || !panel || !promptInput || !runButton || !loadingRow || !statusEl || !sourceInput) {
+        return;
+      }
+
+      let panelOpened = false;
+
+      async function runAssist() {
+        const seedText = sanitizePrompt(promptInput.value) || sanitizePrompt(sourceInput.value);
+        if (!seedText) {
+          statusEl.textContent = "Tell MIM what you had and include ingredients/amounts.";
+          promptInput.focus();
+          return;
+        }
+
+        loadingRow.style.display = "";
+        runButton.disabled = true;
+        statusEl.textContent = "";
+
+        try {
+          const response = await fetch(mimAssistEndpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ context: config.context, text: seedText })
+          });
+          const data = await response.json();
+          if (!response.ok || !data.ok) {
+            throw new Error(data.error || "MIM assist failed.");
+          }
+
+          if (data.reply) {
+            statusEl.textContent = data.reply;
+          }
+          applySuggestedFields(config.fieldMap, data.suggested_fields || {});
+
+          if (data.follow_up_prompt && !sanitizePrompt(promptInput.value)) {
+            promptInput.value = data.follow_up_prompt;
+          }
+
+          if (Array.isArray(data.unmatched_ingredients) && data.unmatched_ingredients.length > 0) {
+            const unmatched = data.unmatched_ingredients.slice(0, 4).join(", ");
+            statusEl.textContent = `${statusEl.textContent} Unmatched: ${unmatched}.`;
+          }
+        } catch (error) {
+          statusEl.textContent = error.message || "MIM assist failed.";
+        } finally {
+          loadingRow.style.display = "none";
+          runButton.disabled = false;
+        }
+      }
+
+      toggleButton.addEventListener("click", () => {
+        panelOpened = !panelOpened;
+        panel.style.display = panelOpened ? "" : "none";
+        if (!panelOpened) {
+          return;
+        }
+        if (!sanitizePrompt(promptInput.value)) {
+          promptInput.value = sanitizePrompt(sourceInput.value);
+        }
+        if (sanitizePrompt(sourceInput.value)) {
+          runAssist();
+        } else {
+          statusEl.textContent = "Hi there, tell MIM what was in it and I can start filling this form.";
+          promptInput.focus();
+        }
+      });
+
+      runButton.addEventListener("click", runAssist);
+      promptInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          runAssist();
+        }
+      });
+    }
+
+    wireMimAssist({
+      context: "meal",
+      toggleId: "meal_mim_toggle",
+      panelId: "meal_mim_panel",
+      promptId: "meal_mim_prompt",
+      runId: "meal_mim_run",
+      loadingId: "meal_mim_loading",
+      statusId: "meal_mim_status",
+      sourceFieldId: "meal_description",
+      fieldMap: {
+        description: "meal_description",
+        label: "meal_label",
+        portion_notes: "meal_portion_notes",
+        calories: "meal_calories",
+        protein_g: "meal_protein_g",
+        carbs_g: "meal_carbs_g",
+        fat_g: "meal_fat_g"
+      }
+    });
+
+    wireMimAssist({
+      context: "drink",
+      toggleId: "drink_mim_toggle",
+      panelId: "drink_mim_panel",
+      promptId: "drink_mim_prompt",
+      runId: "drink_mim_run",
+      loadingId: "drink_mim_loading",
+      statusId: "drink_mim_status",
+      sourceFieldId: "drink_description",
+      fieldMap: {
+        description: "drink_description",
+        portion_notes: "drink_portion_notes",
+        calories: "drink_calories",
+        sugar_g: "drink_sugar_g",
+        caffeine_mg: "drink_caffeine_mg"
+      }
+    });
   </script>
   </div>
 {% endblock %}

@@ -3,11 +3,22 @@
   <div class="card">
     <h1>Log Substance</h1>
     <p class="muted">Optional detailed entries for alcohol, caffeine, nicotine, or other substances.</p>
+    {% if selected_day %}
+      <div style="margin: 8px 0 2px; font-size: 1.35rem; font-weight: 700;">
+        {{ selected_day_weekday }}, {{ selected_day_pretty }}
+      </div>
+      <p class="muted" style="margin-top: 0;">Logging to day: <strong>{{ selected_day }}</strong></p>
+      <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+        <a href="{{ url_for('main.checkin_form', day=selected_day) }}" style="padding: 8px 12px; border: 1px solid #d7dee7; border-radius: 8px; text-decoration: none; background: #fff; color: #17212b;">Back To Day Manager</a>
+        <a href="{{ url_for('main.meal_form', day=selected_day) }}" style="padding: 8px 12px; border: 1px solid #d7dee7; border-radius: 8px; text-decoration: none; background: #fff; color: #17212b;">Log Meal</a>
+      </div>
+    {% endif %}
     <form method="post" action="{{ url_for('main.substance_save') }}">
+      <input type="hidden" name="day" value="{{ selected_day or '' }}" />
       <div class="grid">
         <div>
           <label for="taken_at">Taken At</label>
-          <input id="taken_at" name="taken_at" type="datetime-local" />
+          <input id="taken_at" name="taken_at" type="datetime-local" value="{{ default_taken_at if default_taken_at else '' }}" />
         </div>
         <div>
           <label for="kind">Kind</label>

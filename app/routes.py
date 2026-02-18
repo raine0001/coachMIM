@@ -1269,6 +1269,24 @@ def checkin_form():
         for row in history_records
     ]
 
+    start, end = day_bounds(selected_day)
+    selected_day_meal_count = (
+        Meal.query.filter(
+            Meal.user_id == g.user.id,
+            Meal.eaten_at >= start,
+            Meal.eaten_at < end,
+        )
+        .count()
+    )
+    selected_day_substance_count = (
+        Substance.query.filter(
+            Substance.user_id == g.user.id,
+            Substance.taken_at >= start,
+            Substance.taken_at < end,
+        )
+        .count()
+    )
+
     prev_day = selected_day - timedelta(days=1)
     next_day = selected_day + timedelta(days=1)
     can_go_next = next_day <= local_today
@@ -1277,6 +1295,8 @@ def checkin_form():
         "checkin.html",
         record=record,
         selected_day=selected_day.isoformat(),
+        selected_day_weekday=selected_day.strftime("%A"),
+        selected_day_pretty=selected_day.strftime("%B %d, %Y"),
         local_today=local_today.isoformat(),
         checked_in_today=checkin_has_any_data(today_record),
         selected_segments=checkin_segment_status(record),
@@ -1288,6 +1308,8 @@ def checkin_form():
         checkin_weight_unit=weight_unit,
         morning_weight_display=morning_weight_display,
         checkin_unit_system=unit_system,
+        selected_day_meal_count=selected_day_meal_count,
+        selected_day_substance_count=selected_day_substance_count,
     )
 
 
@@ -1936,19 +1958,59 @@ def nutrition_product_parse():
 @login_required
 @profile_required
 def substance_form():
-    return render_template("substance.html")
+    local_today = get_user_local_today(g.user)
+    day_str = request.args.get("day")
+    if day_str:
+        try:
+            selected_day = date.fromisoformat(day_str)
+        except ValueError:
+            selected_day = local_today
+            flash("Invalid day format. Showing current local day.", "error")
+    else:
+        selected_day = local_today
+
+    if selected_day > local_today:
+        selected_day = local_today
+        flash("Future entries are disabled. Showing current local day.", "error")
+
+    default_time = datetime.now().strftime("%H:%M") if selected_day == local_today else "12:00"
+    default_taken_at = f"{selected_day.isoformat()}T{default_time}"
+
+    return render_template(
+        "substance.html",
+        selected_day=selected_day.isoformat(),
+        selected_day_weekday=selected_day.strftime("%A"),
+        selected_day_pretty=selected_day.strftime("%B %d, %Y"),
+        default_taken_at=default_taken_at,
+    )
 
 
 @bp.post("/substance")
 @login_required
 @profile_required
 def substance_save():
+    day_str = request.form.get("day")
+    selected_day = None
+    if day_str:
+        try:
+            selected_day = date.fromisoformat(day_str)
+        except ValueError:
+            selected_day = None
+
     taken_at_raw = request.form.get("taken_at") or datetime.utcnow().strftime("%Y-%m-%dT%H:%M")
-    taken_at = datetime.fromisoformat(taken_at_raw)
+    try:
+        taken_at = datetime.fromisoformat(taken_at_raw)
+    except ValueError:
+        flash("Invalid date/time for substance entry.", "error")
+        if selected_day:
+            return redirect(url_for("main.substance_form", day=selected_day.isoformat()))
+        return redirect(url_for("main.substance_form"))
 
     kind = request.form.get("kind")
     if not kind:
         flash("Substance kind is required.", "error")
+        if selected_day:
+            return redirect(url_for("main.substance_form", day=selected_day.isoformat()))
         return redirect(url_for("main.substance_form"))
 
     entry = Substance(
@@ -1961,6 +2023,8 @@ def substance_save():
     db.session.add(entry)
     db.session.commit()
     flash("Substance entry logged.", "success")
+    if selected_day:
+        return redirect(url_for("main.checkin_form", day=selected_day.isoformat()))
     return redirect(url_for("main.timeline"))
 
 

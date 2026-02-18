@@ -14,18 +14,21 @@
   <div class="card">
     <h1>Daily Check-In</h1>
     <p class="muted">One record per local day. Re-open and update it anytime throughout the day.</p>
+    <div style="margin: 8px 0 2px; font-size: 1.6rem; font-weight: 700; letter-spacing: 0.2px;">
+      {{ selected_day_weekday }}, {{ selected_day_pretty }}
+    </div>
+    <p class="muted" style="margin-top: 0;">
+      Tracking day: <strong>{{ selected_day }}</strong>
+      {% if not is_viewing_today %}
+        (local today: {{ local_today }})
+      {% endif %}
+    </p>
     <p>
       <strong>Today Status:</strong>
       {% if checked_in_today %}
         <span style="color: #067647;">CHECKED IN</span>
       {% else %}
         <span style="color: #b42318;">NOT STARTED</span>
-      {% endif %}
-    </p>
-    <p class="muted">
-      Viewing day: <strong>{{ selected_day }}</strong>
-      {% if not is_viewing_today %}
-        (local today: {{ local_today }})
       {% endif %}
     </p>
 
@@ -38,6 +41,28 @@
       {% endif %}
       <a href="{{ url_for('main.checkin_form', day=local_today) }}" style="padding: 8px 12px; border: 1px solid #d7dee7; border-radius: 8px; text-decoration: none; background: #fff; color: #17212b;">Today</a>
     </div>
+  </div>
+
+  <div class="card" style="border-color: #cfe3ff; background: #f9fcff;">
+    <label>Day Manager</label>
+    <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px;">
+      <a
+        href="{{ url_for('main.checkin_form', day=selected_day) }}"
+        style="padding: 8px 12px; border-radius: 8px; text-decoration: none; color: #fff; background: #0f766e;"
+      >Check-In</a>
+      <a
+        href="{{ url_for('main.meal_form', day=selected_day) }}"
+        style="padding: 8px 12px; border: 1px solid #d7dee7; border-radius: 8px; text-decoration: none; color: #17212b; background: #fff;"
+      >Log Meal</a>
+      <a
+        href="{{ url_for('main.substance_form', day=selected_day) }}"
+        style="padding: 8px 12px; border: 1px solid #d7dee7; border-radius: 8px; text-decoration: none; color: #17212b; background: #fff;"
+      >Log Substance</a>
+    </div>
+    <p class="muted" style="margin: 10px 0 0;">
+      Same-day counts: {{ selected_day_meal_count }} meal{{ "" if selected_day_meal_count == 1 else "s" }},
+      {{ selected_day_substance_count }} substance entr{{ "y" if selected_day_substance_count == 1 else "ies" }}.
+    </p>
   </div>
 
   <div class="card">

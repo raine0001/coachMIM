@@ -6,6 +6,8 @@ import httpx
 from app import db
 from app.models import FoodItem
 
+_COMMON_SEED_SYNCED = False
+
 COMMON_FOODS = [
     {"name": "Egg, whole", "serving_size": 1, "serving_unit": "large", "calories": 72, "protein_g": 6.3, "carbs_g": 0.4, "fat_g": 4.8},
     {"name": "Egg white", "serving_size": 1, "serving_unit": "large", "calories": 17, "protein_g": 3.6, "carbs_g": 0.2, "fat_g": 0.1},
@@ -114,18 +116,15 @@ def safe_str(value, max_len: int):
 
 
 def seed_common_foods_if_needed() -> None:
-    existing_seed_foods = FoodItem.query.filter_by(source="seed").all()
-    by_key = {
-        ((item.name or "").strip().lower(), (item.brand or "").strip().lower()): item
-        for item in existing_seed_foods
-    }
+    global _COMMON_SEED_SYNCED
+    if _COMMON_SEED_SYNCED:
+        return
 
     changed = False
     for row in COMMON_FOODS:
         name = row["name"]
         brand = row.get("brand")
-        key = (name.strip().lower(), (brand or "").strip().lower())
-        existing = by_key.get(key)
+        existing = FoodItem.query.filter_by(name=name, brand=brand, source="seed").first()
 
         if existing:
             # Keep seeded defaults fresh in case values are tuned in code.
@@ -171,6 +170,7 @@ def seed_common_foods_if_needed() -> None:
 
     if changed:
         db.session.commit()
+    _COMMON_SEED_SYNCED = True
 
 
 def parse_usda_nutrients(food_row: dict[str, Any]) -> dict[str, Any]:

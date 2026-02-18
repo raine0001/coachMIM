@@ -508,6 +508,24 @@
       <input type="hidden" name="is_beverage" value="0" />
       <div class="grid">
         <div>
+          <label for="meal_favorite_id">Quick Favorite</label>
+          <select id="meal_favorite_id" name="favorite_id">
+            <option value="">Choose a meal favorite</option>
+            {% for favorite in meal_quick_favorites %}
+              <option
+                value="{{ favorite.id }}"
+                data-label="{{ favorite.label }}"
+                data-description="{{ favorite.description }}"
+                data-portion_notes="{{ favorite.portion_notes }}"
+                data-calories="{{ favorite.calories }}"
+                data-protein_g="{{ favorite.protein_g }}"
+                data-carbs_g="{{ favorite.carbs_g }}"
+                data-fat_g="{{ favorite.fat_g }}"
+              >{{ favorite.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
           <label for="meal_eaten_at">Time</label>
           <input id="meal_eaten_at" name="eaten_at" type="datetime-local" value="{{ default_entry_datetime }}" required />
         </div>
@@ -538,6 +556,19 @@
         <div>
           <label for="meal_fat_g">Fat (g)</label>
           <input id="meal_fat_g" name="fat_g" type="number" min="0" step="0.1" />
+        </div>
+      </div>
+      <div class="grid" style="margin-top: 8px;">
+        <div>
+          <label for="meal_save_favorite">Favorite</label>
+          <label style="font-weight: 500; margin-bottom: 0;">
+            <input id="meal_save_favorite" name="save_favorite" type="checkbox" />
+            Save this as favorite
+          </label>
+        </div>
+        <div>
+          <label for="meal_favorite_name">Favorite Name (optional)</label>
+          <input id="meal_favorite_name" name="favorite_name" placeholder="e.g., weekday lunch" />
         </div>
       </div>
       <div class="checkin-form-actions">
@@ -590,6 +621,22 @@
       <input type="hidden" name="label" value="Drink" />
       <div class="grid">
         <div>
+          <label for="drink_favorite_id">Quick Favorite</label>
+          <select id="drink_favorite_id" name="favorite_id">
+            <option value="">Choose a drink favorite</option>
+            {% for favorite in drink_quick_favorites %}
+              <option
+                value="{{ favorite.id }}"
+                data-description="{{ favorite.description }}"
+                data-portion_notes="{{ favorite.portion_notes }}"
+                data-calories="{{ favorite.calories }}"
+                data-sugar_g="{{ favorite.sugar_g }}"
+                data-caffeine_mg="{{ favorite.caffeine_mg }}"
+              >{{ favorite.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
           <label for="drink_eaten_at">Time</label>
           <input id="drink_eaten_at" name="eaten_at" type="datetime-local" value="{{ default_entry_datetime }}" required />
         </div>
@@ -612,6 +659,19 @@
         <div>
           <label for="drink_sugar_g">Sugar (g)</label>
           <input id="drink_sugar_g" name="sugar_g" type="number" min="0" step="0.1" />
+        </div>
+      </div>
+      <div class="grid" style="margin-top: 8px;">
+        <div>
+          <label for="drink_save_favorite">Favorite</label>
+          <label style="font-weight: 500; margin-bottom: 0;">
+            <input id="drink_save_favorite" name="save_favorite" type="checkbox" />
+            Save this as favorite
+          </label>
+        </div>
+        <div>
+          <label for="drink_favorite_name">Favorite Name (optional)</label>
+          <input id="drink_favorite_name" name="favorite_name" placeholder="e.g., afternoon green tea" />
         </div>
       </div>
       <div class="checkin-form-actions">
@@ -659,6 +719,20 @@
       <input type="hidden" name="view" value="substance" />
       <div class="grid">
         <div>
+          <label for="sub_favorite_id">Quick Favorite</label>
+          <select id="sub_favorite_id" name="favorite_id">
+            <option value="">Choose a substance favorite</option>
+            {% for favorite in substance_quick_favorites %}
+              <option
+                value="{{ favorite.id }}"
+                data-kind="{{ favorite.kind }}"
+                data-amount="{{ favorite.amount }}"
+                data-notes="{{ favorite.notes }}"
+              >{{ favorite.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
           <label for="sub_taken_at">Time</label>
           <input id="sub_taken_at" name="taken_at" type="datetime-local" value="{{ default_entry_datetime }}" required />
         </div>
@@ -680,6 +754,19 @@
       <div class="checkin-form-block">
         <label for="sub_notes">Notes</label>
         <textarea id="sub_notes" name="notes"></textarea>
+      </div>
+      <div class="grid" style="margin-top: 8px;">
+        <div>
+          <label for="sub_save_favorite">Favorite</label>
+          <label style="font-weight: 500; margin-bottom: 0;">
+            <input id="sub_save_favorite" name="save_favorite" type="checkbox" />
+            Save this as favorite
+          </label>
+        </div>
+        <div>
+          <label for="sub_favorite_name">Favorite Name (optional)</label>
+          <input id="sub_favorite_name" name="favorite_name" placeholder="e.g., evening nicotine pouch" />
+        </div>
       </div>
       <div class="checkin-form-actions">
         <button type="submit">Save Substance Entry</button>
@@ -710,6 +797,21 @@
       <input type="hidden" name="kind" value="activity" />
       <div class="grid">
         <div>
+          <label for="act_favorite_id">Quick Favorite</label>
+          <select id="act_favorite_id" name="favorite_id">
+            <option value="">Choose an activity favorite</option>
+            {% for favorite in activity_quick_favorites %}
+              <option
+                value="{{ favorite.id }}"
+                data-activity_type="{{ favorite.activity_type }}"
+                data-duration_min="{{ favorite.duration_min }}"
+                data-intensity="{{ favorite.intensity }}"
+                data-notes="{{ favorite.notes }}"
+              >{{ favorite.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
           <label for="act_taken_at">Time</label>
           <input id="act_taken_at" name="taken_at" type="datetime-local" value="{{ default_entry_datetime }}" required />
         </div>
@@ -729,6 +831,19 @@
       <div class="checkin-form-block">
         <label for="act_notes">Notes</label>
         <textarea id="act_notes" name="notes"></textarea>
+      </div>
+      <div class="grid" style="margin-top: 8px;">
+        <div>
+          <label for="act_save_favorite">Favorite</label>
+          <label style="font-weight: 500; margin-bottom: 0;">
+            <input id="act_save_favorite" name="save_favorite" type="checkbox" />
+            Save this as favorite
+          </label>
+        </div>
+        <div>
+          <label for="act_favorite_name">Favorite Name (optional)</label>
+          <input id="act_favorite_name" name="favorite_name" placeholder="e.g., morning walk" />
+        </div>
       </div>
       <div class="checkin-form-actions">
         <button type="submit">Save Activity Entry</button>
@@ -758,6 +873,21 @@
       <input type="hidden" name="view" value="medications" />
       <div class="grid">
         <div>
+          <label for="med_favorite_id">Quick Favorite</label>
+          <select id="med_favorite_id" name="favorite_id">
+            <option value="">Choose a meds/supp favorite</option>
+            {% for favorite in medication_quick_favorites %}
+              <option
+                value="{{ favorite.id }}"
+                data-kind="{{ favorite.kind }}"
+                data-med_name="{{ favorite.med_name }}"
+                data-dose="{{ favorite.dose }}"
+                data-notes="{{ favorite.notes }}"
+              >{{ favorite.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
           <label for="med_taken_at">Time</label>
           <input id="med_taken_at" name="taken_at" type="datetime-local" value="{{ default_entry_datetime }}" required />
         </div>
@@ -780,6 +910,19 @@
       <div class="checkin-form-block">
         <label for="med_notes">Notes</label>
         <textarea id="med_notes" name="notes"></textarea>
+      </div>
+      <div class="grid" style="margin-top: 8px;">
+        <div>
+          <label for="med_save_favorite">Favorite</label>
+          <label style="font-weight: 500; margin-bottom: 0;">
+            <input id="med_save_favorite" name="save_favorite" type="checkbox" />
+            Save this as favorite
+          </label>
+        </div>
+        <div>
+          <label for="med_favorite_name">Favorite Name (optional)</label>
+          <input id="med_favorite_name" name="favorite_name" placeholder="e.g., nightly magnesium" />
+        </div>
       </div>
       <div class="checkin-form-actions">
         <button type="submit">Save Med/Supp Entry</button>
@@ -887,5 +1030,90 @@
     setTab(defaultTab);
   </script>
   {% endif %}
+
+  <script>
+    function wireQuickFavoriteSelect(selectId, fieldMap, favoriteNameInputId) {
+      const select = document.getElementById(selectId);
+      if (!select) {
+        return;
+      }
+      select.addEventListener("change", () => {
+        const selectedOption = select.options[select.selectedIndex];
+        Object.entries(fieldMap).forEach(([dataAttr, fieldId]) => {
+          const field = document.getElementById(fieldId);
+          if (!field) {
+            return;
+          }
+          const value = selectedOption ? (selectedOption.getAttribute(dataAttr) || "") : "";
+          field.value = value;
+        });
+
+        if (favoriteNameInputId) {
+          const favoriteNameField = document.getElementById(favoriteNameInputId);
+          if (favoriteNameField && !favoriteNameField.value && selectedOption && selectedOption.value) {
+            favoriteNameField.value = selectedOption.textContent.trim();
+          }
+        }
+      });
+    }
+
+    wireQuickFavoriteSelect(
+      "meal_favorite_id",
+      {
+        "data-label": "meal_label",
+        "data-description": "meal_description",
+        "data-portion_notes": "meal_portion_notes",
+        "data-calories": "meal_calories",
+        "data-protein_g": "meal_protein_g",
+        "data-carbs_g": "meal_carbs_g",
+        "data-fat_g": "meal_fat_g"
+      },
+      "meal_favorite_name"
+    );
+
+    wireQuickFavoriteSelect(
+      "drink_favorite_id",
+      {
+        "data-description": "drink_description",
+        "data-portion_notes": "drink_portion_notes",
+        "data-calories": "drink_calories",
+        "data-sugar_g": "drink_sugar_g",
+        "data-caffeine_mg": "drink_caffeine_mg"
+      },
+      "drink_favorite_name"
+    );
+
+    wireQuickFavoriteSelect(
+      "sub_favorite_id",
+      {
+        "data-kind": "sub_kind",
+        "data-amount": "sub_amount",
+        "data-notes": "sub_notes"
+      },
+      "sub_favorite_name"
+    );
+
+    wireQuickFavoriteSelect(
+      "act_favorite_id",
+      {
+        "data-activity_type": "activity_type",
+        "data-duration_min": "duration_min",
+        "data-intensity": "intensity",
+        "data-notes": "act_notes"
+      },
+      "act_favorite_name"
+    );
+
+    wireQuickFavoriteSelect(
+      "med_favorite_id",
+      {
+        "data-kind": "med_kind",
+        "data-med_name": "med_name",
+        "data-dose": "dose",
+        "data-notes": "med_notes"
+      },
+      "med_favorite_name"
+    );
+  </script>
   </div>
 {% endblock %}

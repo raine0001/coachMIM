@@ -92,6 +92,217 @@ GENERIC_MEAL_NAMES = {
 }
 SEARCH_STOPWORDS = {"and", "or", "the", "a", "an", "of", "with", "to", "for"}
 DAY_MANAGER_VIEWS = {"checkin", "meal", "drink", "substance", "activity", "medications"}
+DAY_MANAGER_FAVORITE_SCOPE_PREFIX = "__dmv:"
+
+
+def _favorite_scope_from_tags(tags: list[str] | None):
+    if not tags:
+        return None
+    for tag in tags:
+        if isinstance(tag, str) and tag.startswith(DAY_MANAGER_FAVORITE_SCOPE_PREFIX):
+            scope = tag[len(DAY_MANAGER_FAVORITE_SCOPE_PREFIX) :].strip().lower()
+            if scope:
+                return scope
+    return None
+
+
+def _apply_favorite_scope(tags: list[str] | None, scope: str | None):
+    cleaned_tags = []
+    for tag in tags or []:
+        if not isinstance(tag, str):
+            continue
+        trimmed = tag.strip()
+        if not trimmed:
+            continue
+        if trimmed.startswith(DAY_MANAGER_FAVORITE_SCOPE_PREFIX):
+            continue
+        cleaned_tags.append(trimmed)
+
+    if scope:
+        cleaned_tags.append(f"{DAY_MANAGER_FAVORITE_SCOPE_PREFIX}{scope}")
+    return cleaned_tags or None
+
+
+def _build_day_manager_favorites_for_user(user_id: int):
+    favorites = (
+        FavoriteMeal.query.filter_by(user_id=user_id)
+        .order_by(FavoriteMeal.updated_at.desc(), FavoriteMeal.name.asc())
+        .limit(200)
+        .all()
+    )
+    grouped = {
+        "meal": [],
+        "drink": [],
+        "substance": [],
+        "activity": [],
+        "medications": [],
+    }
+
+    for favorite in favorites:
+        scope = _favorite_scope_from_tags(favorite.tags)
+        payload = favorite.ingredients if isinstance(favorite.ingredients, dict) else {}
+        favorite_base = {
+            "id": favorite.id,
+            "name": favorite.name,
+            "label": favorite.label or "",
+            "description": favorite.description or "",
+            "portion_notes": favorite.portion_notes or "",
+            "calories": favorite.calories if favorite.calories is not None else "",
+            "protein_g": favorite.protein_g if favorite.protein_g is not None else "",
+            "carbs_g": favorite.carbs_g if favorite.carbs_g is not None else "",
+            "fat_g": favorite.fat_g if favorite.fat_g is not None else "",
+            "sugar_g": favorite.sugar_g if favorite.sugar_g is not None else "",
+            "sodium_mg": favorite.sodium_mg if favorite.sodium_mg is not None else "",
+            "caffeine_mg": favorite.caffeine_mg if favorite.caffeine_mg is not None else "",
+        }
+
+        if scope == "substance":
+            grouped["substance"].append(
+                {
+                    "id": favorite.id,
+                    "name": favorite.name,
+                    "kind": str(payload.get("kind") or "other").lower(),
+                    "amount": str(payload.get("amount") or favorite.portion_notes or favorite.description or ""),
+                    "notes": str(payload.get("notes") or ""),
+                }
+            )
+            continue
+
+        if scope == "activity":
+            grouped["activity"].append(
+                {
+                    "id": favorite.id,
+                    "name": favorite.name,
+                    "activity_type": str(payload.get("activity_type") or favorite.description or ""),
+                    "duration_min": payload.get("duration_min") if payload.get("duration_min") is not None else "",
+                    "intensity": payload.get("intensity") if payload.get("intensity") is not None else "",
+                    "notes": str(payload.get("notes") or ""),
+                }
+            )
+            continue
+
+        if scope == "medications":
+            grouped["medications"].append(
+                {
+                    "id": favorite.id,
+                    "name": favorite.name,
+                    "kind": str(payload.get("kind") or "medication").lower(),
+                    "med_name": str(payload.get("med_name") or favorite.description or ""),
+                    "dose": str(payload.get("dose") or favorite.portion_notes or ""),
+                    "notes": str(payload.get("notes") or ""),
+                }
+            )
+            continue
+
+        if favorite.is_beverage or scope == "drink":
+            grouped["drink"].append(favorite_base)
+        else:
+            grouped["meal"].append(favorite_base)
+
+    return grouped
+
+
+def _find_user_quick_favorite(user_id: int, favorite_id: int | None):
+    if favorite_id is None:
+        return None
+    return FavoriteMeal.query.filter_by(user_id=user_id, id=favorite_id).first()
+
+
+def _favorite_scope_matches(existing_scope: str | None, target_scope: str):
+    if target_scope in {"meal", "drink"}:
+        return existing_scope in {None, "meal", "drink"}
+    return existing_scope == target_scope
+
+
+def _resolve_favorite_slot(user_id: int, requested_name: str, scope: str):
+    normalized_name = normalize_text(requested_name)
+    if not normalized_name:
+        return (None, None)
+    normalized_name = normalized_name[:120]
+
+    existing = FavoriteMeal.query.filter_by(user_id=user_id, name=normalized_name).first()
+    if existing is None:
+        return (normalized_name, None)
+
+    existing_scope = _favorite_scope_from_tags(existing.tags)
+    if _favorite_scope_matches(existing_scope, scope):
+        return (normalized_name, existing)
+
+    suffix = f" ({scope})"
+    max_base_len = max(1, 120 - len(suffix))
+    alt_name = f"{normalized_name[:max_base_len]}{suffix}"
+    alt_existing = FavoriteMeal.query.filter_by(user_id=user_id, name=alt_name).first()
+    return (alt_name, alt_existing)
+
+
+def _save_day_manager_meal_favorite(meal: Meal, view: str):
+    if not parse_bool(request.form.get("save_favorite")):
+        return
+
+    favorite_scope = "drink" if view == "drink" else "meal"
+    favorite_name = normalize_text(request.form.get("favorite_name"))
+    if not favorite_name:
+        favorite_name = derive_name_from_meal_request(meal=meal, max_len=120)
+    if not favorite_name:
+        return
+
+    favorite_name, favorite = _resolve_favorite_slot(g.user.id, favorite_name, favorite_scope)
+    if not favorite_name:
+        return
+    if not favorite:
+        favorite = FavoriteMeal(user_id=g.user.id, name=favorite_name)
+
+    favorite.name = favorite_name
+    favorite.food_item_id = meal.food_item_id
+    favorite.label = meal.label
+    favorite.description = meal.description
+    favorite.portion_notes = meal.portion_notes
+    favorite.tags = _apply_favorite_scope(meal.tags, favorite_scope)
+    favorite.is_beverage = meal.is_beverage
+    favorite.calories = meal.calories
+    favorite.protein_g = meal.protein_g
+    favorite.carbs_g = meal.carbs_g
+    favorite.fat_g = meal.fat_g
+    favorite.sugar_g = meal.sugar_g
+    favorite.sodium_mg = meal.sodium_mg
+    favorite.caffeine_mg = meal.caffeine_mg
+    favorite.ingredients = None
+
+    db.session.add(favorite)
+
+
+def _save_day_manager_nonmeal_favorite(scope: str, *, label: str, description: str | None, portion_notes: str | None, payload: dict):
+    if not parse_bool(request.form.get("save_favorite")):
+        return
+
+    favorite_name = normalize_text(request.form.get("favorite_name"))
+    if not favorite_name:
+        favorite_name = normalize_text(description) or normalize_text(portion_notes) or label
+    if not favorite_name:
+        return
+
+    favorite_name, favorite = _resolve_favorite_slot(g.user.id, favorite_name, scope)
+    if not favorite_name:
+        return
+    if not favorite:
+        favorite = FavoriteMeal(user_id=g.user.id, name=favorite_name)
+
+    favorite.name = favorite_name
+    favorite.food_item_id = None
+    favorite.label = label
+    favorite.description = normalize_text(description)
+    favorite.portion_notes = normalize_text(portion_notes)
+    favorite.tags = _apply_favorite_scope(None, scope)
+    favorite.is_beverage = False
+    favorite.calories = None
+    favorite.protein_g = None
+    favorite.carbs_g = None
+    favorite.fat_g = None
+    favorite.sugar_g = None
+    favorite.sodium_mg = None
+    favorite.caffeine_mg = None
+    favorite.ingredients = payload
+    db.session.add(favorite)
 
 
 def allowed_file(filename: str) -> bool:
@@ -422,13 +633,19 @@ def build_meal_context(selected_day: date, edit_meal: Meal | None = None):
         .order_by(Meal.eaten_at.asc())
         .all()
     )
-    favorites = (
+    all_favorites = (
         FavoriteMeal.query.filter_by(user_id=g.user.id)
         .order_by(FavoriteMeal.updated_at.desc(), FavoriteMeal.name.asc())
         .all()
     )
+    favorites = [
+        fav
+        for fav in all_favorites
+        if _favorite_scope_from_tags(fav.tags) in {None, "meal", "drink"}
+    ]
     meal_summary = build_meal_summary(selected_day, day_meals)
-    today = date.today()
+    local_today = get_user_local_today(g.user)
+    local_now = datetime.now(get_user_zoneinfo(g.user))
 
     favorite_payload = [
         {
@@ -438,7 +655,7 @@ def build_meal_context(selected_day: date, edit_meal: Meal | None = None):
             "food_item_id": f.food_item_id,
             "description": f.description,
             "portion_notes": f.portion_notes,
-            "tags": ", ".join(f.tags) if f.tags else "",
+            "tags": ", ".join(_apply_favorite_scope(f.tags, None) or []),
             "calories": f.calories,
             "protein_g": f.protein_g,
             "carbs_g": f.carbs_g,
@@ -447,12 +664,12 @@ def build_meal_context(selected_day: date, edit_meal: Meal | None = None):
             "sodium_mg": f.sodium_mg,
             "caffeine_mg": f.caffeine_mg,
             "is_beverage": f.is_beverage,
-            "ingredients": f.ingredients or [],
+            "ingredients": f.ingredients if isinstance(f.ingredients, list) else [],
         }
         for f in favorites
     ]
 
-    default_time = datetime.now().strftime("%H:%M") if selected_day == date.today() else "12:00"
+    default_time = local_now.strftime("%H:%M")
 
     return {
         "selected_day": selected_day.isoformat(),
@@ -460,7 +677,7 @@ def build_meal_context(selected_day: date, edit_meal: Meal | None = None):
         "selected_day_pretty": selected_day.strftime("%B %d, %Y"),
         "prev_day": (selected_day - timedelta(days=1)).isoformat(),
         "next_day": (selected_day + timedelta(days=1)).isoformat(),
-        "can_go_next": selected_day < today,
+        "can_go_next": selected_day < local_today,
         "day_meals": day_meals,
         "meal_summary": meal_summary,
         "favorites": favorites,
@@ -1304,8 +1521,10 @@ def checkin_form():
     selected_day_substance_count = len(day_substance_entries)
     selected_day_activity_count = len(day_activity_entries)
     selected_day_medication_count = len(day_medication_entries)
-    default_entry_time = datetime.now().strftime("%H:%M") if selected_day == local_today else "12:00"
+    local_now = datetime.now(get_user_zoneinfo(g.user))
+    default_entry_time = local_now.strftime("%H:%M")
     default_entry_datetime = f"{selected_day.isoformat()}T{default_entry_time}"
+    quick_favorites = _build_day_manager_favorites_for_user(g.user.id)
 
     prev_day = selected_day - timedelta(days=1)
     next_day = selected_day + timedelta(days=1)
@@ -1341,6 +1560,11 @@ def checkin_form():
         day_activity_entries=day_activity_entries,
         day_medication_entries=day_medication_entries,
         default_entry_datetime=default_entry_datetime,
+        meal_quick_favorites=quick_favorites["meal"],
+        drink_quick_favorites=quick_favorites["drink"],
+        substance_quick_favorites=quick_favorites["substance"],
+        activity_quick_favorites=quick_favorites["activity"],
+        medication_quick_favorites=quick_favorites["medications"],
     )
 
 
@@ -1450,9 +1674,20 @@ def checkin_meal_quick_save():
     if selected_day > local_today:
         selected_day = local_today
 
+    favorite_id = parse_int(request.form.get("favorite_id"))
+    selected_favorite = _find_user_quick_favorite(g.user.id, favorite_id)
+    favorite_scope = _favorite_scope_from_tags(selected_favorite.tags) if selected_favorite else None
+    if selected_favorite:
+        if manager_view == "drink":
+            is_usable_favorite = selected_favorite.is_beverage or favorite_scope == "drink"
+        else:
+            is_usable_favorite = (not selected_favorite.is_beverage) and favorite_scope in {None, "meal"}
+        if not is_usable_favorite:
+            selected_favorite = None
+
     eaten_at_raw = request.form.get("eaten_at")
     if not eaten_at_raw:
-        fallback_time = datetime.now().strftime("%H:%M") if selected_day == local_today else "12:00"
+        fallback_time = datetime.now(get_user_zoneinfo(g.user)).strftime("%H:%M")
         eaten_at_raw = f"{selected_day.isoformat()}T{fallback_time}"
 
     try:
@@ -1462,28 +1697,68 @@ def checkin_meal_quick_save():
         return redirect(url_for("main.checkin_form", day=selected_day.isoformat(), view=manager_view))
 
     description = normalize_text(request.form.get("description"))
+    if not description and selected_favorite:
+        description = selected_favorite.description or selected_favorite.name
     if not description:
         flash("Name/description is required for quick meal logging.", "error")
         return redirect(url_for("main.checkin_form", day=selected_day.isoformat(), view=manager_view))
 
-    is_beverage = parse_bool(request.form.get("is_beverage"))
+    is_beverage = parse_bool(request.form.get("is_beverage")) or manager_view == "drink"
+    label_value = normalize_text(request.form.get("label"))
+    if not label_value and selected_favorite:
+        label_value = selected_favorite.label
+    if not label_value and is_beverage:
+        label_value = "Drink"
+
+    portion_notes = normalize_text(request.form.get("portion_notes"))
+    if not portion_notes and selected_favorite:
+        portion_notes = selected_favorite.portion_notes
+
+    tags_value = parse_tags(request.form.get("tags"))
+    if not tags_value and selected_favorite:
+        tags_value = _apply_favorite_scope(selected_favorite.tags, None)
+
+    calories_value = parse_int(request.form.get("calories"))
+    protein_value = parse_float(request.form.get("protein_g"))
+    carbs_value = parse_float(request.form.get("carbs_g"))
+    fat_value = parse_float(request.form.get("fat_g"))
+    sugar_value = parse_float(request.form.get("sugar_g"))
+    sodium_value = parse_float(request.form.get("sodium_mg"))
+    caffeine_value = parse_float(request.form.get("caffeine_mg"))
+    if selected_favorite:
+        if calories_value is None:
+            calories_value = selected_favorite.calories
+        if protein_value is None:
+            protein_value = selected_favorite.protein_g
+        if carbs_value is None:
+            carbs_value = selected_favorite.carbs_g
+        if fat_value is None:
+            fat_value = selected_favorite.fat_g
+        if sugar_value is None:
+            sugar_value = selected_favorite.sugar_g
+        if sodium_value is None:
+            sodium_value = selected_favorite.sodium_mg
+        if caffeine_value is None:
+            caffeine_value = selected_favorite.caffeine_mg
+
     meal = Meal(
         user_id=g.user.id,
         eaten_at=eaten_at_dt,
-        label=normalize_text(request.form.get("label")) or ("Drink" if is_beverage else None),
+        label=label_value,
         description=description,
-        portion_notes=normalize_text(request.form.get("portion_notes")),
-        tags=parse_tags(request.form.get("tags")),
-        calories=parse_int(request.form.get("calories")),
-        protein_g=parse_float(request.form.get("protein_g")),
-        carbs_g=parse_float(request.form.get("carbs_g")),
-        fat_g=parse_float(request.form.get("fat_g")),
-        sugar_g=parse_float(request.form.get("sugar_g")),
-        sodium_mg=parse_float(request.form.get("sodium_mg")),
-        caffeine_mg=parse_float(request.form.get("caffeine_mg")),
+        portion_notes=portion_notes,
+        tags=tags_value,
+        calories=calories_value,
+        protein_g=protein_value,
+        carbs_g=carbs_value,
+        fat_g=fat_value,
+        sugar_g=sugar_value,
+        sodium_mg=sodium_value,
+        caffeine_mg=caffeine_value,
         is_beverage=is_beverage,
     )
 
+    _save_day_manager_meal_favorite(meal, view=manager_view)
     db.session.add(meal)
     db.session.commit()
     flash("Entry logged.", "success")
@@ -1508,9 +1783,22 @@ def checkin_substance_quick_save():
     if selected_day > local_today:
         selected_day = local_today
 
+    favorite_id = parse_int(request.form.get("favorite_id"))
+    selected_favorite = _find_user_quick_favorite(g.user.id, favorite_id)
+    expected_scope = "substance"
+    if manager_view == "activity":
+        expected_scope = "activity"
+    elif manager_view == "medications":
+        expected_scope = "medications"
+
+    if selected_favorite and _favorite_scope_from_tags(selected_favorite.tags) != expected_scope:
+        selected_favorite = None
+
+    favorite_payload = selected_favorite.ingredients if selected_favorite and isinstance(selected_favorite.ingredients, dict) else {}
+
     taken_at_raw = request.form.get("taken_at")
     if not taken_at_raw:
-        fallback_time = datetime.now().strftime("%H:%M") if selected_day == local_today else "12:00"
+        fallback_time = datetime.now(get_user_zoneinfo(g.user)).strftime("%H:%M")
         taken_at_raw = f"{selected_day.isoformat()}T{fallback_time}"
 
     try:
@@ -1520,18 +1808,35 @@ def checkin_substance_quick_save():
         return redirect(url_for("main.checkin_form", day=selected_day.isoformat(), view=manager_view))
 
     kind = (request.form.get("kind") or "").strip().lower()
+    if manager_view == "activity":
+        kind = "activity"
+    elif manager_view == "medications" and not kind:
+        kind = str(favorite_payload.get("kind") or "medication").strip().lower()
+    elif not kind and manager_view == "substance":
+        kind = str(favorite_payload.get("kind") or "").strip().lower()
+
     allowed_kinds = {"alcohol", "caffeine", "nicotine", "other", "activity", "medication", "supplement"}
     if kind not in allowed_kinds:
         flash("Select a valid type for this entry.", "error")
         return redirect(url_for("main.checkin_form", day=selected_day.isoformat(), view=manager_view))
 
     amount = normalize_text(request.form.get("amount"))
-    notes = normalize_text(request.form.get("notes"))
+    notes = normalize_text(request.form.get("notes")) or normalize_text(favorite_payload.get("notes"))
+
+    activity_type = None
+    duration_min = None
+    intensity = None
+    med_name = None
+    dose = None
 
     if kind == "activity":
-        activity_type = normalize_text(request.form.get("activity_type"))
+        activity_type = normalize_text(request.form.get("activity_type")) or normalize_text(favorite_payload.get("activity_type"))
         duration_min = parse_int(request.form.get("duration_min"))
+        if duration_min is None and favorite_payload.get("duration_min") not in (None, ""):
+            duration_min = parse_int(favorite_payload.get("duration_min"))
         intensity = parse_int(request.form.get("intensity"))
+        if intensity is None and favorite_payload.get("intensity") not in (None, ""):
+            intensity = parse_int(favorite_payload.get("intensity"))
         built_amount_parts = []
         if activity_type:
             built_amount_parts.append(activity_type)
@@ -1542,8 +1847,8 @@ def checkin_substance_quick_save():
         if built_amount_parts:
             amount = " | ".join(built_amount_parts)
     elif kind in {"medication", "supplement"}:
-        med_name = normalize_text(request.form.get("med_name"))
-        dose = normalize_text(request.form.get("dose"))
+        med_name = normalize_text(request.form.get("med_name")) or normalize_text(favorite_payload.get("med_name"))
+        dose = normalize_text(request.form.get("dose")) or normalize_text(favorite_payload.get("dose"))
         built_amount_parts = []
         if med_name:
             built_amount_parts.append(med_name)
@@ -1551,10 +1856,52 @@ def checkin_substance_quick_save():
             built_amount_parts.append(dose)
         if built_amount_parts:
             amount = " - ".join(built_amount_parts)
+    else:
+        if not amount:
+            amount = normalize_text(favorite_payload.get("amount")) or normalize_text(selected_favorite.portion_notes if selected_favorite else None)
 
     if not amount:
         flash("Amount/details are required for this entry.", "error")
         return redirect(url_for("main.checkin_form", day=selected_day.isoformat(), view=manager_view))
+
+    if kind == "activity":
+        _save_day_manager_nonmeal_favorite(
+            "activity",
+            label="Activity",
+            description=activity_type,
+            portion_notes=f"{duration_min} min" if duration_min is not None else None,
+            payload={
+                "activity_type": activity_type,
+                "duration_min": duration_min,
+                "intensity": intensity,
+                "notes": notes,
+            },
+        )
+    elif kind in {"medication", "supplement"}:
+        _save_day_manager_nonmeal_favorite(
+            "medications",
+            label="Medication/Supplement",
+            description=med_name,
+            portion_notes=dose,
+            payload={
+                "kind": kind,
+                "med_name": med_name,
+                "dose": dose,
+                "notes": notes,
+            },
+        )
+    else:
+        _save_day_manager_nonmeal_favorite(
+            "substance",
+            label="Substance",
+            description=kind,
+            portion_notes=amount,
+            payload={
+                "kind": kind,
+                "amount": amount,
+                "notes": notes,
+            },
+        )
 
     entry = Substance(
         user_id=g.user.id,
@@ -2141,7 +2488,7 @@ def substance_form():
         selected_day = local_today
         flash("Future entries are disabled. Showing current local day.", "error")
 
-    default_time = datetime.now().strftime("%H:%M") if selected_day == local_today else "12:00"
+    default_time = datetime.now(get_user_zoneinfo(g.user)).strftime("%H:%M")
     default_taken_at = f"{selected_day.isoformat()}T{default_time}"
 
     return render_template(

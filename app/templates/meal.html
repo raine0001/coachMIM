@@ -494,6 +494,16 @@
             <div>
               <label for="photo">Photo (optional)</label>
               <input id="photo" name="photo" type="file" accept=".png,.jpg,.jpeg,.webp,.heic" />
+              <div style="margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+                <button id="parse_entry_photo_btn" type="button" style="background: #fff; color: #17212b; border: 1px solid #d7dee7;">
+                  Extract Nutrition
+                </button>
+                <div id="entry-photo-parse-loading" class="loading-row" style="display: none; margin: 0;">
+                  <span class="inline-spinner"></span>
+                  <span>Extracting nutrition...</span>
+                </div>
+              </div>
+              <p id="entry_photo_parse_status" class="muted" style="margin: 6px 0 0;"></p>
             </div>
           </div>
         </div>
@@ -597,6 +607,10 @@
     const saveAsFavoriteButton = document.getElementById("save_as_favorite_btn");
     const saveStatusText = document.getElementById("save-status-text");
     const saveSubmitLoading = document.getElementById("save-submit-loading");
+    const entryPhotoInput = document.getElementById("photo");
+    const parseEntryPhotoButton = document.getElementById("parse_entry_photo_btn");
+    const entryPhotoParseLoading = document.getElementById("entry-photo-parse-loading");
+    const entryPhotoParseStatus = document.getElementById("entry_photo_parse_status");
     const foodSearchInput = document.getElementById("food_search");
     const foodResults = document.getElementById("food-results");
     const foodItemIdInput = document.getElementById("food_item_id");
@@ -876,13 +890,18 @@
     function copyBuilderTotalsToForm(options = {}) {
       const overwrite = Boolean(options.overwrite);
       const includeMeta = Boolean(options.includeMeta);
+      const overwriteZeros = Boolean(options.overwriteZeros);
       if (!builderState.ingredients.length) return false;
 
       const totals = updateBuilderTotals();
       const setNumericField = (key, value, digits = 1) => {
         const input = fieldMap[key];
         if (!input) return;
-        if (!overwrite && cleanText(input.value) !== "") return;
+        const currentText = cleanText(input.value);
+        const currentValue = Number(input.value);
+        const hasCurrent = currentText !== "";
+        const isCurrentZero = hasCurrent && Number.isFinite(currentValue) && currentValue === 0;
+        if (!overwrite && hasCurrent && !(overwriteZeros && isCurrentZero)) return;
         if (value === null || value === undefined || !Number.isFinite(value)) return;
         if (digits === 0) {
           input.value = String(Math.round(value));
@@ -1198,6 +1217,64 @@
       labelParseStatus.style.color = isError ? "#b42318" : "";
     }
 
+    function setEntryPhotoParseStatus(message, isError = false) {
+      if (!entryPhotoParseStatus) return;
+      entryPhotoParseStatus.textContent = message || "";
+      entryPhotoParseStatus.style.color = isError ? "#b42318" : "";
+    }
+
+    function setEntryPhotoParseLoading(isLoading) {
+      if (entryPhotoParseLoading) {
+        entryPhotoParseLoading.style.display = isLoading ? "flex" : "none";
+      }
+      if (parseEntryPhotoButton) {
+        parseEntryPhotoButton.disabled = isLoading;
+        if (isLoading) {
+          parseEntryPhotoButton.dataset.originalText = parseEntryPhotoButton.textContent;
+          parseEntryPhotoButton.textContent = "Extracting...";
+        } else if (parseEntryPhotoButton.dataset.originalText) {
+          parseEntryPhotoButton.textContent = parseEntryPhotoButton.dataset.originalText;
+        }
+      }
+    }
+
+    function populateMainNutritionFromParsed(parsed, options = {}) {
+      if (!parsed) return;
+      const overwrite = Boolean(options.overwrite);
+      const overwriteZeros = Boolean(options.overwriteZeros);
+
+      const assignField = (key, parsedValue) => {
+        const input = fieldMap[key];
+        if (!input || parsedValue === null || parsedValue === undefined) return;
+        const currentText = cleanText(input.value);
+        const currentValue = Number(input.value);
+        const hasCurrent = currentText !== "";
+        const isCurrentZero = hasCurrent && Number.isFinite(currentValue) && currentValue === 0;
+        if (!overwrite && hasCurrent && !(overwriteZeros && isCurrentZero)) return;
+        input.value = parsedValue;
+      };
+
+      assignField("calories", parsed.calories);
+      assignField("protein_g", parsed.protein_g);
+      assignField("carbs_g", parsed.carbs_g);
+      assignField("fat_g", parsed.fat_g);
+      assignField("sugar_g", parsed.sugar_g);
+      assignField("sodium_mg", parsed.sodium_mg);
+
+      if (fieldMap.portion_notes) {
+        const hasPortion = cleanText(fieldMap.portion_notes.value) !== "";
+        if (!hasPortion && parsed.serving_size_value !== null && parsed.serving_size_value !== undefined && parsed.serving_size_unit) {
+          fieldMap.portion_notes.value = `${parsed.serving_size_value} ${parsed.serving_size_unit}`;
+        }
+      }
+      if (fieldMap.description) {
+        const hasDescription = cleanText(fieldMap.description.value) !== "";
+        if (!hasDescription && parsed.name) {
+          fieldMap.description.value = parsed.name;
+        }
+      }
+    }
+
     function setBuilderParseStatus(message, isError = false) {
       if (!builderParseStatus) return;
       builderParseStatus.textContent = message || "";
@@ -1459,6 +1536,55 @@
         }
       } catch (error) {
         setLabelStatus("Label parse request failed. You can still enter values manually.", true);
+      }
+    }
+
+    async function parseEntryPhotoForNutrition() {
+      if (!entryPhotoInput || !entryPhotoInput.files || entryPhotoInput.files.length === 0) {
+        setEntryPhotoParseStatus("Choose a photo first, then click Extract Nutrition.", true);
+        return;
+      }
+
+      const file = entryPhotoInput.files[0];
+      const formData = new FormData();
+      formData.append("label_photo", file);
+
+      const hintName =
+        cleanText(fieldMap.description?.value) ||
+        cleanText(foodSearchInput?.value) ||
+        cleanText(favoriteNameInput?.value) ||
+        "";
+      if (hintName) {
+        formData.append("ingredient_name", hintName);
+      }
+
+      setEntryPhotoParseLoading(true);
+      setEntryPhotoParseStatus("Extracting nutrition from image...");
+      try {
+        const response = await fetch("/nutrition/label/parse", {
+          method: "POST",
+          body: formData,
+        });
+        const data = await response.json();
+        if (!response.ok || !data.ok) {
+          setEntryPhotoParseStatus(data.error || "Could not extract nutrition from this image.", true);
+          return;
+        }
+
+        populateMainNutritionFromParsed(data.parsed || {}, { overwrite: false, overwriteZeros: true });
+        const confidence = data.parsed?.confidence;
+        if (confidence !== null && confidence !== undefined) {
+          setEntryPhotoParseStatus(
+            `Nutrition extracted. Confidence ${displayNumber(Number(confidence) * 100, 0)}%. Review before saving.`,
+          );
+        } else {
+          setEntryPhotoParseStatus("Nutrition extracted. Review before saving.");
+        }
+        updateSaveStatus();
+      } catch (error) {
+        setEntryPhotoParseStatus("Photo extract request failed. You can still enter nutrition manually.", true);
+      } finally {
+        setEntryPhotoParseLoading(false);
       }
     }
 
@@ -1998,6 +2124,18 @@
       });
     }
 
+    if (parseEntryPhotoButton) {
+      parseEntryPhotoButton.addEventListener("click", () => {
+        parseEntryPhotoForNutrition();
+      });
+    }
+
+    if (entryPhotoInput) {
+      entryPhotoInput.addEventListener("change", () => {
+        setEntryPhotoParseStatus("");
+      });
+    }
+
     if (builderParseSentenceButton) {
       builderParseSentenceButton.addEventListener("click", () => {
         parseMealSentenceToBuilder();
@@ -2007,7 +2145,7 @@
     if (mealForm) {
       mealForm.addEventListener("submit", () => {
         if (builderState.ingredients.length) {
-          copyBuilderTotalsToForm({ overwrite: false, includeMeta: false });
+          copyBuilderTotalsToForm({ overwrite: false, includeMeta: false, overwriteZeros: true });
         }
         if (saveFavoriteCheckbox?.checked) {
           ensureFavoriteName();

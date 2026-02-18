@@ -1549,10 +1549,13 @@
       const hasIngredients = Array.isArray(data.ingredients) && data.ingredients.length > 0;
       setEntryMode(hasIngredients ? "recipe" : "single");
 
-      if (data.id !== undefined && data.id !== null) {
-        foodItemIdInput.value = data.id;
-      } else if (data.food_item_id) {
-        foodItemIdInput.value = data.food_item_id;
+      const hasFavoriteFoodKey = Object.prototype.hasOwnProperty.call(data, "food_item_id");
+      if (hasFavoriteFoodKey) {
+        foodItemIdInput.value = data.food_item_id ? String(data.food_item_id) : "";
+      } else if (data.id !== undefined && data.id !== null) {
+        foodItemIdInput.value = String(data.id);
+      } else {
+        foodItemIdInput.value = "";
       }
 
       if (foodSearchInput) {

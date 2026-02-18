@@ -821,6 +821,25 @@ def checkin_segment_status(record: DailyCheckIn | None):
     }
 
 
+def first_pending_checkin_tab(segments: dict[str, bool]) -> str:
+    for tab in ["sleep", "morning", "midday", "evening", "overall"]:
+        if not segments.get(tab):
+            return tab
+    return "overall"
+
+
+def resolve_checkin_default_tab(*, segments: dict[str, bool], is_viewing_today: bool, local_hour: int) -> str:
+    if not segments.get("sleep"):
+        return "sleep"
+    if not is_viewing_today:
+        return first_pending_checkin_tab(segments)
+    if local_hour < 11:
+        return "morning"
+    if local_hour < 17:
+        return "midday"
+    return "evening"
+
+
 def day_bounds(target_day: date):
     start = datetime.combine(target_day, datetime.min.time())
     end = start + timedelta(days=1)
@@ -1863,6 +1882,12 @@ def checkin_form():
     default_entry_time = local_now.strftime("%H:%M")
     default_entry_datetime = f"{selected_day.isoformat()}T{default_entry_time}"
     quick_favorites = _build_day_manager_favorites_for_user(g.user.id)
+    selected_segments = checkin_segment_status(record)
+    checkin_default_tab = resolve_checkin_default_tab(
+        segments=selected_segments,
+        is_viewing_today=(selected_day == local_today),
+        local_hour=local_now.hour,
+    )
 
     prev_day = selected_day - timedelta(days=1)
     next_day = selected_day + timedelta(days=1)
@@ -1878,7 +1903,8 @@ def checkin_form():
         local_today=local_today.isoformat(),
         checked_in_today=checkin_has_any_data(today_record),
         selected_day_checked_in=checkin_has_any_data(record),
-        selected_segments=checkin_segment_status(record),
+        selected_segments=selected_segments,
+        checkin_default_tab=checkin_default_tab,
         history_rows=history_rows,
         prev_day=prev_day.isoformat(),
         next_day=next_day.isoformat(),

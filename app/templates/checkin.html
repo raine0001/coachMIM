@@ -1,16 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
-  {% set default_tab = "sleep" %}
   {% set mim_logo_url = url_for('static', filename='mim-logo.png') %}
-  {% if selected_segments.sleep and not selected_segments.morning %}
-    {% set default_tab = "morning" %}
-  {% elif selected_segments.sleep and selected_segments.morning and not selected_segments.midday %}
-    {% set default_tab = "midday" %}
-  {% elif selected_segments.sleep and selected_segments.morning and selected_segments.midday and not selected_segments.evening %}
-    {% set default_tab = "evening" %}
-  {% elif selected_segments.sleep and selected_segments.morning and selected_segments.midday and selected_segments.evening %}
-    {% set default_tab = "overall" %}
-  {% endif %}
 
   <style>
     .checkin-page .card {
@@ -1163,7 +1153,7 @@
   </div>
 
   <script>
-    const defaultTab = "{{ default_tab }}";
+    const defaultTab = "{{ checkin_default_tab or 'sleep' }}";
     const tabButtons = document.querySelectorAll(".checkin-tab-btn");
     const tabPanels = document.querySelectorAll(".checkin-tab-panel");
 

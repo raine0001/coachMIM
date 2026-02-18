@@ -11,33 +11,261 @@
     {% set default_tab = "overall" %}
   {% endif %}
 
+  <style>
+    .checkin-page .card {
+      padding: 14px;
+      margin-bottom: 12px;
+    }
+    .checkin-page h2 {
+      margin-bottom: 10px;
+    }
+    .checkin-hero-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .checkin-hero-title {
+      font-size: 2rem;
+      font-weight: 800;
+      letter-spacing: 0.2px;
+      line-height: 1.15;
+      margin: 0;
+    }
+    .checkin-day-nav {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .checkin-day-nav-link {
+      padding: 7px 11px;
+      border: 1px solid #d7dee7;
+      border-radius: 8px;
+      text-decoration: none;
+      background: #fff;
+      color: #17212b;
+      white-space: nowrap;
+      font-size: 0.92rem;
+    }
+    .checkin-day-nav-disabled {
+      padding: 7px 11px;
+      border: 1px solid #d7dee7;
+      border-radius: 8px;
+      color: #98a2b3;
+      background: #fff;
+      white-space: nowrap;
+      font-size: 0.92rem;
+    }
+    .checkin-day-tracking {
+      margin: 6px 0 0;
+      font-size: 0.95rem;
+    }
+    .checkin-status {
+      margin: 6px 0 0;
+      font-size: 0.98rem;
+    }
+    .checkin-status-ok {
+      color: #067647;
+    }
+    .checkin-status-pending {
+      color: #b42318;
+    }
+    .day-manager-card {
+      border-color: #cfe3ff;
+      background: #f9fcff;
+    }
+    .day-manager-tabs {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-top: 6px;
+    }
+    .day-manager-tab {
+      padding: 7px 11px;
+      border-radius: 8px;
+      text-decoration: none;
+      color: #17212b;
+      background: #fff;
+      border: 1px solid #d7dee7;
+      white-space: nowrap;
+      font-size: 0.92rem;
+    }
+    .day-manager-tab.active {
+      color: #fff;
+      background: #0f766e;
+      border-color: #0f766e;
+    }
+    .day-manager-counts {
+      margin: 8px 0 0;
+      font-size: 0.93rem;
+    }
+    .checkin-segment-tabs {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-bottom: 10px;
+    }
+    .checkin-tab-btn {
+      padding: 7px 11px;
+      border: 1px solid #d7dee7;
+      border-radius: 8px;
+      background: #fff;
+      color: #17212b;
+      font-size: 0.92rem;
+      cursor: pointer;
+    }
+    .checkin-segment-progress {
+      margin-bottom: 10px;
+      font-size: 0.92rem;
+      line-height: 1.4;
+    }
+    .checkin-form-block {
+      margin-top: 10px;
+    }
+    .checkin-form-actions {
+      margin-top: 12px;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .checkin-form-actions button {
+      padding: 9px 13px;
+    }
+    .table-wrap {
+      overflow-x: auto;
+    }
+    .table-compact {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.92rem;
+    }
+    .table-compact th {
+      text-align: left;
+      border-bottom: 1px solid #d7dee7;
+      padding: 7px;
+      white-space: nowrap;
+    }
+    .table-compact th.align-center {
+      text-align: center;
+    }
+    .table-compact th.align-right {
+      text-align: right;
+    }
+    .table-compact td {
+      padding: 7px;
+      border-bottom: 1px solid #eef3f8;
+      vertical-align: top;
+    }
+    .table-compact td.align-center {
+      text-align: center;
+    }
+    .table-compact td.align-right {
+      text-align: right;
+    }
+    .inline-list {
+      margin: 0;
+      padding-left: 18px;
+      font-size: 0.94rem;
+    }
+    .inline-list li {
+      margin-bottom: 6px;
+    }
+    .quick-open-link {
+      margin-bottom: 10px;
+    }
+    .quick-open-link a {
+      display: inline-block;
+      padding: 7px 11px;
+      border: 1px solid #d7dee7;
+      border-radius: 8px;
+      text-decoration: none;
+      background: #fff;
+      color: #17212b;
+      font-size: 0.92rem;
+    }
+    @media (max-width: 860px) {
+      .checkin-page .grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+      .checkin-hero-title {
+        font-size: 1.7rem;
+      }
+    }
+    @media (max-width: 640px) {
+      .checkin-page .card {
+        padding: 12px;
+      }
+      .checkin-hero-title {
+        font-size: 1.42rem;
+      }
+      .checkin-day-nav {
+        width: 100%;
+      }
+      .checkin-day-nav-link,
+      .checkin-day-nav-disabled {
+        flex: 1 1 calc(33.333% - 6px);
+        text-align: center;
+        padding: 8px 6px;
+        font-size: 0.87rem;
+      }
+      .day-manager-tabs {
+        overflow-x: auto;
+        flex-wrap: nowrap;
+        padding-bottom: 2px;
+      }
+      .day-manager-tab {
+        flex: 0 0 auto;
+      }
+      .checkin-segment-tabs {
+        overflow-x: auto;
+        flex-wrap: nowrap;
+        padding-bottom: 2px;
+      }
+      .checkin-tab-btn {
+        flex: 0 0 auto;
+      }
+      .checkin-page .grid {
+        grid-template-columns: 1fr;
+      }
+      .table-compact {
+        min-width: 620px;
+      }
+      .inline-list {
+        padding-left: 16px;
+      }
+    }
+  </style>
+
+  <div class="checkin-page">
   <div class="card">
-    <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
-      <div style="font-size: 1.9rem; font-weight: 800; letter-spacing: 0.2px; line-height: 1.2;">
+    <div class="checkin-hero-row">
+      <div class="checkin-hero-title">
         {{ selected_day_weekday }}, {{ selected_day_pretty }}
       </div>
-      <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-        <a href="{{ url_for('main.checkin_form', day=prev_day, view=manager_view) }}" style="padding: 8px 12px; border: 1px solid #d7dee7; border-radius: 8px; text-decoration: none; background: #fff; color: #17212b;">&lt; Prev</a>
+      <div class="checkin-day-nav">
+        <a class="checkin-day-nav-link" href="{{ url_for('main.checkin_form', day=prev_day, view=manager_view) }}">&lt; Prev</a>
         {% if can_go_next %}
-          <a href="{{ url_for('main.checkin_form', day=next_day, view=manager_view) }}" style="padding: 8px 12px; border: 1px solid #d7dee7; border-radius: 8px; text-decoration: none; background: #fff; color: #17212b;">Next &gt;</a>
+          <a class="checkin-day-nav-link" href="{{ url_for('main.checkin_form', day=next_day, view=manager_view) }}">Next &gt;</a>
         {% else %}
-          <span style="padding: 8px 12px; border: 1px solid #d7dee7; border-radius: 8px; color: #98a2b3; background: #fff;">Next &gt;</span>
+          <span class="checkin-day-nav-disabled">Next &gt;</span>
         {% endif %}
-        <a href="{{ url_for('main.checkin_form', day=local_today, view=manager_view) }}" style="padding: 8px 12px; border: 1px solid #d7dee7; border-radius: 8px; text-decoration: none; background: #fff; color: #17212b;">Today</a>
+        <a class="checkin-day-nav-link" href="{{ url_for('main.checkin_form', day=local_today, view=manager_view) }}">Today</a>
       </div>
     </div>
-    <p class="muted" style="margin: 8px 0 0;">
+    <p class="muted checkin-day-tracking">
       Tracking day: <strong>{{ selected_day }}</strong>
       {% if not is_viewing_today %}
         (local today: {{ local_today }})
       {% endif %}
     </p>
-    <p style="margin-top: 8px;">
+    <p class="checkin-status">
       <strong>Check-In Status:</strong>
       {% if selected_day_checked_in %}
-        <span style="color: #067647;">CHECKED IN FOR THIS DAY</span>
+        <span class="checkin-status-ok">CHECKED IN FOR THIS DAY</span>
       {% else %}
-        <span style="color: #b42318;">NOT STARTED FOR THIS DAY</span>
+        <span class="checkin-status-pending">NOT STARTED FOR THIS DAY</span>
       {% endif %}
       {% if is_viewing_today %}
         {% if checked_in_today %}
@@ -49,17 +277,17 @@
     </p>
   </div>
 
-  <div class="card" style="border-color: #cfe3ff; background: #f9fcff;">
+  <div class="card day-manager-card">
     <label>Day Manager</label>
-    <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px;">
-      <a href="{{ url_for('main.checkin_form', day=selected_day, view='checkin') }}" style="padding: 8px 12px; border-radius: 8px; text-decoration: none; {{ 'color: #fff; background: #0f766e;' if manager_view == 'checkin' else 'color: #17212b; background: #fff; border: 1px solid #d7dee7;' }}">Check-In</a>
-      <a href="{{ url_for('main.checkin_form', day=selected_day, view='meal') }}" style="padding: 8px 12px; border-radius: 8px; text-decoration: none; {{ 'color: #fff; background: #0f766e;' if manager_view == 'meal' else 'color: #17212b; background: #fff; border: 1px solid #d7dee7;' }}">Log Meal</a>
-      <a href="{{ url_for('main.checkin_form', day=selected_day, view='drink') }}" style="padding: 8px 12px; border-radius: 8px; text-decoration: none; {{ 'color: #fff; background: #0f766e;' if manager_view == 'drink' else 'color: #17212b; background: #fff; border: 1px solid #d7dee7;' }}">Log Drink</a>
-      <a href="{{ url_for('main.checkin_form', day=selected_day, view='substance') }}" style="padding: 8px 12px; border-radius: 8px; text-decoration: none; {{ 'color: #fff; background: #0f766e;' if manager_view == 'substance' else 'color: #17212b; background: #fff; border: 1px solid #d7dee7;' }}">Log Substance</a>
-      <a href="{{ url_for('main.checkin_form', day=selected_day, view='activity') }}" style="padding: 8px 12px; border-radius: 8px; text-decoration: none; {{ 'color: #fff; background: #0f766e;' if manager_view == 'activity' else 'color: #17212b; background: #fff; border: 1px solid #d7dee7;' }}">Log Activity</a>
-      <a href="{{ url_for('main.checkin_form', day=selected_day, view='medications') }}" style="padding: 8px 12px; border-radius: 8px; text-decoration: none; {{ 'color: #fff; background: #0f766e;' if manager_view == 'medications' else 'color: #17212b; background: #fff; border: 1px solid #d7dee7;' }}">Meds/Supps</a>
+    <div class="day-manager-tabs">
+      <a class="day-manager-tab {{ 'active' if manager_view == 'checkin' else '' }}" href="{{ url_for('main.checkin_form', day=selected_day, view='checkin') }}">Check-In</a>
+      <a class="day-manager-tab {{ 'active' if manager_view == 'meal' else '' }}" href="{{ url_for('main.checkin_form', day=selected_day, view='meal') }}">Log Meal</a>
+      <a class="day-manager-tab {{ 'active' if manager_view == 'drink' else '' }}" href="{{ url_for('main.checkin_form', day=selected_day, view='drink') }}">Log Drink</a>
+      <a class="day-manager-tab {{ 'active' if manager_view == 'substance' else '' }}" href="{{ url_for('main.checkin_form', day=selected_day, view='substance') }}">Log Substance</a>
+      <a class="day-manager-tab {{ 'active' if manager_view == 'activity' else '' }}" href="{{ url_for('main.checkin_form', day=selected_day, view='activity') }}">Log Activity</a>
+      <a class="day-manager-tab {{ 'active' if manager_view == 'medications' else '' }}" href="{{ url_for('main.checkin_form', day=selected_day, view='medications') }}">Meds/Supps</a>
     </div>
-    <p class="muted" style="margin: 10px 0 0;">
+    <p class="muted day-manager-counts">
       Same-day counts:
       {{ selected_day_meal_count }} meal{{ "" if selected_day_meal_count == 1 else "s" }},
       {{ selected_day_drink_count }} drink{{ "" if selected_day_drink_count == 1 else "s" }},
@@ -74,7 +302,7 @@
     <form method="post" action="{{ url_for('main.checkin_save') }}">
       <input type="hidden" name="day" value="{{ selected_day }}" />
 
-      <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px;">
+      <div class="checkin-segment-tabs">
         <button type="button" class="checkin-tab-btn" data-tab="sleep">Sleep</button>
         <button type="button" class="checkin-tab-btn" data-tab="morning">Morning</button>
         <button type="button" class="checkin-tab-btn" data-tab="midday">Midday</button>
@@ -82,7 +310,7 @@
         <button type="button" class="checkin-tab-btn" data-tab="overall">Overall</button>
       </div>
 
-      <div class="muted" style="margin-bottom: 12px;">
+      <div class="muted checkin-segment-progress">
         Segment progress:
         Sleep={{ "done" if selected_segments.sleep else "pending" }},
         Morning={{ "done" if selected_segments.morning else "pending" }},
@@ -103,7 +331,7 @@
             <input id="sleep_quality" name="sleep_quality" type="number" min="1" max="10" value="{{ record.sleep_quality if record else '' }}" />
           </div>
         </div>
-        <div style="margin-top: 12px;">
+        <div class="checkin-form-block">
           <label for="sleep_notes">Sleep Notes</label>
           <textarea id="sleep_notes" name="sleep_notes" placeholder="Wakeups, latency, dreams, disruptions...">{{ record.sleep_notes if record else '' }}</textarea>
         </div>
@@ -133,7 +361,7 @@
             <input id="morning_weight" name="morning_weight" type="number" min="0" step="0.1" value="{{ morning_weight_display if morning_weight_display is not none else '' }}" />
           </div>
         </div>
-        <div style="margin-top: 12px;">
+        <div class="checkin-form-block">
           <label for="morning_notes">Morning Notes</label>
           <textarea id="morning_notes" name="morning_notes">{{ record.morning_notes if record else '' }}</textarea>
         </div>
@@ -159,7 +387,7 @@
             <input id="midday_stress" name="midday_stress" type="number" min="1" max="10" value="{{ record.midday_stress if record else '' }}" />
           </div>
         </div>
-        <div style="margin-top: 12px;">
+        <div class="checkin-form-block">
           <label for="midday_notes">Midday Notes</label>
           <textarea id="midday_notes" name="midday_notes">{{ record.midday_notes if record else '' }}</textarea>
         </div>
@@ -185,7 +413,7 @@
             <input id="evening_stress" name="evening_stress" type="number" min="1" max="10" value="{{ record.evening_stress if record else '' }}" />
           </div>
         </div>
-        <div style="margin-top: 12px;">
+        <div class="checkin-form-block">
           <label for="evening_notes">Evening Notes</label>
           <textarea id="evening_notes" name="evening_notes">{{ record.evening_notes if record else '' }}</textarea>
         </div>
@@ -252,17 +480,17 @@
           </div>
         </div>
 
-        <div style="margin-top: 12px;">
+        <div class="checkin-form-block">
           <label for="accomplishments">Accomplishments</label>
           <textarea id="accomplishments" name="accomplishments">{{ record.accomplishments if record else '' }}</textarea>
         </div>
-        <div style="margin-top: 12px;">
+        <div class="checkin-form-block">
           <label for="notes">Overall Notes</label>
           <textarea id="notes" name="notes">{{ record.notes if record else '' }}</textarea>
         </div>
       </div>
 
-      <div style="margin-top: 14px;">
+      <div class="checkin-form-actions">
         <button type="submit">Save Check-In</button>
       </div>
     </form>
@@ -271,8 +499,8 @@
   <div class="card">
     <h2>Meals For {{ selected_day }}</h2>
     <p class="muted">Quick-log a meal for this day, or open full meal tools for builder/search/photos.</p>
-    <div style="margin-bottom: 12px;">
-      <a href="{{ url_for('main.meal_form', day=selected_day) }}" style="padding: 8px 12px; border: 1px solid #d7dee7; border-radius: 8px; text-decoration: none; background: #fff; color: #17212b;">Open Full Meal Logger</a>
+    <div class="quick-open-link">
+      <a href="{{ url_for('main.meal_form', day=selected_day) }}">Open Full Meal Logger</a>
     </div>
     <form method="post" action="{{ url_for('main.checkin_meal_quick_save') }}">
       <input type="hidden" name="day" value="{{ selected_day }}" />
@@ -312,7 +540,7 @@
           <input id="meal_fat_g" name="fat_g" type="number" min="0" step="0.1" />
         </div>
       </div>
-      <div style="margin-top: 12px;">
+      <div class="checkin-form-actions">
         <button type="submit">Save Meal Entry</button>
       </div>
     </form>
@@ -321,25 +549,25 @@
   <div class="card">
     <h2>Meals Logged</h2>
     {% if day_food_entries %}
-      <div style="overflow-x: auto;">
-        <table style="width: 100%; border-collapse: collapse;">
+      <div class="table-wrap">
+        <table class="table-compact">
           <thead>
             <tr>
-              <th style="text-align: left; border-bottom: 1px solid #d7dee7; padding: 8px;">Time</th>
-              <th style="text-align: left; border-bottom: 1px solid #d7dee7; padding: 8px;">Item</th>
-              <th style="text-align: left; border-bottom: 1px solid #d7dee7; padding: 8px;">Portion</th>
-              <th style="text-align: right; border-bottom: 1px solid #d7dee7; padding: 8px;">Calories</th>
-              <th style="text-align: right; border-bottom: 1px solid #d7dee7; padding: 8px;">P/C/F</th>
+              <th>Time</th>
+              <th>Item</th>
+              <th>Portion</th>
+              <th class="align-right">Calories</th>
+              <th class="align-right">P/C/F</th>
             </tr>
           </thead>
           <tbody>
             {% for meal in day_food_entries %}
               <tr>
-                <td style="padding: 8px; border-bottom: 1px solid #eef3f8;">{{ meal.eaten_at.strftime("%H:%M") }}</td>
-                <td style="padding: 8px; border-bottom: 1px solid #eef3f8;">{{ meal.description or (meal.food_item.display_name() if meal.food_item else "Meal") }}</td>
-                <td style="padding: 8px; border-bottom: 1px solid #eef3f8;">{{ meal.portion_notes or "n/a" }}</td>
-                <td style="padding: 8px; border-bottom: 1px solid #eef3f8; text-align: right;">{{ meal.calories if meal.calories is not none else "-" }}</td>
-                <td style="padding: 8px; border-bottom: 1px solid #eef3f8; text-align: right;">
+                <td>{{ meal.eaten_at.strftime("%H:%M") }}</td>
+                <td>{{ meal.description or (meal.food_item.display_name() if meal.food_item else "Meal") }}</td>
+                <td>{{ meal.portion_notes or "n/a" }}</td>
+                <td class="align-right">{{ meal.calories if meal.calories is not none else "-" }}</td>
+                <td class="align-right">
                   {{ meal.protein_g if meal.protein_g is not none else "-" }}/{{ meal.carbs_g if meal.carbs_g is not none else "-" }}/{{ meal.fat_g if meal.fat_g is not none else "-" }}
                 </td>
               </tr>
@@ -386,7 +614,7 @@
           <input id="drink_sugar_g" name="sugar_g" type="number" min="0" step="0.1" />
         </div>
       </div>
-      <div style="margin-top: 12px;">
+      <div class="checkin-form-actions">
         <button type="submit">Save Drink Entry</button>
       </div>
     </form>
@@ -395,25 +623,25 @@
   <div class="card">
     <h2>Drinks Logged</h2>
     {% if day_drink_entries %}
-      <div style="overflow-x: auto;">
-        <table style="width: 100%; border-collapse: collapse;">
+      <div class="table-wrap">
+        <table class="table-compact">
           <thead>
             <tr>
-              <th style="text-align: left; border-bottom: 1px solid #d7dee7; padding: 8px;">Time</th>
-              <th style="text-align: left; border-bottom: 1px solid #d7dee7; padding: 8px;">Drink</th>
-              <th style="text-align: left; border-bottom: 1px solid #d7dee7; padding: 8px;">Portion</th>
-              <th style="text-align: right; border-bottom: 1px solid #d7dee7; padding: 8px;">Caffeine</th>
-              <th style="text-align: right; border-bottom: 1px solid #d7dee7; padding: 8px;">Calories</th>
+              <th>Time</th>
+              <th>Drink</th>
+              <th>Portion</th>
+              <th class="align-right">Caffeine</th>
+              <th class="align-right">Calories</th>
             </tr>
           </thead>
           <tbody>
             {% for meal in day_drink_entries %}
               <tr>
-                <td style="padding: 8px; border-bottom: 1px solid #eef3f8;">{{ meal.eaten_at.strftime("%H:%M") }}</td>
-                <td style="padding: 8px; border-bottom: 1px solid #eef3f8;">{{ meal.description or (meal.food_item.display_name() if meal.food_item else "Drink") }}</td>
-                <td style="padding: 8px; border-bottom: 1px solid #eef3f8;">{{ meal.portion_notes or "n/a" }}</td>
-                <td style="padding: 8px; border-bottom: 1px solid #eef3f8; text-align: right;">{{ meal.caffeine_mg if meal.caffeine_mg is not none else "-" }}</td>
-                <td style="padding: 8px; border-bottom: 1px solid #eef3f8; text-align: right;">{{ meal.calories if meal.calories is not none else "-" }}</td>
+                <td>{{ meal.eaten_at.strftime("%H:%M") }}</td>
+                <td>{{ meal.description or (meal.food_item.display_name() if meal.food_item else "Drink") }}</td>
+                <td>{{ meal.portion_notes or "n/a" }}</td>
+                <td class="align-right">{{ meal.caffeine_mg if meal.caffeine_mg is not none else "-" }}</td>
+                <td class="align-right">{{ meal.calories if meal.calories is not none else "-" }}</td>
               </tr>
             {% endfor %}
           </tbody>
@@ -449,11 +677,11 @@
           <input id="sub_amount" name="amount" placeholder="2 beers, 200mg..." required />
         </div>
       </div>
-      <div style="margin-top: 12px;">
+      <div class="checkin-form-block">
         <label for="sub_notes">Notes</label>
         <textarea id="sub_notes" name="notes"></textarea>
       </div>
-      <div style="margin-top: 12px;">
+      <div class="checkin-form-actions">
         <button type="submit">Save Substance Entry</button>
       </div>
     </form>
@@ -462,9 +690,9 @@
   <div class="card">
     <h2>Substance Entries</h2>
     {% if day_substance_entries %}
-      <ul style="margin: 0; padding-left: 18px;">
+      <ul class="inline-list">
         {% for entry in day_substance_entries %}
-          <li style="margin-bottom: 6px;">
+          <li>
             <strong>{{ entry.taken_at.strftime("%H:%M") }}</strong> - {{ entry.kind }} - {{ entry.amount }}{% if entry.notes %} ({{ entry.notes }}){% endif %}
           </li>
         {% endfor %}
@@ -498,11 +726,11 @@
           <input id="intensity" name="intensity" type="number" min="1" max="10" />
         </div>
       </div>
-      <div style="margin-top: 12px;">
+      <div class="checkin-form-block">
         <label for="act_notes">Notes</label>
         <textarea id="act_notes" name="notes"></textarea>
       </div>
-      <div style="margin-top: 12px;">
+      <div class="checkin-form-actions">
         <button type="submit">Save Activity Entry</button>
       </div>
     </form>
@@ -511,9 +739,9 @@
   <div class="card">
     <h2>Activity Entries</h2>
     {% if day_activity_entries %}
-      <ul style="margin: 0; padding-left: 18px;">
+      <ul class="inline-list">
         {% for entry in day_activity_entries %}
-          <li style="margin-bottom: 6px;">
+          <li>
             <strong>{{ entry.taken_at.strftime("%H:%M") }}</strong> - {{ entry.amount }}{% if entry.notes %} ({{ entry.notes }}){% endif %}
           </li>
         {% endfor %}
@@ -549,11 +777,11 @@
           <input id="dose" name="dose" placeholder="e.g., 200 mg" />
         </div>
       </div>
-      <div style="margin-top: 12px;">
+      <div class="checkin-form-block">
         <label for="med_notes">Notes</label>
         <textarea id="med_notes" name="notes"></textarea>
       </div>
-      <div style="margin-top: 12px;">
+      <div class="checkin-form-actions">
         <button type="submit">Save Med/Supp Entry</button>
       </div>
     </form>
@@ -562,9 +790,9 @@
   <div class="card">
     <h2>Medication/Supplement Entries</h2>
     {% if day_medication_entries %}
-      <ul style="margin: 0; padding-left: 18px;">
+      <ul class="inline-list">
         {% for entry in day_medication_entries %}
-          <li style="margin-bottom: 6px;">
+          <li>
             <strong>{{ entry.taken_at.strftime("%H:%M") }}</strong> - {{ entry.kind }} - {{ entry.amount }}{% if entry.notes %} ({{ entry.notes }}){% endif %}
           </li>
         {% endfor %}
@@ -579,35 +807,35 @@
   <div class="card">
     <h2>Recent Check-In History</h2>
     {% if history_rows %}
-      <div style="overflow-x: auto;">
-        <table style="width: 100%; border-collapse: collapse;">
+      <div class="table-wrap">
+        <table class="table-compact">
           <thead>
             <tr>
-              <th style="text-align: left; border-bottom: 1px solid #d7dee7; padding: 8px;">Day</th>
-              <th style="text-align: center; border-bottom: 1px solid #d7dee7; padding: 8px;">Any Data</th>
-              <th style="text-align: center; border-bottom: 1px solid #d7dee7; padding: 8px;">Sleep</th>
-              <th style="text-align: center; border-bottom: 1px solid #d7dee7; padding: 8px;">Morning</th>
-              <th style="text-align: center; border-bottom: 1px solid #d7dee7; padding: 8px;">Midday</th>
-              <th style="text-align: center; border-bottom: 1px solid #d7dee7; padding: 8px;">Evening</th>
-              <th style="text-align: center; border-bottom: 1px solid #d7dee7; padding: 8px;">Overall</th>
-              <th style="text-align: right; border-bottom: 1px solid #d7dee7; padding: 8px;">Weight ({{ checkin_weight_unit }})</th>
-              <th style="text-align: right; border-bottom: 1px solid #d7dee7; padding: 8px;">Productivity</th>
-              <th style="text-align: left; border-bottom: 1px solid #d7dee7; padding: 8px;">Open</th>
+              <th>Day</th>
+              <th class="align-center">Any Data</th>
+              <th class="align-center">Sleep</th>
+              <th class="align-center">Morning</th>
+              <th class="align-center">Midday</th>
+              <th class="align-center">Evening</th>
+              <th class="align-center">Overall</th>
+              <th class="align-right">Weight ({{ checkin_weight_unit }})</th>
+              <th class="align-right">Productivity</th>
+              <th>Open</th>
             </tr>
           </thead>
           <tbody>
             {% for row in history_rows %}
               <tr {% if row.is_today %}style="background: #f2f8f7;"{% endif %}>
-                <td style="padding: 8px; border-bottom: 1px solid #eef3f8;">
+                <td>
                   {{ row.record.day }}{% if row.is_today %} (today){% endif %}
                 </td>
-                <td style="padding: 8px; border-bottom: 1px solid #eef3f8; text-align: center;">{{ "yes" if row.has_data else "no" }}</td>
-                <td style="padding: 8px; border-bottom: 1px solid #eef3f8; text-align: center;">{{ "done" if row.segments.sleep else "-" }}</td>
-                <td style="padding: 8px; border-bottom: 1px solid #eef3f8; text-align: center;">{{ "done" if row.segments.morning else "-" }}</td>
-                <td style="padding: 8px; border-bottom: 1px solid #eef3f8; text-align: center;">{{ "done" if row.segments.midday else "-" }}</td>
-                <td style="padding: 8px; border-bottom: 1px solid #eef3f8; text-align: center;">{{ "done" if row.segments.evening else "-" }}</td>
-                <td style="padding: 8px; border-bottom: 1px solid #eef3f8; text-align: center;">{{ "done" if row.segments.overall else "-" }}</td>
-                <td style="padding: 8px; border-bottom: 1px solid #eef3f8; text-align: right;">
+                <td class="align-center">{{ "yes" if row.has_data else "no" }}</td>
+                <td class="align-center">{{ "done" if row.segments.sleep else "-" }}</td>
+                <td class="align-center">{{ "done" if row.segments.morning else "-" }}</td>
+                <td class="align-center">{{ "done" if row.segments.midday else "-" }}</td>
+                <td class="align-center">{{ "done" if row.segments.evening else "-" }}</td>
+                <td class="align-center">{{ "done" if row.segments.overall else "-" }}</td>
+                <td class="align-right">
                   {% if row.record.morning_weight_kg is not none %}
                     {% if checkin_unit_system == "imperial" %}
                       {{ (row.record.morning_weight_kg * 2.2046226218) | round(1) }}
@@ -618,8 +846,8 @@
                     -
                   {% endif %}
                 </td>
-                <td style="padding: 8px; border-bottom: 1px solid #eef3f8; text-align: right;">{{ row.record.productivity if row.record.productivity is not none else "-" }}</td>
-                <td style="padding: 8px; border-bottom: 1px solid #eef3f8;">
+                <td class="align-right">{{ row.record.productivity if row.record.productivity is not none else "-" }}</td>
+                <td>
                   <a href="{{ url_for('main.checkin_form', day=row.record.day.isoformat(), view='checkin') }}">Open</a>
                 </td>
               </tr>
@@ -659,4 +887,5 @@
     setTab(defaultTab);
   </script>
   {% endif %}
+  </div>
 {% endblock %}

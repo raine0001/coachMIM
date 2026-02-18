@@ -412,7 +412,11 @@ def build_meal_context(selected_day: date, edit_meal: Meal | None = None):
         .order_by(Meal.eaten_at.asc())
         .all()
     )
-    favorites = FavoriteMeal.query.filter_by(user_id=g.user.id).order_by(FavoriteMeal.name.asc()).all()
+    favorites = (
+        FavoriteMeal.query.filter_by(user_id=g.user.id)
+        .order_by(FavoriteMeal.updated_at.desc(), FavoriteMeal.name.asc())
+        .all()
+    )
     meal_summary = build_meal_summary(selected_day, day_meals)
     today = date.today()
 

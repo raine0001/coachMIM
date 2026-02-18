@@ -40,6 +40,7 @@
       <li>For recipes, open Build Recipe and use <strong>Describe (AI)</strong> with one sentence.</li>
       <li>For single foods, type a food then tap <strong>Use</strong> on the closest match.</li>
       <li>If no good match: add custom facts, product link, or label photo.</li>
+      <li>Use <strong>Save + Favorite</strong> once, then pick it later from <strong>Quick Favorite</strong>.</li>
       <li>Press <strong>Save Meal</strong>. Confirm it appears in the Entries table below.</li>
     </ol>
   </div>
@@ -125,6 +126,15 @@
           <button id="entry_mode_recipe" type="button" style="background: #fff; color: #17212b; border: 1px solid #d7dee7;">Build Recipe</button>
         </div>
         <p id="entry_mode_hint" class="muted" style="margin: 8px 0 0;">Single Item mode: fastest way to log one food/drink.</p>
+        <div style="margin-top: 10px; max-width: 420px;">
+          <label for="quick_favorite_selector">Quick Favorite (most recent first)</label>
+          <select id="quick_favorite_selector">
+            <option value="">Choose a favorite</option>
+            {% for favorite in favorites %}
+              <option value="{{ favorite.id }}">{{ favorite.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
       </div>
 
       <input id="favorite_ingredients" name="favorite_ingredients" type="hidden" />
@@ -577,6 +587,7 @@
 
   <script>
     const favoritePayload = {{ favorite_payload | tojson }};
+    const quickFavoriteSelector = document.getElementById("quick_favorite_selector");
     const isEditMode = {{ "true" if edit_meal else "false" }};
     const mealForm = document.getElementById("meal-form");
     const favoriteSelector = document.getElementById("favorite_selector");
@@ -1556,12 +1567,31 @@
       updateSaveStatus();
     }
 
+    function loadFavoriteById(rawId, sourceSelect = null) {
+      const selectedId = Number(rawId);
+      if (!selectedId) return;
+      const favorite = favoritePayload.find((item) => item.id === selectedId);
+      if (!favorite) return;
+      applyFoodOrFavorite(favorite, { force: true });
+
+      const idValue = String(selectedId);
+      if (favoriteSelector && sourceSelect !== favoriteSelector) {
+        favoriteSelector.value = idValue;
+      }
+      if (quickFavoriteSelector && sourceSelect !== quickFavoriteSelector) {
+        quickFavoriteSelector.value = idValue;
+      }
+    }
+
     if (favoriteSelector) {
       favoriteSelector.addEventListener("change", () => {
-        const selectedId = Number(favoriteSelector.value);
-        if (!selectedId) return;
-        const favorite = favoritePayload.find((item) => item.id === selectedId);
-        applyFoodOrFavorite(favorite, { force: true });
+        loadFavoriteById(favoriteSelector.value, favoriteSelector);
+      });
+    }
+
+    if (quickFavoriteSelector) {
+      quickFavoriteSelector.addEventListener("change", () => {
+        loadFavoriteById(quickFavoriteSelector.value, quickFavoriteSelector);
       });
     }
 

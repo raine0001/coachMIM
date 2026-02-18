@@ -18,3 +18,9 @@ services:
           property: connectionString
       - key: OPENAI_API_KEY
         sync: false
+      - key: ENCRYPTION_MASTER_KEY
+        sync: false
+      - key: ENCRYPTION_REQUIRED
+        value: "true"
+      - key: SESSION_COOKIE_SECURE
+        value: "true"

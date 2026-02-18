@@ -25,6 +25,29 @@ Phase I (MVP) focuses on 30-day baseline capture:
 - Flask-Migrate (Alembic)
 - PostgreSQL (Render)
 - OpenAI (optional reflection layer)
+- AES-256-GCM application-layer encryption (per-user DEK, envelope-style)
+
+## Security Baseline
+
+- Authentication is required for all user data routes.
+- Query access is scoped by `user_id` on all check-in/meal/substance/favorite reads/writes.
+- Sensitive fields are encrypted at the application layer using per-user DEKs wrapped by a master key.
+- Security response headers are enabled (`X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, and HSTS when secure cookies are enabled).
+
+### Encryption Environment
+
+- `ENCRYPTION_MASTER_KEY` must be a 32-byte key encoded as base64/urlsafe-base64 or hex.
+- `ENCRYPTION_REQUIRED=true` enforces encryption key presence at app startup (recommended for production).
+
+Key generation examples:
+
+```powershell
+python -c "import base64,os; print(base64.urlsafe_b64encode(os.urandom(32)).decode())"
+```
+
+```bash
+python -c "import base64,os; print(base64.urlsafe_b64encode(os.urandom(32)).decode())"
+```
 
 ## Quickstart (Windows PowerShell)
 
@@ -103,3 +126,4 @@ flask run
   - If you want more coverage, run additional passes with higher `--max-foods` or targeted `--keywords`.
 - Uploads are stored in `app/static/uploads` for local/dev. Production object storage can replace this later.
 - For production cookie security, set `SESSION_COOKIE_SECURE=true`.
+- For production encryption enforcement, set `ENCRYPTION_REQUIRED=true` and provide `ENCRYPTION_MASTER_KEY`.

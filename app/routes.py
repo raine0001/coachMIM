@@ -34,6 +34,7 @@ from app.ai import (
 )
 from app.food_catalog import import_foods_from_usda, seed_common_foods_if_needed
 from app.models import DailyCheckIn, FavoriteMeal, FoodItem, Meal, Substance, User, UserProfile
+from app.security import encrypt_model_fields, hydrate_model_fields
 
 bp = Blueprint("main", __name__)
 
@@ -107,6 +108,199 @@ VOLUME_UNIT_TO_ML = {
     "oz": 29.5735,
 }
 
+PROFILE_ENCRYPTED_FIELDS = [
+    "phone",
+    "known_sleep_issues",
+    "family_history_flags",
+    "medications",
+    "supplements",
+    "food_intolerances",
+    "food_sensitivities",
+    "caffeine_baseline",
+    "nicotine_use",
+    "recreational_drug_use",
+    "attention_issues",
+    "burnout_history",
+    "secondary_goals",
+    "great_day_definition",
+    "digestive_sensitivity",
+    "stress_reactivity",
+    "social_pattern",
+]
+CHECKIN_ENCRYPTED_FIELDS = [
+    "sleep_hours",
+    "sleep_quality",
+    "sleep_notes",
+    "morning_energy",
+    "morning_focus",
+    "morning_mood",
+    "morning_stress",
+    "morning_weight_kg",
+    "morning_notes",
+    "midday_energy",
+    "midday_focus",
+    "midday_mood",
+    "midday_stress",
+    "midday_notes",
+    "evening_energy",
+    "evening_focus",
+    "evening_mood",
+    "evening_stress",
+    "evening_notes",
+    "energy",
+    "focus",
+    "mood",
+    "stress",
+    "anxiety",
+    "productivity",
+    "accomplishments",
+    "notes",
+    "workout_timing",
+    "workout_intensity",
+    "alcohol_drinks",
+    "symptoms",
+    "digestion",
+]
+MEAL_ENCRYPTED_FIELDS = [
+    "label",
+    "description",
+    "portion_notes",
+    "tags",
+    "calories",
+    "protein_g",
+    "carbs_g",
+    "fat_g",
+    "sugar_g",
+    "sodium_mg",
+    "caffeine_mg",
+]
+FAVORITE_ENCRYPTED_FIELDS = [
+    "label",
+    "description",
+    "portion_notes",
+    "tags",
+    "is_beverage",
+    "calories",
+    "protein_g",
+    "carbs_g",
+    "fat_g",
+    "sugar_g",
+    "sodium_mg",
+    "caffeine_mg",
+    "ingredients",
+]
+SUBSTANCE_ENCRYPTED_FIELDS = ["amount", "notes"]
+
+
+def hydrate_profile_secure_fields(user: User, profile: UserProfile | None):
+    if user is None or profile is None:
+        return
+    hydrate_model_fields(
+        user=user,
+        model=profile,
+        encrypted_attr="encrypted_sensitive_payload",
+        fields=PROFILE_ENCRYPTED_FIELDS,
+        scope="user_profile",
+    )
+
+
+def hydrate_checkin_secure_fields(user: User, record: DailyCheckIn | None):
+    if user is None or record is None:
+        return
+    hydrate_model_fields(
+        user=user,
+        model=record,
+        encrypted_attr="encrypted_payload",
+        fields=CHECKIN_ENCRYPTED_FIELDS,
+        scope="daily_checkin",
+    )
+
+
+def hydrate_meal_secure_fields(user: User, meal: Meal | None):
+    if user is None or meal is None:
+        return
+    hydrate_model_fields(
+        user=user,
+        model=meal,
+        encrypted_attr="encrypted_payload",
+        fields=MEAL_ENCRYPTED_FIELDS,
+        scope="meal",
+    )
+
+
+def hydrate_substance_secure_fields(user: User, entry: Substance | None):
+    if user is None or entry is None:
+        return
+    hydrate_model_fields(
+        user=user,
+        model=entry,
+        encrypted_attr="encrypted_payload",
+        fields=SUBSTANCE_ENCRYPTED_FIELDS,
+        scope="substance",
+    )
+
+
+def hydrate_favorite_secure_fields(user: User, favorite: FavoriteMeal | None):
+    if user is None or favorite is None:
+        return
+    hydrate_model_fields(
+        user=user,
+        model=favorite,
+        encrypted_attr="encrypted_payload",
+        fields=FAVORITE_ENCRYPTED_FIELDS,
+        scope="favorite_meal",
+    )
+
+
+def persist_profile_secure_fields(user: User, profile: UserProfile):
+    encrypt_model_fields(
+        user=user,
+        model=profile,
+        encrypted_attr="encrypted_sensitive_payload",
+        fields=PROFILE_ENCRYPTED_FIELDS,
+        scope="user_profile",
+    )
+
+
+def persist_checkin_secure_fields(user: User, record: DailyCheckIn):
+    encrypt_model_fields(
+        user=user,
+        model=record,
+        encrypted_attr="encrypted_payload",
+        fields=CHECKIN_ENCRYPTED_FIELDS,
+        scope="daily_checkin",
+    )
+
+
+def persist_meal_secure_fields(user: User, meal: Meal):
+    encrypt_model_fields(
+        user=user,
+        model=meal,
+        encrypted_attr="encrypted_payload",
+        fields=MEAL_ENCRYPTED_FIELDS,
+        scope="meal",
+    )
+
+
+def persist_substance_secure_fields(user: User, entry: Substance):
+    encrypt_model_fields(
+        user=user,
+        model=entry,
+        encrypted_attr="encrypted_payload",
+        fields=SUBSTANCE_ENCRYPTED_FIELDS,
+        scope="substance",
+    )
+
+
+def persist_favorite_secure_fields(user: User, favorite: FavoriteMeal):
+    encrypt_model_fields(
+        user=user,
+        model=favorite,
+        encrypted_attr="encrypted_payload",
+        fields=FAVORITE_ENCRYPTED_FIELDS,
+        scope="favorite_meal",
+    )
+
 
 def _favorite_scope_from_tags(tags: list[str] | None):
     if not tags:
@@ -137,6 +331,10 @@ def _apply_favorite_scope(tags: list[str] | None, scope: str | None):
 
 
 def _build_day_manager_favorites_for_user(user_id: int):
+    user = g.get("user")
+    if user is None or user.id != user_id:
+        user = db.session.get(User, user_id)
+
     favorites = (
         FavoriteMeal.query.filter_by(user_id=user_id)
         .order_by(FavoriteMeal.updated_at.desc(), FavoriteMeal.name.asc())
@@ -152,6 +350,7 @@ def _build_day_manager_favorites_for_user(user_id: int):
     }
 
     for favorite in favorites:
+        hydrate_favorite_secure_fields(user, favorite)
         scope = _favorite_scope_from_tags(favorite.tags)
         payload = favorite.ingredients if isinstance(favorite.ingredients, dict) else {}
         favorite_base = {
@@ -218,7 +417,12 @@ def _build_day_manager_favorites_for_user(user_id: int):
 def _find_user_quick_favorite(user_id: int, favorite_id: int | None):
     if favorite_id is None:
         return None
-    return FavoriteMeal.query.filter_by(user_id=user_id, id=favorite_id).first()
+    favorite = FavoriteMeal.query.filter_by(user_id=user_id, id=favorite_id).first()
+    user = g.get("user")
+    if user is None or user.id != user_id:
+        user = db.session.get(User, user_id)
+    hydrate_favorite_secure_fields(user, favorite)
+    return favorite
 
 
 def _favorite_scope_matches(existing_scope: str | None, target_scope: str):
@@ -234,6 +438,10 @@ def _resolve_favorite_slot(user_id: int, requested_name: str, scope: str):
     normalized_name = normalized_name[:120]
 
     existing = FavoriteMeal.query.filter_by(user_id=user_id, name=normalized_name).first()
+    user = g.get("user")
+    if user is None or user.id != user_id:
+        user = db.session.get(User, user_id)
+    hydrate_favorite_secure_fields(user, existing)
     if existing is None:
         return (normalized_name, None)
 
@@ -245,6 +453,7 @@ def _resolve_favorite_slot(user_id: int, requested_name: str, scope: str):
     max_base_len = max(1, 120 - len(suffix))
     alt_name = f"{normalized_name[:max_base_len]}{suffix}"
     alt_existing = FavoriteMeal.query.filter_by(user_id=user_id, name=alt_name).first()
+    hydrate_favorite_secure_fields(user, alt_existing)
     return (alt_name, alt_existing)
 
 
@@ -281,6 +490,7 @@ def _save_day_manager_meal_favorite(meal: Meal, view: str):
     favorite.caffeine_mg = meal.caffeine_mg
     favorite.ingredients = None
 
+    persist_favorite_secure_fields(g.user, favorite)
     db.session.add(favorite)
 
 
@@ -315,6 +525,7 @@ def _save_day_manager_nonmeal_favorite(scope: str, *, label: str, description: s
     favorite.sodium_mg = None
     favorite.caffeine_mg = None
     favorite.ingredients = payload
+    persist_favorite_secure_fields(g.user, favorite)
     db.session.add(favorite)
 
 
@@ -646,11 +857,15 @@ def build_meal_context(selected_day: date, edit_meal: Meal | None = None):
         .order_by(Meal.eaten_at.asc())
         .all()
     )
+    for meal in day_meals:
+        hydrate_meal_secure_fields(g.user, meal)
     all_favorites = (
         FavoriteMeal.query.filter_by(user_id=g.user.id)
         .order_by(FavoriteMeal.updated_at.desc(), FavoriteMeal.name.asc())
         .all()
     )
+    for favorite in all_favorites:
+        hydrate_favorite_secure_fields(g.user, favorite)
     favorites = [
         fav
         for fav in all_favorites
@@ -920,6 +1135,7 @@ def upsert_favorite_from_request(meal: Meal | None = None):
         return
 
     favorite = FavoriteMeal.query.filter_by(user_id=g.user.id, name=favorite_name).first()
+    hydrate_favorite_secure_fields(g.user, favorite)
     if not favorite:
         favorite = FavoriteMeal(user_id=g.user.id, name=favorite_name)
 
@@ -939,6 +1155,7 @@ def upsert_favorite_from_request(meal: Meal | None = None):
     favorite.caffeine_mg = parse_float(request.form.get("caffeine_mg"))
     favorite.ingredients = parse_ingredients_json(request.form.get("favorite_ingredients"))
 
+    persist_favorite_secure_fields(g.user, favorite)
     db.session.add(favorite)
 
 
@@ -1068,6 +1285,8 @@ def build_home_weekly_context(user: User, profile: UserProfile):
         .order_by(DailyCheckIn.day.asc())
         .all()
     )
+    for entry in checkins:
+        hydrate_checkin_secure_fields(user, entry)
 
     meals = (
         Meal.query.filter(
@@ -1077,6 +1296,8 @@ def build_home_weekly_context(user: User, profile: UserProfile):
         )
         .all()
     )
+    for meal in meals:
+        hydrate_meal_secure_fields(user, meal)
 
     days_with_checkins = {entry.day for entry in checkins}
     coverage_pct = round((len(days_with_checkins) / 7) * 100, 1)
@@ -1213,6 +1434,7 @@ def get_or_create_profile(user: User):
         profile = UserProfile(user_id=user.id)
         db.session.add(profile)
         db.session.commit()
+    hydrate_profile_secure_fields(user, profile)
     return profile
 
 
@@ -1244,6 +1466,8 @@ def profile_required(view):
 def load_logged_in_user():
     user_id = session.get("user_id")
     g.user = db.session.get(User, user_id) if user_id else None
+    if g.user and g.user.profile:
+        hydrate_profile_secure_fields(g.user, g.user.profile)
 
 
 @bp.app_context_processor
@@ -1315,6 +1539,7 @@ def register():
 
         session.clear()
         session["user_id"] = user.id
+        session.permanent = True
         flash("Account created. Complete your profile to begin tracking.", "success")
         return redirect(url_for("main.profile"))
 
@@ -1338,6 +1563,7 @@ def login():
 
         session.clear()
         session["user_id"] = user.id
+        session.permanent = True
         flash("Logged in.", "success")
 
         if next_url and next_url.startswith("/"):
@@ -1441,9 +1667,11 @@ def profile():
         profile.social_pattern = request.form.get("social_pattern") or None
         profile.screen_time_evening_hours = parse_float(request.form.get("screen_time_evening_hours"))
 
+        persist_profile_secure_fields(g.user, profile)
         db.session.add(g.user)
         db.session.add(profile)
         db.session.commit()
+        hydrate_profile_secure_fields(g.user, profile)
 
         missing_required = profile.missing_required_fields()
         if missing_required:
@@ -1482,6 +1710,8 @@ def checkin_form():
 
     record = DailyCheckIn.query.filter_by(user_id=g.user.id, day=selected_day).first()
     today_record = DailyCheckIn.query.filter_by(user_id=g.user.id, day=local_today).first()
+    hydrate_checkin_secure_fields(g.user, record)
+    hydrate_checkin_secure_fields(g.user, today_record)
     unit_system = "imperial"
     if g.user.profile and g.user.profile.unit_system in {"imperial", "metric"}:
         unit_system = g.user.profile.unit_system
@@ -1493,6 +1723,8 @@ def checkin_form():
     history_records = (
         DailyCheckIn.query.filter_by(user_id=g.user.id).order_by(DailyCheckIn.day.desc()).limit(30).all()
     )
+    for history_record in history_records:
+        hydrate_checkin_secure_fields(g.user, history_record)
     history_rows = [
         {
             "record": row,
@@ -1513,6 +1745,8 @@ def checkin_form():
         .order_by(Meal.eaten_at.desc())
         .all()
     )
+    for meal in day_meals:
+        hydrate_meal_secure_fields(g.user, meal)
     day_substances = (
         Substance.query.filter(
             Substance.user_id == g.user.id,
@@ -1522,6 +1756,8 @@ def checkin_form():
         .order_by(Substance.taken_at.desc())
         .all()
     )
+    for entry in day_substances:
+        hydrate_substance_secure_fields(g.user, entry)
 
     day_food_entries = [meal for meal in day_meals if not meal.is_beverage]
     day_drink_entries = [meal for meal in day_meals if meal.is_beverage]
@@ -1602,6 +1838,8 @@ def checkin_save():
     record = DailyCheckIn.query.filter_by(user_id=g.user.id, day=selected_day).first()
     if not record:
         record = DailyCheckIn(user_id=g.user.id, day=selected_day)
+    else:
+        hydrate_checkin_secure_fields(g.user, record)
 
     for field in [
         "sleep_hours",
@@ -1663,6 +1901,7 @@ def checkin_save():
         digestion["issues"] = [item.strip() for item in digestion_issues.split(",") if item.strip()]
     record.digestion = digestion or None
 
+    persist_checkin_secure_fields(g.user, record)
     db.session.add(record)
     db.session.commit()
     flash(f"Check-in saved for {selected_day.isoformat()}.", "success")
@@ -1772,6 +2011,7 @@ def checkin_meal_quick_save():
     )
 
     _save_day_manager_meal_favorite(meal, view=manager_view)
+    persist_meal_secure_fields(g.user, meal)
     db.session.add(meal)
     db.session.commit()
     flash("Entry logged.", "success")
@@ -1923,6 +2163,7 @@ def checkin_substance_quick_save():
         amount=amount,
         notes=notes,
     )
+    persist_substance_secure_fields(g.user, entry)
     db.session.add(entry)
     db.session.commit()
     flash("Entry logged.", "success")
@@ -1980,6 +2221,7 @@ def meal_save():
         meal.food_item_id = shared_food.id
         if not meal.description:
             meal.description = shared_food.display_name()
+    persist_meal_secure_fields(g.user, meal)
     db.session.add(meal)
     db.session.commit()
     flash("Meal logged.", "success")
@@ -1991,6 +2233,7 @@ def meal_save():
 @profile_required
 def meal_edit(meal_id: int):
     meal = Meal.query.filter_by(id=meal_id, user_id=g.user.id).first_or_404()
+    hydrate_meal_secure_fields(g.user, meal)
 
     if request.method == "POST":
         try:
@@ -2023,6 +2266,7 @@ def meal_edit(meal_id: int):
             photo.save(local_path)
             meal.photo_path = f"uploads/{upload_name}"
 
+        persist_meal_secure_fields(g.user, meal)
         db.session.add(meal)
         db.session.commit()
         flash("Meal updated.", "success")
@@ -2799,6 +3043,7 @@ def substance_save():
         amount=request.form.get("amount") or None,
         notes=request.form.get("notes") or None,
     )
+    persist_substance_secure_fields(g.user, entry)
     db.session.add(entry)
     db.session.commit()
     flash("Substance entry logged.", "success")
@@ -2814,6 +3059,12 @@ def timeline():
     meals = Meal.query.filter_by(user_id=g.user.id).order_by(Meal.eaten_at.desc()).limit(80).all()
     checkins = DailyCheckIn.query.filter_by(user_id=g.user.id).order_by(DailyCheckIn.day.desc()).limit(45).all()
     substances = Substance.query.filter_by(user_id=g.user.id).order_by(Substance.taken_at.desc()).limit(45).all()
+    for meal in meals:
+        hydrate_meal_secure_fields(g.user, meal)
+    for checkin in checkins:
+        hydrate_checkin_secure_fields(g.user, checkin)
+    for substance in substances:
+        hydrate_substance_secure_fields(g.user, substance)
 
     prompts = coach_prompt_missing_fields(g.user, meals, checkins)
 
@@ -2846,6 +3097,10 @@ def insights():
         Meal.user_id == g.user.id,
         Meal.eaten_at >= datetime.combine(start_day, datetime.min.time()),
     ).all()
+    for checkin in checkins:
+        hydrate_checkin_secure_fields(g.user, checkin)
+    for meal in meals:
+        hydrate_meal_secure_fields(g.user, meal)
 
     days_with_checkins = {c.day for c in checkins}
     sleep_values = [c.sleep_hours for c in checkins if c.sleep_hours is not None]

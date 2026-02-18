@@ -10,6 +10,7 @@ class User(db.Model):
     full_name = db.Column(db.String(255), nullable=True)
     email = db.Column(db.String(255), unique=True, nullable=True)
     password_hash = db.Column(db.String(255), nullable=True)
+    encrypted_dek = db.Column(db.LargeBinary, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
     profile = db.relationship("UserProfile", backref="user", uselist=False, lazy=True)
@@ -77,6 +78,7 @@ class UserProfile(db.Model):
     stress_reactivity = db.Column(db.Text, nullable=True)
     social_pattern = db.Column(db.Text, nullable=True)
     screen_time_evening_hours = db.Column(db.Float, nullable=True)
+    encrypted_sensitive_payload = db.Column(db.LargeBinary, nullable=True)
 
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at = db.Column(
@@ -147,6 +149,7 @@ class DailyCheckIn(db.Model):
 
     symptoms = db.Column(db.JSON, nullable=True)  # {"headache": 4, "stomach": 2}
     digestion = db.Column(db.JSON, nullable=True)  # {"bm_count": 1, "issues": ["bloat"]}
+    encrypted_payload = db.Column(db.LargeBinary, nullable=True)
 
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
@@ -177,6 +180,7 @@ class Meal(db.Model):
     is_beverage = db.Column(db.Boolean, default=False, nullable=False)
 
     photo_path = db.Column(db.String(500), nullable=True)
+    encrypted_payload = db.Column(db.LargeBinary, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at = db.Column(
         db.DateTime,
@@ -239,6 +243,7 @@ class FavoriteMeal(db.Model):
     sodium_mg = db.Column(db.Float, nullable=True)
     caffeine_mg = db.Column(db.Float, nullable=True)
     ingredients = db.Column(db.JSON, nullable=True)
+    encrypted_payload = db.Column(db.LargeBinary, nullable=True)
 
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at = db.Column(
@@ -263,4 +268,5 @@ class Substance(db.Model):
     kind = db.Column(db.String(50), nullable=False)  # alcohol, caffeine, nicotine, etc.
     amount = db.Column(db.String(120), nullable=True)  # "2 beers", "300mg"
     notes = db.Column(db.Text, nullable=True)
+    encrypted_payload = db.Column(db.LargeBinary, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)

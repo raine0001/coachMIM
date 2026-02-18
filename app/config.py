@@ -1,4 +1,5 @@
 import os
+from datetime import timedelta
 
 
 def normalize_database_url(url: str) -> str:
@@ -20,3 +21,10 @@ class Config:
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = os.getenv("SESSION_COOKIE_SAMESITE", "Lax")
     SESSION_COOKIE_SECURE = os.getenv("SESSION_COOKIE_SECURE", "false").lower() == "true"
+    SESSION_COOKIE_NAME = os.getenv("SESSION_COOKIE_NAME", "coachmim_session")
+    PERMANENT_SESSION_LIFETIME = timedelta(
+        hours=int(os.getenv("SESSION_LIFETIME_HOURS", "24"))
+    )
+
+    ENCRYPTION_MASTER_KEY = os.getenv("ENCRYPTION_MASTER_KEY")
+    ENCRYPTION_REQUIRED = os.getenv("ENCRYPTION_REQUIRED", "false").lower() == "true"

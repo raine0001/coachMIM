@@ -812,6 +812,14 @@
       favoriteNameInput.value = suggestedFavoriteName();
     }
 
+    function nutritionFieldsAreEmpty() {
+      const keys = ["calories", "protein_g", "carbs_g", "fat_g", "sugar_g", "sodium_mg"];
+      return keys.every((key) => {
+        const input = fieldMap[key];
+        return !input || cleanText(input.value) === "";
+      });
+    }
+
     function setSelectedFoodPreview(item = null) {
       if (!selectedFoodPreview) return;
       if (!item) {
@@ -843,7 +851,11 @@
       const builderCount = builderState.ingredients.length;
 
       if (builderCount > 0) {
-        saveStatusText.textContent = `Ready: ${builderCount} ingredient${builderCount === 1 ? "" : "s"} in builder. Click Use Builder Totals, then Save Meal.`;
+        if (nutritionFieldsAreEmpty()) {
+          saveStatusText.textContent = `Ready: ${builderCount} ingredient${builderCount === 1 ? "" : "s"} in builder. Save Meal will auto-apply builder totals.`;
+        } else {
+          saveStatusText.textContent = `Ready: ${builderCount} ingredient${builderCount === 1 ? "" : "s"} in builder. Press Save Meal to log it.`;
+        }
         return;
       }
 
@@ -859,6 +871,56 @@
       }
 
       saveStatusText.textContent = "Choose a search result with Use, or type a description, then press Save Meal.";
+    }
+
+    function copyBuilderTotalsToForm(options = {}) {
+      const overwrite = Boolean(options.overwrite);
+      const includeMeta = Boolean(options.includeMeta);
+      if (!builderState.ingredients.length) return false;
+
+      const totals = updateBuilderTotals();
+      const setNumericField = (key, value, digits = 1) => {
+        const input = fieldMap[key];
+        if (!input) return;
+        if (!overwrite && cleanText(input.value) !== "") return;
+        if (value === null || value === undefined || !Number.isFinite(value)) return;
+        if (digits === 0) {
+          input.value = String(Math.round(value));
+        } else {
+          input.value = Number(value).toFixed(digits);
+        }
+      };
+
+      setNumericField("calories", totals.calories, 0);
+      setNumericField("protein_g", totals.protein, 1);
+      setNumericField("carbs_g", totals.carbs, 1);
+      setNumericField("fat_g", totals.fat, 1);
+      setNumericField("sugar_g", totals.sugar, 1);
+      setNumericField("sodium_mg", totals.sodium, 1);
+
+      if (includeMeta) {
+        const builderTitle = (builderTitleInput?.value || "").trim();
+        const builderLabel = (builderLabelInput?.value || "").trim();
+        const ingredientSummary = builderState.ingredients.map((item) => item.food_name).slice(0, 6).join(", ");
+
+        if (fieldMap.label && (overwrite || cleanText(fieldMap.label.value) === "")) {
+          if (builderLabel) fieldMap.label.value = builderLabel;
+        }
+        if (fieldMap.description && (overwrite || cleanText(fieldMap.description.value) === "")) {
+          fieldMap.description.value = builderTitle ? `${builderTitle}: ${ingredientSummary}` : ingredientSummary;
+        }
+        if (fieldMap.portion_notes && (overwrite || cleanText(fieldMap.portion_notes.value) === "")) {
+          fieldMap.portion_notes.value = `Built meal (${builderState.ingredients.length} ingredients)`;
+        }
+      }
+
+      foodItemIdInput.value = "";
+      if (foodSearchInput && (overwrite || cleanText(foodSearchInput.value) === "")) {
+        const builderTitle = cleanText(builderTitleInput?.value);
+        foodSearchInput.value = builderTitle || "Custom built meal";
+      }
+      setSelectedFoodPreview(null);
+      return true;
     }
 
     function setSearchLoading(mode, isLoading, useRemote = false) {
@@ -1439,7 +1501,8 @@
       }
     }
 
-    function loadFavoriteIngredients(ingredients) {
+    function loadFavoriteIngredients(ingredients, options = {}) {
+      const overwriteNutrition = Boolean(options.overwriteNutrition);
       if (!Array.isArray(ingredients) || ingredients.length === 0) return;
       builderState.ingredients = ingredients.map((item, index) => ({
         row_id: `fav_${Date.now()}_${index}`,
@@ -1462,6 +1525,7 @@
       setBuilderSource("catalog");
       setBuilderOpen(true);
       renderBuilderIngredients();
+      copyBuilderTotalsToForm({ overwrite: overwriteNutrition, includeMeta: false });
     }
 
     function setBuilderOpen(open) {
@@ -1471,42 +1535,12 @@
     }
 
     function applyBuilderToMealForm() {
-      const totals = updateBuilderTotals();
-      if (!builderState.ingredients.length) return;
-
-      if (fieldMap.calories) fieldMap.calories.value = String(Math.round(totals.calories));
-      if (fieldMap.protein_g) fieldMap.protein_g.value = totals.protein.toFixed(1);
-      if (fieldMap.carbs_g) fieldMap.carbs_g.value = totals.carbs.toFixed(1);
-      if (fieldMap.fat_g) fieldMap.fat_g.value = totals.fat.toFixed(1);
-      if (fieldMap.sugar_g) fieldMap.sugar_g.value = totals.sugar.toFixed(1);
-      if (fieldMap.sodium_mg) fieldMap.sodium_mg.value = totals.sodium.toFixed(1);
-
-      const builderTitle = (builderTitleInput?.value || "").trim();
-      const builderLabel = (builderLabelInput?.value || "").trim();
-      const ingredientSummary = builderState.ingredients.map((item) => item.food_name).slice(0, 6).join(", ");
-
-      if (builderLabel && fieldMap.label) {
-        fieldMap.label.value = builderLabel;
-      }
-      if (builderTitle && fieldMap.description) {
-        fieldMap.description.value = `${builderTitle}: ${ingredientSummary}`;
-      } else if (fieldMap.description) {
-        fieldMap.description.value = ingredientSummary;
-      }
-      if (fieldMap.portion_notes) {
-        fieldMap.portion_notes.value = `Built meal (${builderState.ingredients.length} ingredients)`;
-      }
-
-      foodItemIdInput.value = "";
-      if (foodSearchInput) {
-        foodSearchInput.value = builderTitle || "Custom built meal";
-      }
-      setSelectedFoodPreview(null);
+      const applied = copyBuilderTotalsToForm({ overwrite: true, includeMeta: true });
+      if (!applied) return;
       if (saveStatusText) {
         saveStatusText.textContent = "Builder totals copied into the form. Press Save Meal to log this entry.";
-      } else {
-        updateSaveStatus();
       }
+      updateSaveStatus();
     }
 
     function applyFoodOrFavorite(data, options = {}) {
@@ -1560,7 +1594,7 @@
         if (builderLabelInput && data.label) {
           builderLabelInput.value = data.label;
         }
-        loadFavoriteIngredients(data.ingredients);
+        loadFavoriteIngredients(data.ingredients, { overwriteNutrition: forceApply });
       } else {
         setSelectedFoodPreview(data);
       }
@@ -1969,6 +2003,9 @@
 
     if (mealForm) {
       mealForm.addEventListener("submit", () => {
+        if (builderState.ingredients.length) {
+          copyBuilderTotalsToForm({ overwrite: false, includeMeta: false });
+        }
         if (saveFavoriteCheckbox?.checked) {
           ensureFavoriteName();
         }

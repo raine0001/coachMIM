@@ -36,6 +36,74 @@
         <div class="metric">{{ substance_count }}</div>
       </div>
     </div>
+
+    <div class="card">
+      <h2>Weekly Snapshot</h2>
+      <p class="muted">
+        {{ weekly.week_start.strftime("%b %d") }} - {{ weekly.week_end.strftime("%b %d, %Y") }}
+      </p>
+      <div class="grid">
+        <div>
+          <div class="muted">Workout Time This Week</div>
+          <div class="metric">{{ weekly.workout_minutes }} min</div>
+          <div class="muted">{{ weekly.workout_sessions }} session{{ "" if weekly.workout_sessions == 1 else "s" }}</div>
+        </div>
+        <div>
+          <div class="muted">Avg Calories / Logged Day</div>
+          <div class="metric">{{ weekly.avg_calories_per_logged_day if weekly.avg_calories_per_logged_day is not none else "n/a" }}</div>
+          <div class="muted">{{ weekly.total_calories_week }} total this week</div>
+        </div>
+        <div>
+          <div class="muted">Check-In Coverage</div>
+          <div class="metric">{{ weekly.coverage_pct }}%</div>
+          <div class="muted">{{ weekly.checkins_logged_week }} of 7 days</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Average Metrics (7d)</h2>
+      <div class="grid">
+        <div>
+          <div class="muted">Sleep Hours</div>
+          <div class="metric">{{ weekly.avg_sleep if weekly.avg_sleep is not none else "n/a" }}</div>
+        </div>
+        <div>
+          <div class="muted">Energy (1-10)</div>
+          <div class="metric">{{ weekly.avg_energy if weekly.avg_energy is not none else "n/a" }}</div>
+        </div>
+        <div>
+          <div class="muted">Focus (1-10)</div>
+          <div class="metric">{{ weekly.avg_focus if weekly.avg_focus is not none else "n/a" }}</div>
+        </div>
+        <div>
+          <div class="muted">Mood (1-10)</div>
+          <div class="metric">{{ weekly.avg_mood if weekly.avg_mood is not none else "n/a" }}</div>
+        </div>
+        <div>
+          <div class="muted">Stress (1-10)</div>
+          <div class="metric">{{ weekly.avg_stress if weekly.avg_stress is not none else "n/a" }}</div>
+        </div>
+        <div>
+          <div class="muted">Productivity (1-10)</div>
+          <div class="metric">{{ weekly.avg_productivity if weekly.avg_productivity is not none else "n/a" }}</div>
+        </div>
+        <div>
+          <div class="muted">Anxiety (1-10)</div>
+          <div class="metric">{{ weekly.avg_anxiety if weekly.avg_anxiety is not none else "n/a" }}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>MIM Weekly Summary</h2>
+      <p class="muted">Primary goal: {{ weekly.primary_goal }}</p>
+      <ul style="margin-top: 0;">
+        {% for note in weekly.mim_notes %}
+          <li>{{ note }}</li>
+        {% endfor %}
+      </ul>
+    </div>
   {% else %}
     <div class="card">
       <h2>Start Here</h2>

@@ -728,6 +728,214 @@ def cm_to_feet_inches(cm):
     return (feet, inches)
 
 
+def average_or_none(values: list[float], digits: int = 1):
+    cleaned = [float(v) for v in values if v is not None]
+    if not cleaned:
+        return None
+    return round(sum(cleaned) / len(cleaned), digits)
+
+
+def _parse_clock_token(token: str):
+    text = (token or "").strip().lower().replace(".", "")
+    if not text:
+        return None
+
+    match = re.fullmatch(r"(\d{1,2})(?::(\d{2}))?\s*(am|pm)?", text)
+    if not match:
+        return None
+
+    hour = int(match.group(1))
+    minute = int(match.group(2) or 0)
+    ampm = match.group(3)
+    if minute > 59:
+        return None
+
+    if ampm:
+        if hour < 1 or hour > 12:
+            return None
+        if ampm == "pm" and hour != 12:
+            hour += 12
+        if ampm == "am" and hour == 12:
+            hour = 0
+    else:
+        if hour > 23:
+            return None
+
+    return hour * 60 + minute
+
+
+def parse_workout_minutes(workout_timing: str | None):
+    text = normalize_text(workout_timing)
+    if not text:
+        return None
+
+    normalized = text.lower()
+
+    # Duration like "1 hr 20 min" or "45 min".
+    hour_match = re.search(r"(\d+(?:\.\d+)?)\s*(?:h|hr|hrs|hour|hours)\b", normalized)
+    minute_match = re.search(r"(\d+(?:\.\d+)?)\s*(?:m|min|mins|minute|minutes)\b", normalized)
+    if hour_match or minute_match:
+        hours = float(hour_match.group(1)) if hour_match else 0.0
+        minutes = float(minute_match.group(1)) if minute_match else 0.0
+        total = int(round((hours * 60) + minutes))
+        return total if total > 0 else None
+
+    # Time range like "7:00am-8:15am" or "18:00 to 19:00".
+    range_match = re.search(
+        r"(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)\s*(?:-|to)\s*(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)",
+        normalized,
+    )
+    if range_match:
+        start_minutes = _parse_clock_token(range_match.group(1))
+        end_minutes = _parse_clock_token(range_match.group(2))
+        if start_minutes is not None and end_minutes is not None:
+            diff = end_minutes - start_minutes
+            if diff < 0:
+                diff += 24 * 60
+            if 0 < diff <= 8 * 60:
+                return diff
+
+    return None
+
+
+def checkin_metric_value(record: DailyCheckIn, overall_field: str, segment_fields: list[str]):
+    overall_value = getattr(record, overall_field, None)
+    if overall_value is not None:
+        return float(overall_value)
+
+    segment_values = [getattr(record, field, None) for field in segment_fields]
+    return average_or_none([float(v) for v in segment_values if v is not None], digits=2)
+
+
+def build_home_weekly_context(user: User, profile: UserProfile):
+    local_today = get_user_local_today(user)
+    week_start = local_today - timedelta(days=6)
+
+    checkins = (
+        DailyCheckIn.query.filter(
+            DailyCheckIn.user_id == user.id,
+            DailyCheckIn.day >= week_start,
+            DailyCheckIn.day <= local_today,
+        )
+        .order_by(DailyCheckIn.day.asc())
+        .all()
+    )
+
+    meals = (
+        Meal.query.filter(
+            Meal.user_id == user.id,
+            Meal.eaten_at >= datetime.combine(week_start, datetime.min.time()),
+            Meal.eaten_at < datetime.combine(local_today + timedelta(days=1), datetime.min.time()),
+        )
+        .all()
+    )
+
+    days_with_checkins = {entry.day for entry in checkins}
+    coverage_pct = round((len(days_with_checkins) / 7) * 100, 1)
+
+    workout_sessions = 0
+    workout_minutes = 0
+    for entry in checkins:
+        has_workout = bool(normalize_text(entry.workout_timing)) or entry.workout_intensity is not None
+        if has_workout:
+            workout_sessions += 1
+        parsed_minutes = parse_workout_minutes(entry.workout_timing)
+        if parsed_minutes:
+            workout_minutes += parsed_minutes
+
+    calorie_values = [meal.calories for meal in meals if meal.calories is not None]
+    avg_calories_per_logged_day = average_or_none(calorie_values, digits=0)
+    total_calories_week = int(round(sum(float(v) for v in calorie_values))) if calorie_values else 0
+
+    avg_sleep = average_or_none([entry.sleep_hours for entry in checkins if entry.sleep_hours is not None], digits=2)
+    avg_energy = average_or_none(
+        [
+            checkin_metric_value(entry, "energy", ["morning_energy", "midday_energy", "evening_energy"])
+            for entry in checkins
+        ],
+        digits=1,
+    )
+    avg_focus = average_or_none(
+        [
+            checkin_metric_value(entry, "focus", ["morning_focus", "midday_focus", "evening_focus"])
+            for entry in checkins
+        ],
+        digits=1,
+    )
+    avg_mood = average_or_none(
+        [
+            checkin_metric_value(entry, "mood", ["morning_mood", "midday_mood", "evening_mood"])
+            for entry in checkins
+        ],
+        digits=1,
+    )
+    avg_stress = average_or_none(
+        [
+            checkin_metric_value(entry, "stress", ["morning_stress", "midday_stress", "evening_stress"])
+            for entry in checkins
+        ],
+        digits=1,
+    )
+    avg_productivity = average_or_none(
+        [entry.productivity for entry in checkins if entry.productivity is not None], digits=1
+    )
+    avg_anxiety = average_or_none([entry.anxiety for entry in checkins if entry.anxiety is not None], digits=1)
+
+    mim_notes = []
+    primary_goal = normalize_text(profile.primary_goal) or "Consistency"
+
+    if coverage_pct < 60:
+        mim_notes.append("Data coverage is low this week. More daily check-ins will improve model quality.")
+    if workout_sessions == 0:
+        mim_notes.append("No workouts logged this week. Add workout timing/intensity to improve performance signal.")
+    elif workout_minutes > 0 and workout_minutes < 90:
+        mim_notes.append("Workout time is light this week. Add one more session to strengthen signal quality.")
+
+    goal_text = primary_goal.lower()
+    if "sleep" in goal_text:
+        if avg_sleep is not None and avg_sleep < 7:
+            mim_notes.append("Sleep goal is off-track this week (avg below 7h). Protect sleep window and evening routine.")
+        elif avg_sleep is not None:
+            mim_notes.append("Sleep goal trend is solid this week. Keep bedtime and wake time consistent.")
+    if "focus" in goal_text or "productivity" in goal_text:
+        if avg_focus is not None and avg_focus < 6:
+            mim_notes.append("Focus trend is softer than target. Review sleep + lunch carb load + caffeine timing.")
+        if avg_productivity is not None and avg_productivity < 6:
+            mim_notes.append("Productivity average is low this week. Try one planned deep-work block each morning.")
+    if "energy" in goal_text:
+        if avg_energy is not None and avg_energy < 6:
+            mim_notes.append("Energy trend is low this week. Tighten meal timing and hydration consistency.")
+    if "anxiety" in goal_text or "stress" in goal_text:
+        if avg_stress is not None and avg_stress > 6:
+            mim_notes.append("Stress is elevated this week. Add one recovery block and reduce late-day stimulants.")
+        if avg_anxiety is not None and avg_anxiety > 5:
+            mim_notes.append("Anxiety trend is elevated this week. Track alcohol, sleep quality, and caffeine more tightly.")
+
+    if not mim_notes:
+        mim_notes.append("Weekly trend looks stable. Keep logging meals and check-ins to strengthen pattern detection.")
+
+    return {
+        "week_start": week_start,
+        "week_end": local_today,
+        "coverage_pct": coverage_pct,
+        "workout_sessions": workout_sessions,
+        "workout_minutes": workout_minutes,
+        "avg_calories_per_logged_day": avg_calories_per_logged_day,
+        "total_calories_week": total_calories_week,
+        "meals_logged_week": len(meals),
+        "checkins_logged_week": len(checkins),
+        "avg_sleep": avg_sleep,
+        "avg_energy": avg_energy,
+        "avg_focus": avg_focus,
+        "avg_mood": avg_mood,
+        "avg_stress": avg_stress,
+        "avg_productivity": avg_productivity,
+        "avg_anxiety": avg_anxiety,
+        "primary_goal": primary_goal,
+        "mim_notes": mim_notes,
+    }
+
+
 def build_profile_template_context(profile):
     unit_system = profile.unit_system or "imperial"
     height_ft, height_in = cm_to_feet_inches(profile.height_cm)
@@ -808,6 +1016,7 @@ def index():
     checkin_count = DailyCheckIn.query.filter_by(user_id=g.user.id).count()
     meal_count = Meal.query.filter_by(user_id=g.user.id).count()
     substance_count = Substance.query.filter_by(user_id=g.user.id).count()
+    weekly = build_home_weekly_context(g.user, profile)
     return render_template(
         "index.html",
         is_authenticated=True,
@@ -815,6 +1024,7 @@ def index():
         meal_count=meal_count,
         substance_count=substance_count,
         missing_required=profile.missing_required_fields(),
+        weekly=weekly,
     )
 
 

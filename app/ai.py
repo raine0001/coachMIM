@@ -401,6 +401,261 @@ def parse_meal_sentence(sentence_text: str) -> dict:
     return fallback
 
 
+def _normalize_substance_kind(value) -> str:
+    text = str(value or "").strip().lower()
+    return text if text in {"alcohol", "caffeine", "nicotine", "other"} else "other"
+
+
+def _normalize_med_kind(value) -> str:
+    text = str(value or "").strip().lower()
+    return text if text in {"medication", "supplement"} else "medication"
+
+
+def _as_int(value) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _fallback_day_manager_assist(context: str, text: str, first_name: str) -> dict:
+    cleaned = str(text or "").strip()
+    lowered = cleaned.lower()
+    if len(cleaned) < 5:
+        target = "entry"
+        if context == "substance":
+            target = "substance"
+        elif context == "activity":
+            target = "activity"
+        elif context == "medications":
+            target = "medication or supplement"
+        return {
+            "needs_more": True,
+            "reply": f"Hi {first_name}, tell me a bit more about this {target} and I can prefill the form.",
+            "follow_up_prompt": "Include what it was and amount/time details.",
+            "suggested_fields": {},
+        }
+
+    if context == "substance":
+        kind = "other"
+        if any(token in lowered for token in {"beer", "wine", "whiskey", "vodka", "alcohol", "drink", "cocktail", "shot"}):
+            kind = "alcohol"
+        elif any(token in lowered for token in {"coffee", "espresso", "tea", "caffeine", "energy drink"}):
+            kind = "caffeine"
+        elif any(token in lowered for token in {"nicotine", "cigarette", "vape", "pouch", "zyn"}):
+            kind = "nicotine"
+
+        amount_match = re.search(
+            r"(\d+(?:\.\d+)?)\s*(beers?|drinks?|shots?|cups?|oz|ml|mg|cans?|cigarettes?|pouches?|pieces?|gums?)",
+            cleaned,
+            flags=re.IGNORECASE,
+        )
+        amount = amount_match.group(0) if amount_match else cleaned[:120]
+
+        return {
+            "needs_more": False,
+            "reply": f"Hi {first_name}, I filled the substance type and amount. Check it before saving.",
+            "follow_up_prompt": None,
+            "suggested_fields": {
+                "kind": kind,
+                "amount": amount,
+                "notes": cleaned[:500],
+            },
+        }
+
+    if context == "activity":
+        activity_type = None
+        for token in [
+            "run",
+            "walk",
+            "lift",
+            "strength",
+            "cycling",
+            "bike",
+            "swim",
+            "yoga",
+            "pilates",
+            "hiit",
+            "hike",
+            "jog",
+        ]:
+            if token in lowered:
+                activity_type = token
+                break
+        if activity_type is None:
+            activity_type = cleaned[:80]
+
+        duration_min = None
+        hours_match = re.search(r"(\d+(?:\.\d+)?)\s*(hours?|hrs?|hr)\b", lowered)
+        if hours_match:
+            duration_min = int(round(float(hours_match.group(1)) * 60))
+        else:
+            min_match = re.search(r"(\d{1,3})\s*(minutes?|mins?|min)\b", lowered)
+            if min_match:
+                duration_min = int(min_match.group(1))
+
+        intensity = None
+        intensity_match = re.search(r"(\d{1,2})\s*/\s*10", lowered)
+        if intensity_match:
+            intensity = max(1, min(10, int(intensity_match.group(1))))
+        else:
+            intensity_match = re.search(r"intensity\s*(\d{1,2})", lowered)
+            if intensity_match:
+                intensity = max(1, min(10, int(intensity_match.group(1))))
+
+        return {
+            "needs_more": duration_min is None,
+            "reply": (
+                f"Hi {first_name}, I drafted your activity entry."
+                if duration_min is not None
+                else f"Hi {first_name}, I captured activity type. Add duration for better tracking."
+            ),
+            "follow_up_prompt": None if duration_min is not None else "How many minutes did you do it?",
+            "suggested_fields": {
+                "activity_type": activity_type,
+                "duration_min": duration_min,
+                "intensity": intensity,
+                "notes": cleaned[:500],
+            },
+        }
+
+    kind = "supplement" if any(
+        token in lowered
+        for token in {"supplement", "vitamin", "omega", "magnesium", "creatine", "electrolyte", "zinc"}
+    ) else "medication"
+    dose_match = re.search(r"(\d+(?:\.\d+)?)\s*(mg|mcg|g|ml|iu|units?|tabs?|tablets?|capsules?|pills?)", lowered)
+    dose = dose_match.group(0) if dose_match else None
+
+    med_name = cleaned
+    if dose_match:
+        med_name = cleaned[: dose_match.start()].strip(" ,.-")
+    med_name = med_name[:120]
+
+    return {
+        "needs_more": False,
+        "reply": f"Hi {first_name}, I filled medication/supplement details. Verify and save.",
+        "follow_up_prompt": None,
+        "suggested_fields": {
+            "kind": kind,
+            "med_name": med_name,
+            "dose": dose,
+            "notes": cleaned[:500],
+        },
+    }
+
+
+def _ai_day_manager_assist(context: str, text: str, first_name: str) -> dict:
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return {}
+
+    model = os.getenv("OPENAI_DAY_MANAGER_MODEL", "gpt-4.1-mini")
+    context_schema = {
+        "substance": (
+            '{ "kind": "alcohol|caffeine|nicotine|other", "amount": string|null, "notes": string|null }',
+            "substance",
+        ),
+        "activity": (
+            '{ "activity_type": string|null, "duration_min": number|null, "intensity": number|null, "notes": string|null }',
+            "activity",
+        ),
+        "medications": (
+            '{ "kind": "medication|supplement", "med_name": string|null, "dose": string|null, "notes": string|null }',
+            "medication or supplement",
+        ),
+    }
+    field_schema, entry_label = context_schema.get(
+        context,
+        (
+            '{ "kind": "other", "amount": string|null, "notes": string|null }',
+            "entry",
+        ),
+    )
+
+    prompt = (
+        "You are MIM, a concise behavior/performance logging assistant.\n"
+        "Given one user sentence, return JSON only with this schema:\n"
+        "{\n"
+        '  "needs_more": boolean,\n'
+        '  "reply": string,\n'
+        '  "follow_up_prompt": string|null,\n'
+        f'  "suggested_fields": {field_schema}\n'
+        "}\n"
+        "Rules:\n"
+        "- Keep reply short and practical.\n"
+        "- Use first name naturally.\n"
+        "- Do not provide diagnosis or treatment advice.\n"
+        "- If details are missing, set needs_more=true and ask one specific follow-up question.\n"
+        f"User first name: {first_name}\n"
+        f"Context: {entry_label}\n"
+        f"User text: {text}\n"
+    )
+
+    client = OpenAI(api_key=api_key)
+    response = client.responses.create(model=model, input=prompt)
+    parsed = _extract_json_object(response.output_text or "")
+    if not isinstance(parsed, dict):
+        return {}
+
+    suggested = parsed.get("suggested_fields")
+    if not isinstance(suggested, dict):
+        suggested = {}
+
+    result = {
+        "needs_more": _as_bool(parsed.get("needs_more")),
+        "reply": str(parsed.get("reply") or "").strip(),
+        "follow_up_prompt": str(parsed.get("follow_up_prompt") or "").strip() or None,
+        "suggested_fields": suggested,
+    }
+
+    if context == "substance":
+        result["suggested_fields"]["kind"] = _normalize_substance_kind(result["suggested_fields"].get("kind"))
+        result["suggested_fields"]["amount"] = str(result["suggested_fields"].get("amount") or "").strip() or None
+        result["suggested_fields"]["notes"] = str(result["suggested_fields"].get("notes") or "").strip() or None
+    elif context == "activity":
+        result["suggested_fields"]["activity_type"] = str(result["suggested_fields"].get("activity_type") or "").strip() or None
+        duration = _as_int(result["suggested_fields"].get("duration_min"))
+        result["suggested_fields"]["duration_min"] = duration if duration and duration > 0 else None
+        intensity = _as_int(result["suggested_fields"].get("intensity"))
+        result["suggested_fields"]["intensity"] = intensity if intensity and 1 <= intensity <= 10 else None
+        result["suggested_fields"]["notes"] = str(result["suggested_fields"].get("notes") or "").strip() or None
+    elif context == "medications":
+        result["suggested_fields"]["kind"] = _normalize_med_kind(result["suggested_fields"].get("kind"))
+        result["suggested_fields"]["med_name"] = str(result["suggested_fields"].get("med_name") or "").strip() or None
+        result["suggested_fields"]["dose"] = str(result["suggested_fields"].get("dose") or "").strip() or None
+        result["suggested_fields"]["notes"] = str(result["suggested_fields"].get("notes") or "").strip() or None
+
+    return result
+
+
+def parse_day_manager_context_assist(context: str, text: str, first_name: str = "there") -> dict:
+    normalized_context = str(context or "").strip().lower()
+    if normalized_context not in {"substance", "activity", "medications"}:
+        raise RuntimeError("Unsupported context for day-manager assist.")
+
+    cleaned_text = str(text or "").strip()
+    if len(cleaned_text) < 2:
+        return _fallback_day_manager_assist(normalized_context, cleaned_text, first_name)
+
+    try:
+        ai_result = _ai_day_manager_assist(normalized_context, cleaned_text, first_name)
+    except Exception:
+        ai_result = {}
+
+    if isinstance(ai_result, dict) and isinstance(ai_result.get("suggested_fields"), dict) and (
+        ai_result.get("reply") or ai_result.get("suggested_fields")
+    ):
+        if not ai_result.get("reply"):
+            ai_result["reply"] = f"Hi {first_name}, I prefilled this form. Review before saving."
+        ai_result["needs_more"] = bool(ai_result.get("needs_more"))
+        ai_result["follow_up_prompt"] = ai_result.get("follow_up_prompt")
+        return ai_result
+
+    return _fallback_day_manager_assist(normalized_context, cleaned_text, first_name)
+
+
 def _extract_json_object(raw_text: str) -> dict:
     text = (raw_text or "").strip()
     if not text:

@@ -27,6 +27,7 @@ from app import db
 from app.ai import (
     ai_reflection,
     coach_prompt_missing_fields,
+    parse_day_manager_context_assist,
     parse_meal_sentence,
     parse_nutrition_label_image,
     parse_product_page_url,
@@ -2517,13 +2518,34 @@ def ai_day_manager_assist():
     body = request.get_json(silent=True) if request.is_json else {}
     context = (body.get("context") if isinstance(body, dict) else None) or request.form.get("context")
     context = (context or "meal").strip().lower()
-    if context not in {"meal", "drink"}:
-        return jsonify({"ok": False, "error": "Invalid context. Use meal or drink."}), 400
+    if context not in {"meal", "drink", "substance", "activity", "medications"}:
+        return jsonify({"ok": False, "error": "Invalid context. Use meal, drink, substance, activity, or medications."}), 400
 
     raw_text = (body.get("text") if isinstance(body, dict) else None) or request.form.get("text")
     text = normalize_text(raw_text)
     first_name = (normalize_text(g.user.full_name) or "there").split(" ", 1)[0]
-    entry_word = "drink" if context == "drink" else "meal"
+    entry_word_map = {
+        "meal": "meal",
+        "drink": "drink",
+        "substance": "substance",
+        "activity": "activity",
+        "medications": "medication or supplement",
+    }
+    entry_word = entry_word_map.get(context, "entry")
+
+    if context in {"substance", "activity", "medications"}:
+        result = parse_day_manager_context_assist(context=context, text=text or "", first_name=first_name)
+        return jsonify(
+            {
+                "ok": True,
+                "needs_more": bool(result.get("needs_more")),
+                "reply": result.get("reply") or f"Hi {first_name}, I prefilled this entry. Review before saving.",
+                "follow_up_prompt": result.get("follow_up_prompt"),
+                "suggested_fields": result.get("suggested_fields") or {},
+                "matches": [],
+                "unmatched_ingredients": [],
+            }
+        )
 
     if not text or len(text) < 6:
         return jsonify(

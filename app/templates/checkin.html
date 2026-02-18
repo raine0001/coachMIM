@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
   {% set default_tab = "sleep" %}
+  {% set mim_logo_url = url_for('static', filename='mim-logo.png') %}
   {% if selected_segments.sleep and not selected_segments.morning %}
     {% set default_tab = "morning" %}
   {% elif selected_segments.sleep and selected_segments.morning and not selected_segments.midday %}
@@ -194,12 +195,24 @@
       background: #e8f7f5;
       color: #0f766e;
       border-radius: 999px;
+      width: 38px;
       min-width: 38px;
       height: 38px;
-      padding: 0 10px;
+      padding: 0;
       font-weight: 700;
       letter-spacing: 0.2px;
       cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+    .mim-icon-img {
+      width: 24px;
+      height: 24px;
+      object-fit: cover;
+      object-position: 50% 26%;
+      border-radius: 50%;
     }
     .mim-assist-panel {
       margin-top: 8px;
@@ -603,7 +616,9 @@
           <label for="meal_description">Meal Name</label>
           <div class="mim-field-row">
             <input id="meal_description" name="description" placeholder="e.g., Turkey sandwich" required />
-            <button id="meal_mim_toggle" class="mim-icon-btn" type="button" title="Ask MIM for help">MIM</button>
+            <button id="meal_mim_toggle" class="mim-icon-btn" type="button" title="Ask MIM for help">
+              <img class="mim-icon-img" src="{{ mim_logo_url }}" alt="MIM" />
+            </button>
           </div>
           <div id="meal_mim_panel" class="mim-assist-panel" style="display: none;">
             <div class="mim-assist-row">
@@ -724,7 +739,9 @@
           <label for="drink_description">Drink Name</label>
           <div class="mim-field-row">
             <input id="drink_description" name="description" placeholder="e.g., Iced coffee, Diet soda" required />
-            <button id="drink_mim_toggle" class="mim-icon-btn" type="button" title="Ask MIM for help">MIM</button>
+            <button id="drink_mim_toggle" class="mim-icon-btn" type="button" title="Ask MIM for help">
+              <img class="mim-icon-img" src="{{ mim_logo_url }}" alt="MIM" />
+            </button>
           </div>
           <div id="drink_mim_panel" class="mim-assist-panel" style="display: none;">
             <div class="mim-assist-row">
@@ -842,8 +859,24 @@
         </div>
         <div>
           <label for="sub_amount">Amount</label>
-          <input id="sub_amount" name="amount" placeholder="2 beers, 200mg..." required />
+          <div class="mim-field-row">
+            <input id="sub_amount" name="amount" placeholder="2 beers, 200mg..." required />
+            <button id="sub_mim_toggle" class="mim-icon-btn" type="button" title="Ask MIM for help">
+              <img class="mim-icon-img" src="{{ mim_logo_url }}" alt="MIM" />
+            </button>
+          </div>
         </div>
+      </div>
+      <div id="sub_mim_panel" class="mim-assist-panel" style="display: none;">
+        <div class="mim-assist-row">
+          <input id="sub_mim_prompt" type="text" placeholder="Tell MIM what you took (for example: 2 beers, or 200mg caffeine)" />
+          <button id="sub_mim_run" type="button">Ask MIM</button>
+        </div>
+        <div id="sub_mim_loading" class="loading-row" style="display: none;">
+          <span class="inline-spinner"></span>
+          <span>MIM is drafting your substance entry...</span>
+        </div>
+        <p id="sub_mim_status" class="muted mim-note"></p>
       </div>
       <div class="checkin-form-block">
         <label for="sub_notes">Notes</label>
@@ -911,7 +944,12 @@
         </div>
         <div>
           <label for="activity_type">Activity</label>
-          <input id="activity_type" name="activity_type" placeholder="Run, lift, walk, HIIT..." required />
+          <div class="mim-field-row">
+            <input id="activity_type" name="activity_type" placeholder="Run, lift, walk, HIIT..." required />
+            <button id="act_mim_toggle" class="mim-icon-btn" type="button" title="Ask MIM for help">
+              <img class="mim-icon-img" src="{{ mim_logo_url }}" alt="MIM" />
+            </button>
+          </div>
         </div>
         <div>
           <label for="duration_min">Duration (min)</label>
@@ -921,6 +959,17 @@
           <label for="intensity">Intensity (1-10)</label>
           <input id="intensity" name="intensity" type="number" min="1" max="10" />
         </div>
+      </div>
+      <div id="act_mim_panel" class="mim-assist-panel" style="display: none;">
+        <div class="mim-assist-row">
+          <input id="act_mim_prompt" type="text" placeholder="Tell MIM your workout (example: 35 min run at intensity 7/10)" />
+          <button id="act_mim_run" type="button">Ask MIM</button>
+        </div>
+        <div id="act_mim_loading" class="loading-row" style="display: none;">
+          <span class="inline-spinner"></span>
+          <span>MIM is drafting your activity entry...</span>
+        </div>
+        <p id="act_mim_status" class="muted mim-note"></p>
       </div>
       <div class="checkin-form-block">
         <label for="act_notes">Notes</label>
@@ -994,12 +1043,28 @@
         </div>
         <div>
           <label for="med_name">Name</label>
-          <input id="med_name" name="med_name" placeholder="e.g., Magnesium glycinate" required />
+          <div class="mim-field-row">
+            <input id="med_name" name="med_name" placeholder="e.g., Magnesium glycinate" required />
+            <button id="med_mim_toggle" class="mim-icon-btn" type="button" title="Ask MIM for help">
+              <img class="mim-icon-img" src="{{ mim_logo_url }}" alt="MIM" />
+            </button>
+          </div>
         </div>
         <div>
           <label for="dose">Dose</label>
           <input id="dose" name="dose" placeholder="e.g., 200 mg" />
         </div>
+      </div>
+      <div id="med_mim_panel" class="mim-assist-panel" style="display: none;">
+        <div class="mim-assist-row">
+          <input id="med_mim_prompt" type="text" placeholder="Tell MIM what you took (example: 200 mg magnesium supplement)" />
+          <button id="med_mim_run" type="button">Ask MIM</button>
+        </div>
+        <div id="med_mim_loading" class="loading-row" style="display: none;">
+          <span class="inline-spinner"></span>
+          <span>MIM is drafting your meds/supps entry...</span>
+        </div>
+        <p id="med_mim_status" class="muted mim-note"></p>
       </div>
       <div class="checkin-form-block">
         <label for="med_notes">Notes</label>
@@ -1256,7 +1321,7 @@
       async function runAssist() {
         const seedText = sanitizePrompt(promptInput.value) || sanitizePrompt(sourceInput.value);
         if (!seedText) {
-          statusEl.textContent = "Tell MIM what you had and include ingredients/amounts.";
+          statusEl.textContent = config.emptyPrompt || "Tell MIM what to log and include enough detail.";
           promptInput.focus();
           return;
         }
@@ -1309,7 +1374,7 @@
         if (sanitizePrompt(sourceInput.value)) {
           runAssist();
         } else {
-          statusEl.textContent = "Hi there, tell MIM what was in it and I can start filling this form.";
+          statusEl.textContent = config.greetingPrompt || "Hi there, tell MIM what to log and I can start filling this form.";
           promptInput.focus();
         }
       });
@@ -1340,7 +1405,9 @@
         protein_g: "meal_protein_g",
         carbs_g: "meal_carbs_g",
         fat_g: "meal_fat_g"
-      }
+      },
+      emptyPrompt: "Tell MIM what you ate and include ingredients/amounts.",
+      greetingPrompt: "Hi there, tell MIM what was in this meal and I can start filling it."
     });
 
     wireMimAssist({
@@ -1358,7 +1425,65 @@
         calories: "drink_calories",
         sugar_g: "drink_sugar_g",
         caffeine_mg: "drink_caffeine_mg"
-      }
+      },
+      emptyPrompt: "Tell MIM what drink you had and rough amounts.",
+      greetingPrompt: "Hi there, tell MIM what was in this drink and I can start filling it."
+    });
+
+    wireMimAssist({
+      context: "substance",
+      toggleId: "sub_mim_toggle",
+      panelId: "sub_mim_panel",
+      promptId: "sub_mim_prompt",
+      runId: "sub_mim_run",
+      loadingId: "sub_mim_loading",
+      statusId: "sub_mim_status",
+      sourceFieldId: "sub_amount",
+      fieldMap: {
+        kind: "sub_kind",
+        amount: "sub_amount",
+        notes: "sub_notes"
+      },
+      emptyPrompt: "Tell MIM what substance you took and how much.",
+      greetingPrompt: "Hi there, tell MIM what you took and I can draft this entry."
+    });
+
+    wireMimAssist({
+      context: "activity",
+      toggleId: "act_mim_toggle",
+      panelId: "act_mim_panel",
+      promptId: "act_mim_prompt",
+      runId: "act_mim_run",
+      loadingId: "act_mim_loading",
+      statusId: "act_mim_status",
+      sourceFieldId: "activity_type",
+      fieldMap: {
+        activity_type: "activity_type",
+        duration_min: "duration_min",
+        intensity: "intensity",
+        notes: "act_notes"
+      },
+      emptyPrompt: "Tell MIM the activity, duration, and intensity if known.",
+      greetingPrompt: "Hi there, tell MIM your workout details and I can prefill this form."
+    });
+
+    wireMimAssist({
+      context: "medications",
+      toggleId: "med_mim_toggle",
+      panelId: "med_mim_panel",
+      promptId: "med_mim_prompt",
+      runId: "med_mim_run",
+      loadingId: "med_mim_loading",
+      statusId: "med_mim_status",
+      sourceFieldId: "med_name",
+      fieldMap: {
+        kind: "med_kind",
+        med_name: "med_name",
+        dose: "dose",
+        notes: "med_notes"
+      },
+      emptyPrompt: "Tell MIM the medication/supplement and dose.",
+      greetingPrompt: "Hi there, tell MIM what you took and I can prefill meds/supps."
     });
   </script>
   </div>

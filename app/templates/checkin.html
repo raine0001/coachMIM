@@ -12,59 +12,64 @@
   {% endif %}
 
   <div class="card">
-    <h1>Daily Check-In</h1>
-    <p class="muted">One record per local day. Re-open and update it anytime throughout the day.</p>
-    <div style="margin: 8px 0 2px; font-size: 1.6rem; font-weight: 700; letter-spacing: 0.2px;">
-      {{ selected_day_weekday }}, {{ selected_day_pretty }}
+    <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
+      <div style="font-size: 1.9rem; font-weight: 800; letter-spacing: 0.2px; line-height: 1.2;">
+        {{ selected_day_weekday }}, {{ selected_day_pretty }}
+      </div>
+      <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+        <a href="{{ url_for('main.checkin_form', day=prev_day, view=manager_view) }}" style="padding: 8px 12px; border: 1px solid #d7dee7; border-radius: 8px; text-decoration: none; background: #fff; color: #17212b;">&lt; Prev</a>
+        {% if can_go_next %}
+          <a href="{{ url_for('main.checkin_form', day=next_day, view=manager_view) }}" style="padding: 8px 12px; border: 1px solid #d7dee7; border-radius: 8px; text-decoration: none; background: #fff; color: #17212b;">Next &gt;</a>
+        {% else %}
+          <span style="padding: 8px 12px; border: 1px solid #d7dee7; border-radius: 8px; color: #98a2b3; background: #fff;">Next &gt;</span>
+        {% endif %}
+        <a href="{{ url_for('main.checkin_form', day=local_today, view=manager_view) }}" style="padding: 8px 12px; border: 1px solid #d7dee7; border-radius: 8px; text-decoration: none; background: #fff; color: #17212b;">Today</a>
+      </div>
     </div>
-    <p class="muted" style="margin-top: 0;">
+    <p class="muted" style="margin: 8px 0 0;">
       Tracking day: <strong>{{ selected_day }}</strong>
       {% if not is_viewing_today %}
         (local today: {{ local_today }})
       {% endif %}
     </p>
-    <p>
-      <strong>Today Status:</strong>
-      {% if checked_in_today %}
-        <span style="color: #067647;">CHECKED IN</span>
+    <p style="margin-top: 8px;">
+      <strong>Check-In Status:</strong>
+      {% if selected_day_checked_in %}
+        <span style="color: #067647;">CHECKED IN FOR THIS DAY</span>
       {% else %}
-        <span style="color: #b42318;">NOT STARTED</span>
+        <span style="color: #b42318;">NOT STARTED FOR THIS DAY</span>
+      {% endif %}
+      {% if is_viewing_today %}
+        {% if checked_in_today %}
+          <span class="muted">(today ready)</span>
+        {% else %}
+          <span class="muted">(today pending)</span>
+        {% endif %}
       {% endif %}
     </p>
-
-    <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px;">
-      <a href="{{ url_for('main.checkin_form', day=prev_day) }}" style="padding: 8px 12px; border: 1px solid #d7dee7; border-radius: 8px; text-decoration: none; background: #fff; color: #17212b;">&lt; Prev</a>
-      {% if can_go_next %}
-        <a href="{{ url_for('main.checkin_form', day=next_day) }}" style="padding: 8px 12px; border: 1px solid #d7dee7; border-radius: 8px; text-decoration: none; background: #fff; color: #17212b;">Next &gt;</a>
-      {% else %}
-        <span style="padding: 8px 12px; border: 1px solid #d7dee7; border-radius: 8px; color: #98a2b3; background: #fff;">Next &gt;</span>
-      {% endif %}
-      <a href="{{ url_for('main.checkin_form', day=local_today) }}" style="padding: 8px 12px; border: 1px solid #d7dee7; border-radius: 8px; text-decoration: none; background: #fff; color: #17212b;">Today</a>
-    </div>
   </div>
 
   <div class="card" style="border-color: #cfe3ff; background: #f9fcff;">
     <label>Day Manager</label>
     <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px;">
-      <a
-        href="{{ url_for('main.checkin_form', day=selected_day) }}"
-        style="padding: 8px 12px; border-radius: 8px; text-decoration: none; color: #fff; background: #0f766e;"
-      >Check-In</a>
-      <a
-        href="{{ url_for('main.meal_form', day=selected_day) }}"
-        style="padding: 8px 12px; border: 1px solid #d7dee7; border-radius: 8px; text-decoration: none; color: #17212b; background: #fff;"
-      >Log Meal</a>
-      <a
-        href="{{ url_for('main.substance_form', day=selected_day) }}"
-        style="padding: 8px 12px; border: 1px solid #d7dee7; border-radius: 8px; text-decoration: none; color: #17212b; background: #fff;"
-      >Log Substance</a>
+      <a href="{{ url_for('main.checkin_form', day=selected_day, view='checkin') }}" style="padding: 8px 12px; border-radius: 8px; text-decoration: none; {{ 'color: #fff; background: #0f766e;' if manager_view == 'checkin' else 'color: #17212b; background: #fff; border: 1px solid #d7dee7;' }}">Check-In</a>
+      <a href="{{ url_for('main.checkin_form', day=selected_day, view='meal') }}" style="padding: 8px 12px; border-radius: 8px; text-decoration: none; {{ 'color: #fff; background: #0f766e;' if manager_view == 'meal' else 'color: #17212b; background: #fff; border: 1px solid #d7dee7;' }}">Log Meal</a>
+      <a href="{{ url_for('main.checkin_form', day=selected_day, view='drink') }}" style="padding: 8px 12px; border-radius: 8px; text-decoration: none; {{ 'color: #fff; background: #0f766e;' if manager_view == 'drink' else 'color: #17212b; background: #fff; border: 1px solid #d7dee7;' }}">Log Drink</a>
+      <a href="{{ url_for('main.checkin_form', day=selected_day, view='substance') }}" style="padding: 8px 12px; border-radius: 8px; text-decoration: none; {{ 'color: #fff; background: #0f766e;' if manager_view == 'substance' else 'color: #17212b; background: #fff; border: 1px solid #d7dee7;' }}">Log Substance</a>
+      <a href="{{ url_for('main.checkin_form', day=selected_day, view='activity') }}" style="padding: 8px 12px; border-radius: 8px; text-decoration: none; {{ 'color: #fff; background: #0f766e;' if manager_view == 'activity' else 'color: #17212b; background: #fff; border: 1px solid #d7dee7;' }}">Log Activity</a>
+      <a href="{{ url_for('main.checkin_form', day=selected_day, view='medications') }}" style="padding: 8px 12px; border-radius: 8px; text-decoration: none; {{ 'color: #fff; background: #0f766e;' if manager_view == 'medications' else 'color: #17212b; background: #fff; border: 1px solid #d7dee7;' }}">Meds/Supps</a>
     </div>
     <p class="muted" style="margin: 10px 0 0;">
-      Same-day counts: {{ selected_day_meal_count }} meal{{ "" if selected_day_meal_count == 1 else "s" }},
-      {{ selected_day_substance_count }} substance entr{{ "y" if selected_day_substance_count == 1 else "ies" }}.
+      Same-day counts:
+      {{ selected_day_meal_count }} meal{{ "" if selected_day_meal_count == 1 else "s" }},
+      {{ selected_day_drink_count }} drink{{ "" if selected_day_drink_count == 1 else "s" }},
+      {{ selected_day_substance_count }} substance entr{{ "y" if selected_day_substance_count == 1 else "ies" }},
+      {{ selected_day_activity_count }} activit{{ "y" if selected_day_activity_count == 1 else "ies" }},
+      {{ selected_day_medication_count }} med/supp entr{{ "y" if selected_day_medication_count == 1 else "ies" }}.
     </p>
   </div>
 
+  {% if manager_view == "checkin" %}
   <div class="card">
     <form method="post" action="{{ url_for('main.checkin_save') }}">
       <input type="hidden" name="day" value="{{ selected_day }}" />
@@ -262,7 +267,315 @@
       </div>
     </form>
   </div>
+  {% elif manager_view == "meal" %}
+  <div class="card">
+    <h2>Meals For {{ selected_day }}</h2>
+    <p class="muted">Quick-log a meal for this day, or open full meal tools for builder/search/photos.</p>
+    <div style="margin-bottom: 12px;">
+      <a href="{{ url_for('main.meal_form', day=selected_day) }}" style="padding: 8px 12px; border: 1px solid #d7dee7; border-radius: 8px; text-decoration: none; background: #fff; color: #17212b;">Open Full Meal Logger</a>
+    </div>
+    <form method="post" action="{{ url_for('main.checkin_meal_quick_save') }}">
+      <input type="hidden" name="day" value="{{ selected_day }}" />
+      <input type="hidden" name="view" value="meal" />
+      <input type="hidden" name="is_beverage" value="0" />
+      <div class="grid">
+        <div>
+          <label for="meal_eaten_at">Time</label>
+          <input id="meal_eaten_at" name="eaten_at" type="datetime-local" value="{{ default_entry_datetime }}" required />
+        </div>
+        <div>
+          <label for="meal_label">Label</label>
+          <input id="meal_label" name="label" placeholder="Breakfast / Lunch / Dinner / Snack" />
+        </div>
+        <div>
+          <label for="meal_description">Meal Name</label>
+          <input id="meal_description" name="description" placeholder="e.g., Turkey sandwich" required />
+        </div>
+        <div>
+          <label for="meal_portion_notes">Portion Notes</label>
+          <input id="meal_portion_notes" name="portion_notes" placeholder="1 bowl, 2 slices..." />
+        </div>
+        <div>
+          <label for="meal_calories">Calories</label>
+          <input id="meal_calories" name="calories" type="number" min="0" />
+        </div>
+        <div>
+          <label for="meal_protein_g">Protein (g)</label>
+          <input id="meal_protein_g" name="protein_g" type="number" min="0" step="0.1" />
+        </div>
+        <div>
+          <label for="meal_carbs_g">Carbs (g)</label>
+          <input id="meal_carbs_g" name="carbs_g" type="number" min="0" step="0.1" />
+        </div>
+        <div>
+          <label for="meal_fat_g">Fat (g)</label>
+          <input id="meal_fat_g" name="fat_g" type="number" min="0" step="0.1" />
+        </div>
+      </div>
+      <div style="margin-top: 12px;">
+        <button type="submit">Save Meal Entry</button>
+      </div>
+    </form>
+  </div>
 
+  <div class="card">
+    <h2>Meals Logged</h2>
+    {% if day_food_entries %}
+      <div style="overflow-x: auto;">
+        <table style="width: 100%; border-collapse: collapse;">
+          <thead>
+            <tr>
+              <th style="text-align: left; border-bottom: 1px solid #d7dee7; padding: 8px;">Time</th>
+              <th style="text-align: left; border-bottom: 1px solid #d7dee7; padding: 8px;">Item</th>
+              <th style="text-align: left; border-bottom: 1px solid #d7dee7; padding: 8px;">Portion</th>
+              <th style="text-align: right; border-bottom: 1px solid #d7dee7; padding: 8px;">Calories</th>
+              <th style="text-align: right; border-bottom: 1px solid #d7dee7; padding: 8px;">P/C/F</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for meal in day_food_entries %}
+              <tr>
+                <td style="padding: 8px; border-bottom: 1px solid #eef3f8;">{{ meal.eaten_at.strftime("%H:%M") }}</td>
+                <td style="padding: 8px; border-bottom: 1px solid #eef3f8;">{{ meal.description or (meal.food_item.display_name() if meal.food_item else "Meal") }}</td>
+                <td style="padding: 8px; border-bottom: 1px solid #eef3f8;">{{ meal.portion_notes or "n/a" }}</td>
+                <td style="padding: 8px; border-bottom: 1px solid #eef3f8; text-align: right;">{{ meal.calories if meal.calories is not none else "-" }}</td>
+                <td style="padding: 8px; border-bottom: 1px solid #eef3f8; text-align: right;">
+                  {{ meal.protein_g if meal.protein_g is not none else "-" }}/{{ meal.carbs_g if meal.carbs_g is not none else "-" }}/{{ meal.fat_g if meal.fat_g is not none else "-" }}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p class="muted">No meals logged for this day yet.</p>
+    {% endif %}
+  </div>
+  {% elif manager_view == "drink" %}
+  <div class="card">
+    <h2>Drinks For {{ selected_day }}</h2>
+    <p class="muted">Quick-log drinks separately to make caffeine/hydration timing easier to track.</p>
+    <form method="post" action="{{ url_for('main.checkin_meal_quick_save') }}">
+      <input type="hidden" name="day" value="{{ selected_day }}" />
+      <input type="hidden" name="view" value="drink" />
+      <input type="hidden" name="is_beverage" value="1" />
+      <input type="hidden" name="label" value="Drink" />
+      <div class="grid">
+        <div>
+          <label for="drink_eaten_at">Time</label>
+          <input id="drink_eaten_at" name="eaten_at" type="datetime-local" value="{{ default_entry_datetime }}" required />
+        </div>
+        <div>
+          <label for="drink_description">Drink Name</label>
+          <input id="drink_description" name="description" placeholder="e.g., Iced coffee, Diet soda" required />
+        </div>
+        <div>
+          <label for="drink_portion_notes">Volume / Portion</label>
+          <input id="drink_portion_notes" name="portion_notes" placeholder="12 oz, 1 can, 500 ml..." />
+        </div>
+        <div>
+          <label for="drink_caffeine_mg">Caffeine (mg)</label>
+          <input id="drink_caffeine_mg" name="caffeine_mg" type="number" min="0" step="0.1" />
+        </div>
+        <div>
+          <label for="drink_calories">Calories</label>
+          <input id="drink_calories" name="calories" type="number" min="0" />
+        </div>
+        <div>
+          <label for="drink_sugar_g">Sugar (g)</label>
+          <input id="drink_sugar_g" name="sugar_g" type="number" min="0" step="0.1" />
+        </div>
+      </div>
+      <div style="margin-top: 12px;">
+        <button type="submit">Save Drink Entry</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Drinks Logged</h2>
+    {% if day_drink_entries %}
+      <div style="overflow-x: auto;">
+        <table style="width: 100%; border-collapse: collapse;">
+          <thead>
+            <tr>
+              <th style="text-align: left; border-bottom: 1px solid #d7dee7; padding: 8px;">Time</th>
+              <th style="text-align: left; border-bottom: 1px solid #d7dee7; padding: 8px;">Drink</th>
+              <th style="text-align: left; border-bottom: 1px solid #d7dee7; padding: 8px;">Portion</th>
+              <th style="text-align: right; border-bottom: 1px solid #d7dee7; padding: 8px;">Caffeine</th>
+              <th style="text-align: right; border-bottom: 1px solid #d7dee7; padding: 8px;">Calories</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for meal in day_drink_entries %}
+              <tr>
+                <td style="padding: 8px; border-bottom: 1px solid #eef3f8;">{{ meal.eaten_at.strftime("%H:%M") }}</td>
+                <td style="padding: 8px; border-bottom: 1px solid #eef3f8;">{{ meal.description or (meal.food_item.display_name() if meal.food_item else "Drink") }}</td>
+                <td style="padding: 8px; border-bottom: 1px solid #eef3f8;">{{ meal.portion_notes or "n/a" }}</td>
+                <td style="padding: 8px; border-bottom: 1px solid #eef3f8; text-align: right;">{{ meal.caffeine_mg if meal.caffeine_mg is not none else "-" }}</td>
+                <td style="padding: 8px; border-bottom: 1px solid #eef3f8; text-align: right;">{{ meal.calories if meal.calories is not none else "-" }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p class="muted">No drinks logged for this day yet.</p>
+    {% endif %}
+  </div>
+  {% elif manager_view == "substance" %}
+  <div class="card">
+    <h2>Substances For {{ selected_day }}</h2>
+    <form method="post" action="{{ url_for('main.checkin_substance_quick_save') }}">
+      <input type="hidden" name="day" value="{{ selected_day }}" />
+      <input type="hidden" name="view" value="substance" />
+      <div class="grid">
+        <div>
+          <label for="sub_taken_at">Time</label>
+          <input id="sub_taken_at" name="taken_at" type="datetime-local" value="{{ default_entry_datetime }}" required />
+        </div>
+        <div>
+          <label for="sub_kind">Type</label>
+          <select id="sub_kind" name="kind" required>
+            <option value="">Choose one</option>
+            <option value="alcohol">Alcohol</option>
+            <option value="caffeine">Caffeine</option>
+            <option value="nicotine">Nicotine</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <div>
+          <label for="sub_amount">Amount</label>
+          <input id="sub_amount" name="amount" placeholder="2 beers, 200mg..." required />
+        </div>
+      </div>
+      <div style="margin-top: 12px;">
+        <label for="sub_notes">Notes</label>
+        <textarea id="sub_notes" name="notes"></textarea>
+      </div>
+      <div style="margin-top: 12px;">
+        <button type="submit">Save Substance Entry</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Substance Entries</h2>
+    {% if day_substance_entries %}
+      <ul style="margin: 0; padding-left: 18px;">
+        {% for entry in day_substance_entries %}
+          <li style="margin-bottom: 6px;">
+            <strong>{{ entry.taken_at.strftime("%H:%M") }}</strong> - {{ entry.kind }} - {{ entry.amount }}{% if entry.notes %} ({{ entry.notes }}){% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="muted">No substance entries for this day yet.</p>
+    {% endif %}
+  </div>
+  {% elif manager_view == "activity" %}
+  <div class="card">
+    <h2>Activity For {{ selected_day }}</h2>
+    <form method="post" action="{{ url_for('main.checkin_substance_quick_save') }}">
+      <input type="hidden" name="day" value="{{ selected_day }}" />
+      <input type="hidden" name="view" value="activity" />
+      <input type="hidden" name="kind" value="activity" />
+      <div class="grid">
+        <div>
+          <label for="act_taken_at">Time</label>
+          <input id="act_taken_at" name="taken_at" type="datetime-local" value="{{ default_entry_datetime }}" required />
+        </div>
+        <div>
+          <label for="activity_type">Activity</label>
+          <input id="activity_type" name="activity_type" placeholder="Run, lift, walk, HIIT..." required />
+        </div>
+        <div>
+          <label for="duration_min">Duration (min)</label>
+          <input id="duration_min" name="duration_min" type="number" min="1" required />
+        </div>
+        <div>
+          <label for="intensity">Intensity (1-10)</label>
+          <input id="intensity" name="intensity" type="number" min="1" max="10" />
+        </div>
+      </div>
+      <div style="margin-top: 12px;">
+        <label for="act_notes">Notes</label>
+        <textarea id="act_notes" name="notes"></textarea>
+      </div>
+      <div style="margin-top: 12px;">
+        <button type="submit">Save Activity Entry</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Activity Entries</h2>
+    {% if day_activity_entries %}
+      <ul style="margin: 0; padding-left: 18px;">
+        {% for entry in day_activity_entries %}
+          <li style="margin-bottom: 6px;">
+            <strong>{{ entry.taken_at.strftime("%H:%M") }}</strong> - {{ entry.amount }}{% if entry.notes %} ({{ entry.notes }}){% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="muted">No activity entries for this day yet.</p>
+    {% endif %}
+  </div>
+  {% elif manager_view == "medications" %}
+  <div class="card">
+    <h2>Medications / Supplements For {{ selected_day }}</h2>
+    <form method="post" action="{{ url_for('main.checkin_substance_quick_save') }}">
+      <input type="hidden" name="day" value="{{ selected_day }}" />
+      <input type="hidden" name="view" value="medications" />
+      <div class="grid">
+        <div>
+          <label for="med_taken_at">Time</label>
+          <input id="med_taken_at" name="taken_at" type="datetime-local" value="{{ default_entry_datetime }}" required />
+        </div>
+        <div>
+          <label for="med_kind">Type</label>
+          <select id="med_kind" name="kind" required>
+            <option value="medication">Medication</option>
+            <option value="supplement">Supplement</option>
+          </select>
+        </div>
+        <div>
+          <label for="med_name">Name</label>
+          <input id="med_name" name="med_name" placeholder="e.g., Magnesium glycinate" required />
+        </div>
+        <div>
+          <label for="dose">Dose</label>
+          <input id="dose" name="dose" placeholder="e.g., 200 mg" />
+        </div>
+      </div>
+      <div style="margin-top: 12px;">
+        <label for="med_notes">Notes</label>
+        <textarea id="med_notes" name="notes"></textarea>
+      </div>
+      <div style="margin-top: 12px;">
+        <button type="submit">Save Med/Supp Entry</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Medication/Supplement Entries</h2>
+    {% if day_medication_entries %}
+      <ul style="margin: 0; padding-left: 18px;">
+        {% for entry in day_medication_entries %}
+          <li style="margin-bottom: 6px;">
+            <strong>{{ entry.taken_at.strftime("%H:%M") }}</strong> - {{ entry.kind }} - {{ entry.amount }}{% if entry.notes %} ({{ entry.notes }}){% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="muted">No medication/supplement entries for this day yet.</p>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% if manager_view == "checkin" %}
   <div class="card">
     <h2>Recent Check-In History</h2>
     {% if history_rows %}
@@ -307,7 +620,7 @@
                 </td>
                 <td style="padding: 8px; border-bottom: 1px solid #eef3f8; text-align: right;">{{ row.record.productivity if row.record.productivity is not none else "-" }}</td>
                 <td style="padding: 8px; border-bottom: 1px solid #eef3f8;">
-                  <a href="{{ url_for('main.checkin_form', day=row.record.day.isoformat()) }}">Open</a>
+                  <a href="{{ url_for('main.checkin_form', day=row.record.day.isoformat(), view='checkin') }}">Open</a>
                 </td>
               </tr>
             {% endfor %}
@@ -345,4 +658,5 @@
 
     setTab(defaultTab);
   </script>
+  {% endif %}
 {% endblock %}

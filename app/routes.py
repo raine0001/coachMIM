@@ -91,6 +91,7 @@ GENERIC_MEAL_NAMES = {
     "custom built meal",
 }
 SEARCH_STOPWORDS = {"and", "or", "the", "a", "an", "of", "with", "to", "for"}
+DAY_MANAGER_VIEWS = {"checkin", "meal", "drink", "substance", "activity", "medications"}
 
 
 def allowed_file(filename: str) -> bool:
@@ -1233,6 +1234,9 @@ def profile():
 def checkin_form():
     local_today = get_user_local_today(g.user)
     day_str = request.args.get("day")
+    manager_view = (request.args.get("view") or "checkin").strip().lower()
+    if manager_view not in DAY_MANAGER_VIEWS:
+        manager_view = "checkin"
     if day_str:
         try:
             selected_day = date.fromisoformat(day_str)
@@ -1270,22 +1274,38 @@ def checkin_form():
     ]
 
     start, end = day_bounds(selected_day)
-    selected_day_meal_count = (
+    day_meals = (
         Meal.query.filter(
             Meal.user_id == g.user.id,
             Meal.eaten_at >= start,
             Meal.eaten_at < end,
         )
-        .count()
+        .order_by(Meal.eaten_at.desc())
+        .all()
     )
-    selected_day_substance_count = (
+    day_substances = (
         Substance.query.filter(
             Substance.user_id == g.user.id,
             Substance.taken_at >= start,
             Substance.taken_at < end,
         )
-        .count()
+        .order_by(Substance.taken_at.desc())
+        .all()
     )
+
+    day_food_entries = [meal for meal in day_meals if not meal.is_beverage]
+    day_drink_entries = [meal for meal in day_meals if meal.is_beverage]
+    day_substance_entries = [entry for entry in day_substances if entry.kind in {"alcohol", "caffeine", "nicotine", "other"}]
+    day_activity_entries = [entry for entry in day_substances if entry.kind == "activity"]
+    day_medication_entries = [entry for entry in day_substances if entry.kind in {"medication", "supplement"}]
+
+    selected_day_meal_count = len(day_food_entries)
+    selected_day_drink_count = len(day_drink_entries)
+    selected_day_substance_count = len(day_substance_entries)
+    selected_day_activity_count = len(day_activity_entries)
+    selected_day_medication_count = len(day_medication_entries)
+    default_entry_time = datetime.now().strftime("%H:%M") if selected_day == local_today else "12:00"
+    default_entry_datetime = f"{selected_day.isoformat()}T{default_entry_time}"
 
     prev_day = selected_day - timedelta(days=1)
     next_day = selected_day + timedelta(days=1)
@@ -1297,8 +1317,10 @@ def checkin_form():
         selected_day=selected_day.isoformat(),
         selected_day_weekday=selected_day.strftime("%A"),
         selected_day_pretty=selected_day.strftime("%B %d, %Y"),
+        manager_view=manager_view,
         local_today=local_today.isoformat(),
         checked_in_today=checkin_has_any_data(today_record),
+        selected_day_checked_in=checkin_has_any_data(record),
         selected_segments=checkin_segment_status(record),
         history_rows=history_rows,
         prev_day=prev_day.isoformat(),
@@ -1309,7 +1331,16 @@ def checkin_form():
         morning_weight_display=morning_weight_display,
         checkin_unit_system=unit_system,
         selected_day_meal_count=selected_day_meal_count,
+        selected_day_drink_count=selected_day_drink_count,
         selected_day_substance_count=selected_day_substance_count,
+        selected_day_activity_count=selected_day_activity_count,
+        selected_day_medication_count=selected_day_medication_count,
+        day_food_entries=day_food_entries,
+        day_drink_entries=day_drink_entries,
+        day_substance_entries=day_substance_entries,
+        day_activity_entries=day_activity_entries,
+        day_medication_entries=day_medication_entries,
+        default_entry_datetime=default_entry_datetime,
     )
 
 
@@ -1399,6 +1430,143 @@ def checkin_save():
     db.session.commit()
     flash(f"Check-in saved for {selected_day.isoformat()}.", "success")
     return redirect(url_for("main.checkin_form", day=selected_day.isoformat()))
+
+
+@bp.post("/checkin/meal-quick")
+@login_required
+@profile_required
+def checkin_meal_quick_save():
+    local_today = get_user_local_today(g.user)
+    selected_day_raw = request.form.get("day", local_today.isoformat())
+    manager_view = (request.form.get("view") or "meal").strip().lower()
+    if manager_view not in DAY_MANAGER_VIEWS:
+        manager_view = "meal"
+
+    try:
+        selected_day = date.fromisoformat(selected_day_raw)
+    except ValueError:
+        selected_day = local_today
+
+    if selected_day > local_today:
+        selected_day = local_today
+
+    eaten_at_raw = request.form.get("eaten_at")
+    if not eaten_at_raw:
+        fallback_time = datetime.now().strftime("%H:%M") if selected_day == local_today else "12:00"
+        eaten_at_raw = f"{selected_day.isoformat()}T{fallback_time}"
+
+    try:
+        eaten_at_dt = datetime.fromisoformat(eaten_at_raw)
+    except ValueError:
+        flash("Invalid date/time. Use the picker and try again.", "error")
+        return redirect(url_for("main.checkin_form", day=selected_day.isoformat(), view=manager_view))
+
+    description = normalize_text(request.form.get("description"))
+    if not description:
+        flash("Name/description is required for quick meal logging.", "error")
+        return redirect(url_for("main.checkin_form", day=selected_day.isoformat(), view=manager_view))
+
+    is_beverage = parse_bool(request.form.get("is_beverage"))
+    meal = Meal(
+        user_id=g.user.id,
+        eaten_at=eaten_at_dt,
+        label=normalize_text(request.form.get("label")) or ("Drink" if is_beverage else None),
+        description=description,
+        portion_notes=normalize_text(request.form.get("portion_notes")),
+        tags=parse_tags(request.form.get("tags")),
+        calories=parse_int(request.form.get("calories")),
+        protein_g=parse_float(request.form.get("protein_g")),
+        carbs_g=parse_float(request.form.get("carbs_g")),
+        fat_g=parse_float(request.form.get("fat_g")),
+        sugar_g=parse_float(request.form.get("sugar_g")),
+        sodium_mg=parse_float(request.form.get("sodium_mg")),
+        caffeine_mg=parse_float(request.form.get("caffeine_mg")),
+        is_beverage=is_beverage,
+    )
+
+    db.session.add(meal)
+    db.session.commit()
+    flash("Entry logged.", "success")
+    return redirect(url_for("main.checkin_form", day=selected_day.isoformat(), view=manager_view))
+
+
+@bp.post("/checkin/substance-quick")
+@login_required
+@profile_required
+def checkin_substance_quick_save():
+    local_today = get_user_local_today(g.user)
+    selected_day_raw = request.form.get("day", local_today.isoformat())
+    manager_view = (request.form.get("view") or "substance").strip().lower()
+    if manager_view not in DAY_MANAGER_VIEWS:
+        manager_view = "substance"
+
+    try:
+        selected_day = date.fromisoformat(selected_day_raw)
+    except ValueError:
+        selected_day = local_today
+
+    if selected_day > local_today:
+        selected_day = local_today
+
+    taken_at_raw = request.form.get("taken_at")
+    if not taken_at_raw:
+        fallback_time = datetime.now().strftime("%H:%M") if selected_day == local_today else "12:00"
+        taken_at_raw = f"{selected_day.isoformat()}T{fallback_time}"
+
+    try:
+        taken_at_dt = datetime.fromisoformat(taken_at_raw)
+    except ValueError:
+        flash("Invalid date/time. Use the picker and try again.", "error")
+        return redirect(url_for("main.checkin_form", day=selected_day.isoformat(), view=manager_view))
+
+    kind = (request.form.get("kind") or "").strip().lower()
+    allowed_kinds = {"alcohol", "caffeine", "nicotine", "other", "activity", "medication", "supplement"}
+    if kind not in allowed_kinds:
+        flash("Select a valid type for this entry.", "error")
+        return redirect(url_for("main.checkin_form", day=selected_day.isoformat(), view=manager_view))
+
+    amount = normalize_text(request.form.get("amount"))
+    notes = normalize_text(request.form.get("notes"))
+
+    if kind == "activity":
+        activity_type = normalize_text(request.form.get("activity_type"))
+        duration_min = parse_int(request.form.get("duration_min"))
+        intensity = parse_int(request.form.get("intensity"))
+        built_amount_parts = []
+        if activity_type:
+            built_amount_parts.append(activity_type)
+        if duration_min is not None:
+            built_amount_parts.append(f"{duration_min} min")
+        if intensity is not None:
+            built_amount_parts.append(f"intensity {intensity}/10")
+        if built_amount_parts:
+            amount = " | ".join(built_amount_parts)
+    elif kind in {"medication", "supplement"}:
+        med_name = normalize_text(request.form.get("med_name"))
+        dose = normalize_text(request.form.get("dose"))
+        built_amount_parts = []
+        if med_name:
+            built_amount_parts.append(med_name)
+        if dose:
+            built_amount_parts.append(dose)
+        if built_amount_parts:
+            amount = " - ".join(built_amount_parts)
+
+    if not amount:
+        flash("Amount/details are required for this entry.", "error")
+        return redirect(url_for("main.checkin_form", day=selected_day.isoformat(), view=manager_view))
+
+    entry = Substance(
+        user_id=g.user.id,
+        taken_at=taken_at_dt,
+        kind=kind,
+        amount=amount,
+        notes=notes,
+    )
+    db.session.add(entry)
+    db.session.commit()
+    flash("Entry logged.", "success")
+    return redirect(url_for("main.checkin_form", day=selected_day.isoformat(), view=manager_view))
 
 
 @bp.get("/meal")

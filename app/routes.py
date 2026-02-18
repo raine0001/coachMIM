@@ -183,6 +183,7 @@ def parse_ingredients_json(raw_value):
             "fat_g": safe_float(item.get("fat_g")),
             "sugar_g": safe_float(item.get("sugar_g")),
             "sodium_mg": safe_float(item.get("sodium_mg")),
+            "caffeine_mg": safe_float(item.get("caffeine_mg")),
         }
         cleaned.append(cleaned_item)
     return cleaned or None
@@ -354,6 +355,7 @@ def build_meal_summary(selected_day: date, day_meals: list[Meal]) -> dict:
     carbs_total = round(sum_meal_nutrient(day_meals, "carbs_g"), 1)
     sugar_total = round(sum_meal_nutrient(day_meals, "sugar_g"), 1)
     protein_total = round(sum_meal_nutrient(day_meals, "protein_g"), 1)
+    caffeine_total = round(sum_meal_nutrient(day_meals, "caffeine_mg"), 1)
     added_sugar_total, natural_sugar_total = estimate_sugar_sources(day_meals)
 
     entries_without_nutrition = sum(
@@ -361,7 +363,7 @@ def build_meal_summary(selected_day: date, day_meals: list[Meal]) -> dict:
         for meal in day_meals
         if all(
             getattr(meal, field) is None
-            for field in ["calories", "protein_g", "carbs_g", "fat_g", "sugar_g", "sodium_mg"]
+            for field in ["calories", "protein_g", "carbs_g", "fat_g", "sugar_g", "sodium_mg", "caffeine_mg"]
         )
     )
 
@@ -375,6 +377,12 @@ def build_meal_summary(selected_day: date, day_meals: list[Meal]) -> dict:
             mim_notes.append("Day is carb-heavy versus protein. Add protein + fiber to reduce energy swings.")
         if added_sugar_total >= 45:
             mim_notes.append("Added sugar is high. Consider swapping one sweetened item for whole-food carbs.")
+        if caffeine_total >= 400:
+            mim_notes.append("Caffeine is high today (>400mg). Expect possible sleep and anxiety impact.")
+        elif caffeine_total >= 250:
+            mim_notes.append("Caffeine is moderate-high. Keep late-day caffeine low to protect sleep.")
+        elif any(meal.is_beverage for meal in day_meals) and caffeine_total == 0:
+            mim_notes.append("Drinks are logged but caffeine is missing. Add caffeine mg for cleaner performance analysis.")
         if entries_without_nutrition > 0:
             mim_notes.append(
                 f"{entries_without_nutrition} entr{'y' if entries_without_nutrition == 1 else 'ies'} "
@@ -391,6 +399,7 @@ def build_meal_summary(selected_day: date, day_meals: list[Meal]) -> dict:
         "carbs_total": carbs_total,
         "sugar_total": sugar_total,
         "protein_total": protein_total,
+        "caffeine_total": caffeine_total,
         "added_sugar_total": added_sugar_total,
         "natural_sugar_total": natural_sugar_total,
         "entries_count": len(day_meals),
@@ -435,6 +444,7 @@ def build_meal_context(selected_day: date, edit_meal: Meal | None = None):
             "fat_g": f.fat_g,
             "sugar_g": f.sugar_g,
             "sodium_mg": f.sodium_mg,
+            "caffeine_mg": f.caffeine_mg,
             "is_beverage": f.is_beverage,
             "ingredients": f.ingredients or [],
         }
@@ -480,6 +490,7 @@ def apply_meal_fields_from_request(meal: Meal):
     meal.fat_g = parse_float(request.form.get("fat_g"))
     meal.sugar_g = parse_float(request.form.get("sugar_g"))
     meal.sodium_mg = parse_float(request.form.get("sodium_mg"))
+    meal.caffeine_mg = parse_float(request.form.get("caffeine_mg"))
 
     if food_item:
         if not meal.description:
@@ -496,6 +507,8 @@ def apply_meal_fields_from_request(meal: Meal):
             meal.sugar_g = food_item.sugar_g
         if meal.sodium_mg is None:
             meal.sodium_mg = food_item.sodium_mg
+        if meal.caffeine_mg is None:
+            meal.caffeine_mg = food_item.caffeine_mg
 
     return eaten_at_dt
 
@@ -509,7 +522,7 @@ def meal_has_meaningful_content(meal: Meal, has_new_photo: bool = False) -> bool
         return True
     if any(
         getattr(meal, field) is not None
-        for field in ["calories", "protein_g", "carbs_g", "fat_g", "sugar_g", "sodium_mg"]
+        for field in ["calories", "protein_g", "carbs_g", "fat_g", "sugar_g", "sodium_mg", "caffeine_mg"]
     ):
         return True
     if meal.photo_path or has_new_photo:
@@ -597,7 +610,7 @@ def upsert_shared_food_from_request(meal: Meal):
 
     has_any_nutrition = any(
         getattr(meal, field) is not None
-        for field in ["calories", "protein_g", "carbs_g", "fat_g", "sugar_g", "sodium_mg"]
+        for field in ["calories", "protein_g", "carbs_g", "fat_g", "sugar_g", "sodium_mg", "caffeine_mg"]
     )
     if not has_any_nutrition:
         return None
@@ -639,6 +652,8 @@ def upsert_shared_food_from_request(meal: Meal):
             existing.sugar_g = meal.sugar_g
         if existing.sodium_mg is None and meal.sodium_mg is not None:
             existing.sodium_mg = meal.sodium_mg
+        if existing.caffeine_mg is None and meal.caffeine_mg is not None:
+            existing.caffeine_mg = meal.caffeine_mg
         db.session.add(existing)
         db.session.flush()
         return existing
@@ -655,6 +670,7 @@ def upsert_shared_food_from_request(meal: Meal):
         fat_g=meal.fat_g,
         sugar_g=meal.sugar_g,
         sodium_mg=meal.sodium_mg,
+        caffeine_mg=meal.caffeine_mg,
         source="community",
     )
     db.session.add(shared_food)
@@ -689,6 +705,7 @@ def upsert_favorite_from_request(meal: Meal | None = None):
     favorite.fat_g = parse_float(request.form.get("fat_g"))
     favorite.sugar_g = parse_float(request.form.get("sugar_g"))
     favorite.sodium_mg = parse_float(request.form.get("sodium_mg"))
+    favorite.caffeine_mg = parse_float(request.form.get("caffeine_mg"))
     favorite.ingredients = parse_ingredients_json(request.form.get("favorite_ingredients"))
 
     db.session.add(favorite)
@@ -1625,6 +1642,7 @@ def _food_item_to_payload(item: FoodItem) -> dict:
         "fat_g": item.fat_g,
         "sugar_g": item.sugar_g,
         "sodium_mg": item.sodium_mg,
+        "caffeine_mg": item.caffeine_mg,
         "source": item.source,
     }
 
@@ -1801,6 +1819,7 @@ def meal_parse_text():
         fat_g = parse_float(item.get("fat_g"))
         sugar_g = parse_float(item.get("sugar_g"))
         sodium_mg = parse_float(item.get("sodium_mg"))
+        caffeine_mg = parse_float(item.get("caffeine_mg"))
 
         payload_item = {
             "food_item_id": None,
@@ -1815,6 +1834,7 @@ def meal_parse_text():
             "fat_g": fat_g,
             "sugar_g": sugar_g,
             "sodium_mg": sodium_mg,
+            "caffeine_mg": caffeine_mg,
             "match_score": round(float(score), 3) if score else 0.0,
             "match_source": "none",
             "matched_display_name": None,
@@ -1834,6 +1854,7 @@ def meal_parse_text():
                     "fat_g": matched_item.fat_g if matched_item.fat_g is not None else payload_item["fat_g"],
                     "sugar_g": matched_item.sugar_g if matched_item.sugar_g is not None else payload_item["sugar_g"],
                     "sodium_mg": matched_item.sodium_mg if matched_item.sodium_mg is not None else payload_item["sodium_mg"],
+                    "caffeine_mg": matched_item.caffeine_mg if matched_item.caffeine_mg is not None else payload_item["caffeine_mg"],
                     "match_source": matched_item.source or "local",
                     "matched_display_name": matched_item.display_name(),
                 }

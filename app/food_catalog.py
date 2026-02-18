@@ -77,14 +77,14 @@ COMMON_FOODS = [
     {"name": "Chips, potato", "serving_size": 28, "serving_unit": "g", "calories": 152, "protein_g": 2, "carbs_g": 15, "fat_g": 10},
     {"name": "Cookie, chocolate chip", "serving_size": 1, "serving_unit": "large", "calories": 78, "protein_g": 1, "carbs_g": 11, "fat_g": 3.3},
     {"name": "Ice cream, vanilla", "serving_size": 1, "serving_unit": "cup", "calories": 273, "protein_g": 4.6, "carbs_g": 31, "fat_g": 14.5},
-    {"name": "Coffee, black", "serving_size": 240, "serving_unit": "ml", "calories": 2, "protein_g": 0.3, "carbs_g": 0, "fat_g": 0, "sodium_mg": 5},
-    {"name": "Coffee with milk", "serving_size": 240, "serving_unit": "ml", "calories": 35, "protein_g": 2, "carbs_g": 3, "fat_g": 1.5},
-    {"name": "Tea, unsweetened", "serving_size": 240, "serving_unit": "ml", "calories": 2, "protein_g": 0, "carbs_g": 0, "fat_g": 0},
+    {"name": "Coffee, black", "serving_size": 240, "serving_unit": "ml", "calories": 2, "protein_g": 0.3, "carbs_g": 0, "fat_g": 0, "sodium_mg": 5, "caffeine_mg": 95},
+    {"name": "Coffee with milk", "serving_size": 240, "serving_unit": "ml", "calories": 35, "protein_g": 2, "carbs_g": 3, "fat_g": 1.5, "caffeine_mg": 80},
+    {"name": "Tea, unsweetened", "serving_size": 240, "serving_unit": "ml", "calories": 2, "protein_g": 0, "carbs_g": 0, "fat_g": 0, "caffeine_mg": 47},
     {"name": "Orange juice", "serving_size": 240, "serving_unit": "ml", "calories": 110, "protein_g": 2, "carbs_g": 26, "fat_g": 0.5},
-    {"name": "Soda", "serving_size": 355, "serving_unit": "ml", "calories": 140, "protein_g": 0, "carbs_g": 39, "fat_g": 0},
-    {"name": "Diet soda", "serving_size": 355, "serving_unit": "ml", "calories": 0, "protein_g": 0, "carbs_g": 0, "fat_g": 0},
+    {"name": "Soda", "serving_size": 355, "serving_unit": "ml", "calories": 140, "protein_g": 0, "carbs_g": 39, "fat_g": 0, "caffeine_mg": 34},
+    {"name": "Diet soda", "serving_size": 355, "serving_unit": "ml", "calories": 0, "protein_g": 0, "carbs_g": 0, "fat_g": 0, "caffeine_mg": 46},
     {"name": "Sports drink", "serving_size": 591, "serving_unit": "ml", "calories": 140, "protein_g": 0, "carbs_g": 34, "fat_g": 0},
-    {"name": "Energy drink", "serving_size": 473, "serving_unit": "ml", "calories": 210, "protein_g": 0, "carbs_g": 54, "fat_g": 0},
+    {"name": "Energy drink", "serving_size": 473, "serving_unit": "ml", "calories": 210, "protein_g": 0, "carbs_g": 54, "fat_g": 0, "caffeine_mg": 150},
     {"name": "Protein shake", "serving_size": 1, "serving_unit": "bottle", "calories": 160, "protein_g": 30, "carbs_g": 5, "fat_g": 3},
     {"name": "Smoothie, fruit", "serving_size": 350, "serving_unit": "ml", "calories": 220, "protein_g": 4, "carbs_g": 48, "fat_g": 1},
     {"name": "Sparkling water", "serving_size": 355, "serving_unit": "ml", "calories": 0, "protein_g": 0, "carbs_g": 0, "fat_g": 0},
@@ -100,6 +100,7 @@ NUTRIENT_NUMBER_MAP = {
     "204": "fat_g",
     "269": "sugar_g",
     "307": "sodium_mg",
+    "262": "caffeine_mg",
 }
 
 
@@ -137,6 +138,7 @@ def seed_common_foods_if_needed() -> None:
                 "fat_g": row.get("fat_g"),
                 "sugar_g": row.get("sugar_g"),
                 "sodium_mg": row.get("sodium_mg"),
+                "caffeine_mg": row.get("caffeine_mg"),
             }
             existing_changed = False
             for field_name, field_value in fields_to_sync.items():
@@ -161,6 +163,7 @@ def seed_common_foods_if_needed() -> None:
             fat_g=row.get("fat_g"),
             sugar_g=row.get("sugar_g"),
             sodium_mg=row.get("sodium_mg"),
+            caffeine_mg=row.get("caffeine_mg"),
             source="seed",
         )
         db.session.add(food)
@@ -181,6 +184,7 @@ def parse_usda_nutrients(food_row: dict[str, Any]) -> dict[str, Any]:
         protein = (((label_nutrients.get("protein") or {}).get("value")))
         sugars = (((label_nutrients.get("sugars") or {}).get("value")))
         sodium = (((label_nutrients.get("sodium") or {}).get("value")))
+        caffeine = (((label_nutrients.get("caffeine") or {}).get("value")))
 
         if calories is not None:
             parsed["calories"] = int(round(float(calories)))
@@ -194,6 +198,8 @@ def parse_usda_nutrients(food_row: dict[str, Any]) -> dict[str, Any]:
             parsed["sugar_g"] = float(sugars)
         if sodium is not None:
             parsed["sodium_mg"] = float(sodium)
+        if caffeine is not None:
+            parsed["caffeine_mg"] = float(caffeine)
 
     for nutrient in (food_row.get("foodNutrients") or []):
         nutrient_number = str(
@@ -273,6 +279,7 @@ def import_foods_from_usda(query: str, max_results: int = 12) -> int:
             existing.fat_g = nutrients.get("fat_g", existing.fat_g)
             existing.sugar_g = nutrients.get("sugar_g", existing.sugar_g)
             existing.sodium_mg = nutrients.get("sodium_mg", existing.sodium_mg)
+            existing.caffeine_mg = nutrients.get("caffeine_mg", existing.caffeine_mg)
             db.session.add(existing)
             continue
 
@@ -288,6 +295,7 @@ def import_foods_from_usda(query: str, max_results: int = 12) -> int:
             fat_g=nutrients.get("fat_g"),
             sugar_g=nutrients.get("sugar_g"),
             sodium_mg=nutrients.get("sodium_mg"),
+            caffeine_mg=nutrients.get("caffeine_mg"),
             source="usda",
         )
         db.session.add(food)

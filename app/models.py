@@ -173,6 +173,7 @@ class Meal(db.Model):
     fat_g = db.Column(db.Float, nullable=True)
     sugar_g = db.Column(db.Float, nullable=True)
     sodium_mg = db.Column(db.Float, nullable=True)
+    caffeine_mg = db.Column(db.Float, nullable=True)
     is_beverage = db.Column(db.Boolean, default=False, nullable=False)
 
     photo_path = db.Column(db.String(500), nullable=True)
@@ -203,6 +204,7 @@ class FoodItem(db.Model):
     fat_g = db.Column(db.Float, nullable=True)
     sugar_g = db.Column(db.Float, nullable=True)
     sodium_mg = db.Column(db.Float, nullable=True)
+    caffeine_mg = db.Column(db.Float, nullable=True)
 
     source = db.Column(db.String(50), nullable=False, default="seed")
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
@@ -235,6 +237,7 @@ class FavoriteMeal(db.Model):
     fat_g = db.Column(db.Float, nullable=True)
     sugar_g = db.Column(db.Float, nullable=True)
     sodium_mg = db.Column(db.Float, nullable=True)
+    caffeine_mg = db.Column(db.Float, nullable=True)
     ingredients = db.Column(db.JSON, nullable=True)
 
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)

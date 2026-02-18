@@ -17,6 +17,7 @@ TARGET_NUTRIENTS = {
     "204": "fat_g",
     "269": "sugar_g",
     "307": "sodium_mg",
+    "262": "caffeine_mg",
 }
 
 
@@ -137,6 +138,7 @@ def load_food_rows(
                 "fat_g": None,
                 "sugar_g": None,
                 "sodium_mg": None,
+                "caffeine_mg": None,
             }
 
             if max_foods and len(selected) >= max_foods:
@@ -276,6 +278,7 @@ def upsert_selected_foods(selected: dict[int, dict], batch_size: int = 1000) -> 
             item.fat_g = row["fat_g"] if row["fat_g"] is not None else item.fat_g
             item.sugar_g = row["sugar_g"] if row["sugar_g"] is not None else item.sugar_g
             item.sodium_mg = row["sodium_mg"] if row["sodium_mg"] is not None else item.sodium_mg
+            item.caffeine_mg = row["caffeine_mg"] if row["caffeine_mg"] is not None else item.caffeine_mg
             db.session.add(item)
             updated += 1
         else:
@@ -291,6 +294,7 @@ def upsert_selected_foods(selected: dict[int, dict], batch_size: int = 1000) -> 
                 fat_g=row["fat_g"],
                 sugar_g=row["sugar_g"],
                 sodium_mg=row["sodium_mg"],
+                caffeine_mg=row["caffeine_mg"],
                 source="usda",
             )
             db.session.add(item)

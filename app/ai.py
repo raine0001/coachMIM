@@ -233,6 +233,7 @@ def _normalize_parsed_ingredients(raw_ingredients) -> list[dict]:
                 "fat_g": _as_float(item.get("fat_g")),
                 "sugar_g": _as_float(item.get("sugar_g")),
                 "sodium_mg": _as_float(item.get("sodium_mg")),
+                "caffeine_mg": _as_float(item.get("caffeine_mg")),
             }
         )
 
@@ -445,7 +446,7 @@ def parse_nutrition_label_image(image_bytes: bytes, mime_type: str | None, hint_
 
     prompt = (
         "Read the nutrition label from this image and return JSON only with these keys:\n"
-        "name, serving_size_value, serving_size_unit, calories, protein_g, carbs_g, fat_g, sugar_g, sodium_mg, confidence.\n"
+        "name, serving_size_value, serving_size_unit, calories, protein_g, carbs_g, fat_g, sugar_g, sodium_mg, caffeine_mg, confidence.\n"
         "Use numeric values when possible. Use null if unknown. Confidence should be 0.0 to 1.0.\n"
         f"{hint_line}"
     )
@@ -484,6 +485,7 @@ def parse_nutrition_label_image(image_bytes: bytes, mime_type: str | None, hint_
         "fat_g": as_float(parsed.get("fat_g")),
         "sugar_g": as_float(parsed.get("sugar_g")),
         "sodium_mg": as_float(parsed.get("sodium_mg")),
+        "caffeine_mg": as_float(parsed.get("caffeine_mg")),
         "confidence": as_float(parsed.get("confidence")),
     }
     return normalized
@@ -674,6 +676,7 @@ def _extract_from_jsonld(html_text: str) -> dict:
                 "fat_g": _as_float(nutrition.get("fatContent")),
                 "sugar_g": _as_float(nutrition.get("sugarContent")),
                 "sodium_mg": _parse_sodium_mg(nutrition.get("sodiumContent")),
+                "caffeine_mg": _as_float(nutrition.get("caffeineContent")),
                 "confidence": 0.9,
                 "source_method": "jsonld",
             }
@@ -702,6 +705,7 @@ def _extract_from_text(text: str) -> dict:
     fat = _first_pattern(text, [r"(?:total\s+)?fat\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*g?"])
     sugar = _first_pattern(text, [r"(?:total\s+)?sugars?\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*g?"])
     sodium_match = _first_pattern(text, [r"sodium\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*(mg|g)?"])
+    caffeine_match = _first_pattern(text, [r"caffeine\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*(mg|g)?"])
 
     sodium_mg = None
     if sodium_match:
@@ -712,6 +716,15 @@ def _extract_from_text(text: str) -> dict:
             if sodium_val is not None:
                 sodium_mg = sodium_val * (1000 if sodium_unit == "g" else 1)
 
+    caffeine_mg = None
+    if caffeine_match:
+        caffeine_search = re.search(r"caffeine\s*[:\-]?\s*(\d+(?:\.\d+)?)\s*(mg|g)?", text, flags=re.IGNORECASE)
+        if caffeine_search:
+            caffeine_val = _as_float(caffeine_search.group(1))
+            caffeine_unit = (caffeine_search.group(2) or "mg").lower()
+            if caffeine_val is not None:
+                caffeine_mg = caffeine_val * (1000 if caffeine_unit == "g" else 1)
+
     return {
         "serving_size_value": serving_value,
         "serving_size_unit": serving_unit,
@@ -721,6 +734,7 @@ def _extract_from_text(text: str) -> dict:
         "fat_g": _as_float(fat),
         "sugar_g": _as_float(sugar),
         "sodium_mg": sodium_mg,
+        "caffeine_mg": caffeine_mg,
         "confidence": 0.55,
         "source_method": "text_pattern",
     }
@@ -738,6 +752,7 @@ def _merge_nutrition(primary: dict, fallback: dict) -> dict:
         "fat_g",
         "sugar_g",
         "sodium_mg",
+        "caffeine_mg",
         "confidence",
         "source_method",
     ]:
@@ -755,7 +770,7 @@ def _parse_product_with_ai(page_title: str | None, page_text: str, product_url: 
     excerpt = (page_text or "")[:14000]
     prompt = (
         "Extract product nutrition from this page text and return JSON only with keys:\n"
-        "name, serving_size_value, serving_size_unit, calories, protein_g, carbs_g, fat_g, sugar_g, sodium_mg, confidence.\n"
+        "name, serving_size_value, serving_size_unit, calories, protein_g, carbs_g, fat_g, sugar_g, sodium_mg, caffeine_mg, confidence.\n"
         "Use numeric values where possible, null when unknown.\n"
         f"URL: {product_url}\n"
         f"Title: {page_title or ''}\n"
@@ -777,6 +792,7 @@ def _parse_product_with_ai(page_title: str | None, page_text: str, product_url: 
         "fat_g": _as_float(parsed.get("fat_g")),
         "sugar_g": _as_float(parsed.get("sugar_g")),
         "sodium_mg": _as_float(parsed.get("sodium_mg")),
+        "caffeine_mg": _as_float(parsed.get("caffeine_mg")),
         "confidence": _as_float(parsed.get("confidence")) or 0.65,
         "source_method": "ai_text_parse",
     }
@@ -806,7 +822,7 @@ def parse_product_page_url(product_url: str, hint_name: str | None = None) -> di
 
     found_fields = sum(
         merged.get(key) not in (None, "")
-        for key in ["calories", "protein_g", "carbs_g", "fat_g", "sugar_g", "sodium_mg"]
+        for key in ["calories", "protein_g", "carbs_g", "fat_g", "sugar_g", "sodium_mg", "caffeine_mg"]
     )
 
     if found_fields < 2:

@@ -1,5 +1,22 @@
 {% extends "base.html" %}
 {% block content %}
+  <style>
+    .home-quick-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .home-quick-link {
+      text-decoration: none;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 8px 12px;
+      background: #fff;
+      color: var(--text);
+      font-weight: 600;
+    }
+  </style>
+
   <div class="card">
     <h1>CoachMIM</h1>
     <p>
@@ -103,6 +120,14 @@
           <li>{{ note }}</li>
         {% endfor %}
       </ul>
+    </div>
+
+    <div class="card">
+      <h2>More Views</h2>
+      <div class="home-quick-links">
+        <a class="home-quick-link" href="{{ url_for('main.timeline') }}">Timeline</a>
+        <a class="home-quick-link" href="{{ url_for('main.insights') }}">Weekly Insights</a>
+      </div>
     </div>
   {% else %}
     <div class="card">

@@ -19,6 +19,9 @@ class User(db.Model):
     substances = db.relationship("Substance", backref="user", lazy=True)
     favorite_meals = db.relationship("FavoriteMeal", backref="user", lazy=True)
     mim_chat_messages = db.relationship("MIMChatMessage", backref="user", lazy=True)
+    community_posts = db.relationship("CommunityPost", backref="user", lazy=True)
+    community_comments = db.relationship("CommunityComment", backref="user", lazy=True)
+    community_likes = db.relationship("CommunityLike", backref="user", lazy=True)
 
 
 class UserProfile(db.Model):
@@ -284,3 +287,54 @@ class MIMChatMessage(db.Model):
     context = db.Column(db.String(40), nullable=True, default="general")
     encrypted_payload = db.Column(db.LargeBinary, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+
+class CommunityPost(db.Model):
+    __tablename__ = "community_posts"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
+    category = db.Column(db.String(40), nullable=False, index=True)
+    title = db.Column(db.String(180), nullable=False)
+    content = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+    updated_at = db.Column(
+        db.DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
+
+    comments = db.relationship(
+        "CommunityComment",
+        backref="post",
+        lazy=True,
+        cascade="all, delete-orphan",
+    )
+    likes = db.relationship(
+        "CommunityLike",
+        backref="post",
+        lazy=True,
+        cascade="all, delete-orphan",
+    )
+
+
+class CommunityComment(db.Model):
+    __tablename__ = "community_comments"
+
+    id = db.Column(db.Integer, primary_key=True)
+    post_id = db.Column(db.Integer, db.ForeignKey("community_posts.id"), nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
+    content = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+
+class CommunityLike(db.Model):
+    __tablename__ = "community_likes"
+
+    id = db.Column(db.Integer, primary_key=True)
+    post_id = db.Column(db.Integer, db.ForeignKey("community_posts.id"), nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+    __table_args__ = (db.UniqueConstraint("post_id", "user_id", name="uq_community_likes_post_user"),)

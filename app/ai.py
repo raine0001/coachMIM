@@ -14,6 +14,21 @@ from openai import OpenAI
 
 from app.models import DailyCheckIn, Meal
 
+COMMUNITY_BLOCK_KEYWORDS = {
+    "porn": "explicit sexual content",
+    "nsfw": "explicit sexual content",
+    "xxx": "explicit sexual content",
+    "nude": "nudity content",
+    "nudes": "nudity content",
+    "naked": "nudity content",
+    "escort": "escort/sexual services",
+    "onlyfans": "adult-content promotion",
+    "fetish": "explicit sexual content",
+    "pornhub": "explicit sexual content",
+    "xvideos": "explicit sexual content",
+    "redtube": "explicit sexual content",
+}
+
 
 def coach_prompt_missing_fields(user, meals: Sequence[Meal], checkins: Sequence[DailyCheckIn]):
     prompts = []
@@ -1152,3 +1167,39 @@ def parse_product_page_url(product_url: str, hint_name: str | None = None) -> di
         merged["confidence"] = 0.4
 
     return merged
+
+
+def community_content_is_blocked(text: str) -> tuple[bool, str | None]:
+    cleaned = re.sub(r"\s+", " ", str(text or "")).strip()
+    if not cleaned:
+        return (False, None)
+
+    lowered = cleaned.lower()
+    for token, reason in COMMUNITY_BLOCK_KEYWORDS.items():
+        if token in lowered:
+            return (True, f"Blocked for {reason}.")
+
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return (False, None)
+
+    try:
+        client = OpenAI(api_key=api_key)
+        moderation = client.moderations.create(model="omni-moderation-latest", input=cleaned[:4000])
+        if moderation.results and moderation.results[0].flagged:
+            categories = moderation.results[0].categories
+            flagged = []
+            for name in dir(categories):
+                if name.startswith("_"):
+                    continue
+                value = getattr(categories, name, False)
+                if value:
+                    flagged.append(name.replace("_", " "))
+            if flagged:
+                reason = ", ".join(flagged[:3])
+                return (True, f"Blocked by safety moderation ({reason}).")
+            return (True, "Blocked by safety moderation.")
+    except Exception:
+        return (False, None)
+
+    return (False, None)

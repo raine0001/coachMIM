@@ -1,0 +1,216 @@
+{% extends "base.html" %}
+{% block content %}
+  <style>
+    .community-tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .community-tab {
+      text-decoration: none;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 6px 10px;
+      color: var(--text);
+      background: #fff;
+      font-size: 0.92rem;
+    }
+    .community-tab.active {
+      border-color: var(--accent);
+      color: #fff;
+      background: var(--accent);
+    }
+    .community-meta {
+      color: var(--muted);
+      font-size: 0.9rem;
+      margin-bottom: 10px;
+    }
+    .community-body {
+      margin-top: 0;
+      margin-bottom: 12px;
+      white-space: normal;
+      word-break: break-word;
+    }
+    .community-actions {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .community-actions form {
+      margin: 0;
+    }
+    .community-actions .link-btn {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      color: var(--text);
+      padding: 8px 10px;
+      text-decoration: none;
+      font-size: 0.9rem;
+    }
+    .community-actions .muted-chip {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 6px 10px;
+      font-size: 0.86rem;
+      color: var(--muted);
+      background: #fff;
+    }
+    .community-comment-list {
+      border-top: 1px solid var(--line);
+      padding-top: 12px;
+      margin-top: 4px;
+      margin-bottom: 12px;
+    }
+    .community-comment {
+      padding: 8px 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      margin-bottom: 8px;
+      background: #fbfdff;
+    }
+    .community-comment-meta {
+      font-size: 0.82rem;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+    .community-comment p {
+      margin: 0;
+      word-break: break-word;
+    }
+  </style>
+
+  <div class="card">
+    <h1>Community</h1>
+    <p class="muted">
+      Members-only community for recipes, health tips, workouts, stories, and lifestyle ideas.
+      18+ explicit content is blocked.
+    </p>
+  </div>
+
+  <div class="card">
+    <h2>Share A Post</h2>
+    <form method="post" action="{{ url_for('main.community_create_post') }}">
+      <input type="hidden" name="return_category" value="{{ selected_category }}" />
+      <div class="grid">
+        <div>
+          <label for="category">Category</label>
+          <select id="category" name="category" required>
+            {% for option in category_options %}
+              <option value="{{ option.key }}" {% if option.key == new_post_category %}selected{% endif %}>
+                {{ option.label }}
+              </option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label for="title">Title</label>
+          <input id="title" name="title" maxlength="180" placeholder="Short headline" required />
+        </div>
+      </div>
+      <div style="margin-top: 10px;">
+        <label for="content">Post</label>
+        <textarea id="content" name="content" maxlength="4000" placeholder="Share your recipe, routine, or tip..." required></textarea>
+      </div>
+      <div style="margin-top: 10px;">
+        <button type="submit">Publish Post</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Browse</h2>
+    <div class="community-tabs">
+      {% for tab in category_tabs %}
+        <a class="community-tab {% if tab.active %}active{% endif %}" href="{{ url_for('main.community_page', category=tab.key) }}">
+          {{ tab.label }} ({{ tab.count }})
+        </a>
+      {% endfor %}
+    </div>
+  </div>
+
+  {% if posts %}
+    {% for card in posts %}
+      {% set post = card.post %}
+      <article id="post-{{ post.id }}" class="card">
+        <h3 style="margin-bottom: 4px;">{{ post.title }}</h3>
+        <div class="community-meta">
+          {{ card.author_name }} | {{ post.category|capitalize }} | {{ post.created_at.strftime('%b %d, %Y %I:%M %p') }}
+        </div>
+        <p class="community-body">{{ post.content | e | replace('\n', '<br />') | safe }}</p>
+
+        <div class="community-actions">
+          <form method="post" action="{{ url_for('main.community_toggle_like', post_id=post.id) }}">
+            <input type="hidden" name="category" value="{{ selected_category }}" />
+            <button type="submit">
+              {% if card.liked_by_me %}Unlike{% else %}Like{% endif %} ({{ card.like_count }})
+            </button>
+          </form>
+
+          <span class="muted-chip">{{ card.comment_count }} comment{% if card.comment_count != 1 %}s{% endif %}</span>
+
+          <a class="link-btn" href="{{ card.share.x }}" target="_blank" rel="noopener noreferrer">Share X</a>
+          <a class="link-btn" href="{{ card.share.facebook }}" target="_blank" rel="noopener noreferrer">Facebook</a>
+          <a class="link-btn" href="{{ card.share.linkedin }}" target="_blank" rel="noopener noreferrer">LinkedIn</a>
+          <a class="link-btn" href="{{ card.share.reddit }}" target="_blank" rel="noopener noreferrer">Reddit</a>
+          <a class="link-btn" href="{{ card.share.email }}">Email</a>
+          <button type="button" class="link-btn copy-link-btn" data-url="{{ card.share.copy_url }}">Copy Link</button>
+
+          {% if post.user_id == current_user.id %}
+            <form method="post" action="{{ url_for('main.community_delete_post', post_id=post.id) }}">
+              <input type="hidden" name="category" value="{{ selected_category }}" />
+              <button type="submit" style="background: #b42318;">Delete</button>
+            </form>
+          {% endif %}
+        </div>
+
+        <div class="community-comment-list">
+          {% if card.comments %}
+            {% for comment in card.comments %}
+              {% set comment_name = (comment.user.full_name.split(' ')[0] if comment.user and comment.user.full_name else 'Member') %}
+              <div class="community-comment">
+                <div class="community-comment-meta">
+                  {{ comment_name }} | {{ comment.created_at.strftime('%b %d, %Y %I:%M %p') }}
+                </div>
+                <p>{{ comment.content | e | replace('\n', '<br />') | safe }}</p>
+              </div>
+            {% endfor %}
+          {% else %}
+            <p class="muted">No comments yet.</p>
+          {% endif %}
+        </div>
+
+        <form method="post" action="{{ url_for('main.community_add_comment', post_id=post.id) }}">
+          <input type="hidden" name="category" value="{{ selected_category }}" />
+          <label for="comment-{{ post.id }}">Add Comment</label>
+          <textarea id="comment-{{ post.id }}" name="comment" maxlength="1200" placeholder="Reply to this post..." required></textarea>
+          <div style="margin-top: 8px;">
+            <button type="submit">Post Comment</button>
+          </div>
+        </form>
+      </article>
+    {% endfor %}
+  {% else %}
+    <div class="card">
+      <p class="muted">No posts yet in this category. Be the first to share something useful.</p>
+    </div>
+  {% endif %}
+
+  <script>
+    document.querySelectorAll(".copy-link-btn").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        const url = btn.getAttribute("data-url");
+        if (!url) return;
+        navigator.clipboard.writeText(url).then(function () {
+          const original = btn.textContent;
+          btn.textContent = "Copied";
+          setTimeout(function () {
+            btn.textContent = original;
+          }, 1200);
+        });
+      });
+    });
+  </script>
+{% endblock %}

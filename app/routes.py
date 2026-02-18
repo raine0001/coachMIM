@@ -4,6 +4,7 @@ import re
 from datetime import date, datetime, timedelta
 from difflib import SequenceMatcher
 from functools import wraps
+from urllib.parse import quote_plus
 from uuid import uuid4
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError, available_timezones
 
@@ -20,6 +21,7 @@ from flask import (
     url_for,
 )
 from sqlalchemy import case, func, or_
+from sqlalchemy.orm import selectinload
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
@@ -27,6 +29,7 @@ from app import db
 from app.ai import (
     ask_mim_general_chat,
     ai_reflection,
+    community_content_is_blocked,
     coach_prompt_missing_fields,
     parse_day_manager_context_assist,
     parse_meal_sentence,
@@ -35,6 +38,9 @@ from app.ai import (
 )
 from app.food_catalog import import_foods_from_usda, seed_common_foods_if_needed
 from app.models import (
+    CommunityComment,
+    CommunityLike,
+    CommunityPost,
     DailyCheckIn,
     FavoriteMeal,
     FoodItem,
@@ -105,6 +111,18 @@ GENERIC_MEAL_NAMES = {
 SEARCH_STOPWORDS = {"and", "or", "the", "a", "an", "of", "with", "to", "for"}
 DAY_MANAGER_VIEWS = {"checkin", "meal", "drink", "substance", "activity", "medications"}
 DAY_MANAGER_FAVORITE_SCOPE_PREFIX = "__dmv:"
+COMMUNITY_CATEGORY_OPTIONS = [
+    {"key": "health", "label": "Health"},
+    {"key": "fitness", "label": "Fitness"},
+    {"key": "food", "label": "Food"},
+    {"key": "lifestyle", "label": "Lifestyle"},
+    {"key": "supplements", "label": "Supplements"},
+    {"key": "recipes", "label": "Recipes"},
+    {"key": "exercise", "label": "Exercise"},
+    {"key": "stories", "label": "Stories"},
+    {"key": "general", "label": "General"},
+]
+COMMUNITY_CATEGORY_KEYS = {item["key"] for item in COMMUNITY_CATEGORY_OPTIONS}
 MASS_UNIT_TO_GRAMS = {
     "g": 1.0,
     "oz": 28.349523125,
@@ -593,6 +611,44 @@ def normalize_text(value):
     if text.lower() in {"none", "null"}:
         return None
     return text
+
+
+def normalize_community_category(value: str | None) -> str:
+    key = (value or "").strip().lower()
+    return key if key in COMMUNITY_CATEGORY_KEYS else "general"
+
+
+def get_community_filter_or_all(value: str | None) -> str:
+    key = (value or "").strip().lower()
+    if key == "all":
+        return "all"
+    return normalize_community_category(key)
+
+
+def community_display_name(user: User | None) -> str:
+    if user is None:
+        return "Member"
+    raw = (user.full_name or "").strip()
+    if not raw:
+        return "Member"
+    pieces = [part for part in raw.split(" ") if part]
+    if len(pieces) < 2:
+        return pieces[0][:36]
+    return f"{pieces[0][:20]} {pieces[-1][:1].upper()}."
+
+
+def build_community_share_links(post: CommunityPost):
+    post_url = url_for("main.community_page", _external=True) + f"#post-{post.id}"
+    title = quote_plus(post.title or "CoachMIM Community Post")
+    encoded_url = quote_plus(post_url)
+    return {
+        "copy_url": post_url,
+        "x": f"https://x.com/intent/tweet?text={title}&url={encoded_url}",
+        "facebook": f"https://www.facebook.com/sharer/sharer.php?u={encoded_url}",
+        "linkedin": f"https://www.linkedin.com/sharing/share-offsite/?url={encoded_url}",
+        "reddit": f"https://www.reddit.com/submit?url={encoded_url}&title={title}",
+        "email": f"mailto:?subject={title}&body={encoded_url}",
+    }
 
 
 def normalize_search_text(value: str | None) -> str:
@@ -3138,6 +3194,173 @@ def ask_mim_clear():
     db.session.commit()
     flash("MIM chat history cleared.", "success")
     return redirect(url_for("main.ask_mim_page"))
+
+
+@bp.get("/community")
+@login_required
+def community_page():
+    selected_category = get_community_filter_or_all(request.args.get("category"))
+
+    post_query = (
+        CommunityPost.query.options(
+            selectinload(CommunityPost.user),
+            selectinload(CommunityPost.comments).selectinload(CommunityComment.user),
+            selectinload(CommunityPost.likes),
+        )
+        .order_by(CommunityPost.created_at.desc(), CommunityPost.id.desc())
+    )
+    if selected_category != "all":
+        post_query = post_query.filter(CommunityPost.category == selected_category)
+
+    posts = post_query.limit(120).all()
+    post_cards = []
+    for post in posts:
+        ordered_comments = sorted(post.comments, key=lambda row: (row.created_at, row.id))
+        post_cards.append(
+            {
+                "post": post,
+                "author_name": community_display_name(post.user),
+                "like_count": len(post.likes),
+                "comment_count": len(ordered_comments),
+                "liked_by_me": any(like.user_id == g.user.id for like in post.likes),
+                "comments": ordered_comments,
+                "share": build_community_share_links(post),
+            }
+        )
+
+    grouped_counts = dict(
+        db.session.query(CommunityPost.category, func.count(CommunityPost.id))
+        .group_by(CommunityPost.category)
+        .all()
+    )
+    total_count = sum(grouped_counts.values())
+    category_tabs = [
+        {
+            "key": "all",
+            "label": "All",
+            "count": total_count,
+            "active": selected_category == "all",
+        }
+    ]
+    for option in COMMUNITY_CATEGORY_OPTIONS:
+        category_tabs.append(
+            {
+                "key": option["key"],
+                "label": option["label"],
+                "count": grouped_counts.get(option["key"], 0),
+                "active": selected_category == option["key"],
+            }
+        )
+
+    return render_template(
+        "community.html",
+        posts=post_cards,
+        category_tabs=category_tabs,
+        selected_category=selected_category,
+        new_post_category=("general" if selected_category == "all" else selected_category),
+        category_options=COMMUNITY_CATEGORY_OPTIONS,
+    )
+
+
+@bp.post("/community/post")
+@login_required
+def community_create_post():
+    return_category = get_community_filter_or_all(request.form.get("return_category"))
+    category = normalize_community_category(request.form.get("category"))
+    title = normalize_text(request.form.get("title"))
+    content = normalize_text(request.form.get("content"))
+
+    if not title or len(title) < 4:
+        flash("Post title must be at least 4 characters.", "error")
+        return redirect(url_for("main.community_page", category=return_category))
+    if not content or len(content) < 12:
+        flash("Post content must be at least 12 characters.", "error")
+        return redirect(url_for("main.community_page", category=return_category))
+    if len(content) > 4000:
+        flash("Post content is too long. Keep it under 4000 characters.", "error")
+        return redirect(url_for("main.community_page", category=return_category))
+
+    blocked, reason = community_content_is_blocked(f"{title}\n{content}")
+    if blocked:
+        flash(reason or "This content was blocked by community safety rules.", "error")
+        return redirect(url_for("main.community_page", category=return_category))
+
+    post = CommunityPost(
+        user_id=g.user.id,
+        category=category,
+        title=title[:180],
+        content=content,
+    )
+    db.session.add(post)
+    db.session.commit()
+    flash("Community post published.", "success")
+    return redirect(url_for("main.community_page", category=category) + f"#post-{post.id}")
+
+
+@bp.post("/community/<int:post_id>/comment")
+@login_required
+def community_add_comment(post_id: int):
+    return_category = get_community_filter_or_all(request.form.get("category"))
+    post = db.session.get(CommunityPost, post_id)
+    if post is None:
+        flash("That community post no longer exists.", "error")
+        return redirect(url_for("main.community_page", category=return_category))
+
+    content = normalize_text(request.form.get("comment"))
+    if not content or len(content) < 2:
+        flash("Comment cannot be empty.", "error")
+        return redirect(url_for("main.community_page", category=return_category) + f"#post-{post.id}")
+    if len(content) > 1200:
+        flash("Comment is too long. Keep it under 1200 characters.", "error")
+        return redirect(url_for("main.community_page", category=return_category) + f"#post-{post.id}")
+
+    blocked, reason = community_content_is_blocked(content)
+    if blocked:
+        flash(reason or "This comment was blocked by community safety rules.", "error")
+        return redirect(url_for("main.community_page", category=return_category) + f"#post-{post.id}")
+
+    db.session.add(
+        CommunityComment(
+            post_id=post.id,
+            user_id=g.user.id,
+            content=content,
+        )
+    )
+    db.session.commit()
+    return redirect(url_for("main.community_page", category=return_category) + f"#post-{post.id}")
+
+
+@bp.post("/community/<int:post_id>/like")
+@login_required
+def community_toggle_like(post_id: int):
+    return_category = get_community_filter_or_all(request.form.get("category"))
+    post = db.session.get(CommunityPost, post_id)
+    if post is None:
+        flash("That community post no longer exists.", "error")
+        return redirect(url_for("main.community_page", category=return_category))
+
+    existing = CommunityLike.query.filter_by(post_id=post.id, user_id=g.user.id).first()
+    if existing:
+        db.session.delete(existing)
+    else:
+        db.session.add(CommunityLike(post_id=post.id, user_id=g.user.id))
+    db.session.commit()
+    return redirect(url_for("main.community_page", category=return_category) + f"#post-{post.id}")
+
+
+@bp.post("/community/<int:post_id>/delete")
+@login_required
+def community_delete_post(post_id: int):
+    return_category = get_community_filter_or_all(request.form.get("category"))
+    post = CommunityPost.query.filter_by(id=post_id, user_id=g.user.id).first()
+    if post is None:
+        flash("You can only delete your own community posts.", "error")
+        return redirect(url_for("main.community_page", category=return_category))
+
+    db.session.delete(post)
+    db.session.commit()
+    flash("Community post deleted.", "success")
+    return redirect(url_for("main.community_page", category=return_category))
 
 
 @bp.get("/substance")

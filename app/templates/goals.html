@@ -1,0 +1,299 @@
+{% extends "base.html" %}
+{% block content %}
+  <style>
+    .goal-layout {
+      display: grid;
+      gap: 14px;
+    }
+    .goal-tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .goal-tab {
+      text-decoration: none;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 6px 10px;
+      background: #fff;
+      color: var(--text);
+      font-weight: 600;
+      font-size: 0.9rem;
+    }
+    .goal-tab.active {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+    .goal-badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin: 8px 0;
+    }
+    .goal-badge {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 4px 8px;
+      background: #fff;
+      font-size: 0.82rem;
+      color: var(--muted);
+    }
+    .goal-progress-track {
+      width: 100%;
+      height: 10px;
+      background: #e7edf4;
+      border-radius: 999px;
+      overflow: hidden;
+      margin: 8px 0;
+    }
+    .goal-progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #0f766e, #14b8a6);
+      border-radius: inherit;
+    }
+    .goal-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .goal-actions form {
+      margin: 0;
+    }
+    .subtle-btn {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      color: var(--text);
+      padding: 8px 10px;
+      font: inherit;
+      cursor: pointer;
+    }
+    .subtle-btn.warn {
+      color: #b42318;
+      border-color: #f2b8b5;
+      background: #fff7f6;
+    }
+    .draft-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 10px;
+    }
+    .week-plan {
+      margin-top: 8px;
+      margin-bottom: 0;
+      padding-left: 20px;
+    }
+  </style>
+
+  <div class="goal-layout">
+    <div class="card">
+      <h1>My Goals</h1>
+      <p class="muted">Day one starts now. MIM builds realistic plans and keeps execution tight each day.</p>
+      <p class="muted">Tracking day: <strong>{{ local_today.strftime("%A, %B %d, %Y") }}</strong></p>
+    </div>
+
+    {% if profile_nudge %}
+      <div class="card">
+        <h2>MIM Needs One More Profile Input</h2>
+        <p>{{ profile_nudge.prompt }}</p>
+        <p class="muted">{{ profile_nudge.remaining_count }} core field{{ "" if profile_nudge.remaining_count == 1 else "s" }} remaining.</p>
+        <div class="goal-actions">
+          <a class="subtle-btn" href="{{ url_for('main.profile') }}">Open Profile</a>
+          <form method="post" action="{{ url_for('main.profile_nudge_settings') }}">
+            <input type="hidden" name="action" value="later" />
+            <input type="hidden" name="next" value="{{ url_for('main.goals_page') }}" />
+            <button type="submit" class="subtle-btn">Ask Tomorrow</button>
+          </form>
+          <form method="post" action="{{ url_for('main.profile_nudge_settings') }}">
+            <input type="hidden" name="action" value="stop" />
+            <input type="hidden" name="next" value="{{ url_for('main.goals_page') }}" />
+            <button type="submit" class="subtle-btn">Do Not Ask Again</button>
+          </form>
+        </div>
+      </div>
+    {% endif %}
+
+    <div class="card">
+      <h2>Ask MIM To Build A Goal</h2>
+      <form method="post" action="{{ url_for('main.goals_coach') }}">
+        <div class="grid">
+          <div>
+            <label for="goal_prompt">Goal Request</label>
+            <textarea id="goal_prompt" name="goal_prompt" placeholder="Example: I want to lose 10 pounds and stop late-night snacking.">{{ draft.source_prompt if draft else "" }}</textarea>
+          </div>
+          <div>
+            <label for="goal_constraints">Constraints (optional)</label>
+            <textarea id="goal_constraints" name="constraints" placeholder="Example: travel 2 days/week, only 30 minutes available in mornings.">{{ draft.constraints if draft else "" }}</textarea>
+          </div>
+        </div>
+        <div class="goal-actions">
+          <button type="submit">Build Goal Plan</button>
+        </div>
+      </form>
+    </div>
+
+    {% if draft %}
+      <div class="card">
+        <h2>MIM Draft Plan</h2>
+        <p class="muted">{{ draft.coach_message }}</p>
+        <form method="post" action="{{ url_for('main.goals_create') }}">
+          <div class="draft-grid">
+            <div>
+              <label for="draft_title">Goal Title</label>
+              <input id="draft_title" name="title" value="{{ draft.title or '' }}" required />
+            </div>
+            <div>
+              <label for="draft_goal_type">Goal Type</label>
+              <select id="draft_goal_type" name="goal_type">
+                {% for key, label in goal_type_options.items() %}
+                  <option value="{{ key }}" {% if draft.goal_type == key %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div>
+              <label for="draft_start_date">Start Date</label>
+              <input id="draft_start_date" name="start_date" type="date" value="{{ draft.start_date or local_today.isoformat() }}" />
+            </div>
+            <div>
+              <label for="draft_target_date">Target Date</label>
+              <input id="draft_target_date" name="target_date" type="date" value="{{ draft.target_date or '' }}" />
+            </div>
+            <div>
+              <label for="draft_target_value">Target Value</label>
+              <input id="draft_target_value" name="target_value" type="number" step="0.1" value="{{ draft.target_value if draft.target_value is not none else '' }}" />
+            </div>
+            <div>
+              <label for="draft_target_unit">Target Unit</label>
+              <input id="draft_target_unit" name="target_unit" value="{{ draft.target_unit or '' }}" />
+            </div>
+            <div>
+              <label for="draft_commitment">Daily Commitment (minutes)</label>
+              <input id="draft_commitment" name="daily_commitment_minutes" type="number" min="1" max="600" value="{{ draft.daily_commitment_minutes if draft.daily_commitment_minutes is not none else '' }}" />
+            </div>
+            <div>
+              <label for="draft_today_action">Today's Action</label>
+              <input id="draft_today_action" name="today_action" value="{{ draft.today_action or '' }}" />
+            </div>
+          </div>
+          <div class="grid">
+            <div>
+              <label for="draft_constraints">Constraints</label>
+              <textarea id="draft_constraints" name="constraints">{{ draft.constraints or '' }}</textarea>
+            </div>
+            <div>
+              <label for="draft_week_plan">Week Plan (one action per line)</label>
+              <textarea id="draft_week_plan" name="week_plan">{% if draft.week_plan %}{{ draft.week_plan|join('\n') }}{% endif %}</textarea>
+            </div>
+          </div>
+          <label for="draft_coach_message">Coach Message</label>
+          <textarea id="draft_coach_message" name="coach_message">{{ draft.coach_message or '' }}</textarea>
+          <input type="hidden" name="baseline_value" value="{{ draft.baseline_value if draft.baseline_value is not none else '' }}" />
+          <input type="hidden" name="baseline_unit" value="{{ draft.baseline_unit or '' }}" />
+          <div class="goal-actions">
+            <button type="submit">Start This Goal</button>
+          </div>
+        </form>
+        <form method="post" action="{{ url_for('main.goals_clear_draft') }}" style="margin-top: 8px;">
+          <button type="submit" class="subtle-btn">Clear Draft</button>
+        </form>
+      </div>
+    {% endif %}
+
+    <div class="card">
+      <h2>Goal Tracker</h2>
+      <div class="goal-tabs">
+        <a class="goal-tab {% if status_filter == 'all' %}active{% endif %}" href="{{ url_for('main.goals_page', status='all') }}">All ({{ tab_counts["all"] }})</a>
+        <a class="goal-tab {% if status_filter == 'active' %}active{% endif %}" href="{{ url_for('main.goals_page', status='active') }}">Active ({{ tab_counts["active"] }})</a>
+        <a class="goal-tab {% if status_filter == 'paused' %}active{% endif %}" href="{{ url_for('main.goals_page', status='paused') }}">Paused ({{ tab_counts["paused"] }})</a>
+        <a class="goal-tab {% if status_filter == 'completed' %}active{% endif %}" href="{{ url_for('main.goals_page', status='completed') }}">Completed ({{ tab_counts["completed"] }})</a>
+        <a class="goal-tab {% if status_filter == 'archived' %}active{% endif %}" href="{{ url_for('main.goals_page', status='archived') }}">Archived ({{ tab_counts["archived"] }})</a>
+      </div>
+
+      {% if not goal_cards %}
+        <p class="muted">No goals in this view. Use the MIM Goal Builder above to create one.</p>
+      {% endif %}
+
+      {% for card in goal_cards %}
+        <div class="card" style="margin-top: 10px;">
+          <h3 style="margin-bottom: 6px;">{{ card.goal.title }}</h3>
+          <div class="goal-badges">
+            <span class="goal-badge">{{ card.goal_type_label }}</span>
+            <span class="goal-badge">Status: {{ card.goal.status|capitalize }}</span>
+            <span class="goal-badge">Progress: {{ card.progress_pct }}%</span>
+            <span class="goal-badge">Streak: {{ card.streak }} day{{ "" if card.streak == 1 else "s" }}</span>
+            {% if card.is_overdue %}
+              <span class="goal-badge" style="color:#b42318;border-color:#f2b8b5;background:#fff7f6;">Past target date</span>
+            {% endif %}
+          </div>
+          <div class="goal-progress-track">
+            <div class="goal-progress-fill" style="width: {{ card.progress_pct }}%;"></div>
+          </div>
+          <p class="muted" style="margin-top: 0;">{{ card.metric_line }}</p>
+          {% if card.goal.today_action %}
+            <p><strong>Today's action:</strong> {{ card.goal.today_action }}</p>
+          {% endif %}
+          {% if card.goal.week_plan %}
+            <div>
+              <div class="muted">This Week</div>
+              <ul class="week-plan">
+                {% for line in card.goal.week_plan %}
+                  <li>{{ line }}</li>
+                {% endfor %}
+              </ul>
+            </div>
+          {% endif %}
+
+          <form method="post" action="{{ url_for('main.goals_today_action', goal_id=card.goal.id) }}" style="margin-top: 10px;">
+            <div class="grid">
+              <div>
+                <label for="goal_today_action_{{ card.goal.id }}">Update Today's Action</label>
+                <input id="goal_today_action_{{ card.goal.id }}" name="today_action" value="{{ card.goal.today_action or '' }}" />
+              </div>
+              <div>
+                <label for="goal_note_{{ card.goal.id }}">Note (optional)</label>
+                <input id="goal_note_{{ card.goal.id }}" name="note" placeholder="Quick note about how it went..." />
+              </div>
+            </div>
+            <div class="goal-actions">
+              <button type="submit" name="done_today" value="1">Mark Today Done</button>
+              <button type="submit" class="subtle-btn" name="done_today" value="0">Mark Not Done</button>
+            </div>
+          </form>
+
+          <div class="goal-actions">
+            {% if card.goal.status != "active" %}
+              <form method="post" action="{{ url_for('main.goals_update_status', goal_id=card.goal.id) }}">
+                <input type="hidden" name="status" value="active" />
+                <button type="submit" class="subtle-btn">Set Active</button>
+              </form>
+            {% endif %}
+            {% if card.goal.status != "paused" %}
+              <form method="post" action="{{ url_for('main.goals_update_status', goal_id=card.goal.id) }}">
+                <input type="hidden" name="status" value="paused" />
+                <button type="submit" class="subtle-btn">Pause</button>
+              </form>
+            {% endif %}
+            {% if card.goal.status != "completed" %}
+              <form method="post" action="{{ url_for('main.goals_update_status', goal_id=card.goal.id) }}">
+                <input type="hidden" name="status" value="completed" />
+                <button type="submit" class="subtle-btn">Complete</button>
+              </form>
+            {% endif %}
+            {% if card.goal.status != "archived" %}
+              <form method="post" action="{{ url_for('main.goals_update_status', goal_id=card.goal.id) }}">
+                <input type="hidden" name="status" value="archived" />
+                <button type="submit" class="subtle-btn">Archive</button>
+              </form>
+            {% endif %}
+            <form method="post" action="{{ url_for('main.goals_delete', goal_id=card.goal.id) }}">
+              <button type="submit" class="subtle-btn warn">Delete</button>
+            </form>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+{% endblock %}

@@ -212,6 +212,16 @@
               </span>
               <span class="nav-icon-label">Check-In</span>
             </a>
+            <a class="nav-icon-link" href="{{ url_for('main.goals_page') }}" aria-label="My Goals">
+              <span class="nav-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <path d="M12 3v18"></path>
+                  <path d="M4 12h16"></path>
+                  <circle cx="12" cy="12" r="8"></circle>
+                </svg>
+              </span>
+              <span class="nav-icon-label">Goals</span>
+            </a>
             <a class="nav-icon-link" href="{{ url_for('main.ask_mim_page') }}" aria-label="MIM">
               <span class="nav-icon" aria-hidden="true">
                 <img src="{{ url_for('static', filename='mim-logo.png') }}" alt="MIM" />

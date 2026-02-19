@@ -603,20 +603,20 @@
         <h2>Overall Day Snapshot</h2>
         <div class="grid">
           <div>
-            <label for="energy">Overall Energy (1-10)</label>
-            <input id="energy" name="energy" type="number" min="1" max="10" value="{{ record.energy if record else '' }}" />
+            <label for="energy">Overall Energy</label>
+            {{ rating_select("energy", "energy", record.energy if record else none, energy_scale, "Select overall energy level") }}
           </div>
           <div>
-            <label for="focus">Overall Focus (1-10)</label>
-            <input id="focus" name="focus" type="number" min="1" max="10" value="{{ record.focus if record else '' }}" />
+            <label for="focus">Overall Focus Level</label>
+            {{ rating_select("focus", "focus", record.focus if record else none, focus_scale, "Select overall focus level") }}
           </div>
           <div>
-            <label for="mood">Overall Mood (1-10)</label>
-            <input id="mood" name="mood" type="number" min="1" max="10" value="{{ record.mood if record else '' }}" />
+            <label for="mood">Overall Mood Level</label>
+            {{ rating_select("mood", "mood", record.mood if record else none, mood_scale, "Select overall mood level") }}
           </div>
           <div>
-            <label for="stress">Overall Stress (1-10)</label>
-            <input id="stress" name="stress" type="number" min="1" max="10" value="{{ record.stress if record else '' }}" />
+            <label for="stress">Overall Stress Level</label>
+            {{ rating_select("stress", "stress", record.stress if record else none, stress_scale, "Select overall stress level") }}
           </div>
           <div>
             <label for="anxiety">Anxiety (1-10)</label>

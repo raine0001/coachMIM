@@ -52,6 +52,8 @@ from app.models import (
     SiteSetting,
     Substance,
     User,
+    UserGoal,
+    UserGoalAction,
     UserProfile,
 )
 from app.security import encrypt_model_fields, hydrate_model_fields
@@ -115,6 +117,29 @@ GENERIC_MEAL_NAMES = {
 SEARCH_STOPWORDS = {"and", "or", "the", "a", "an", "of", "with", "to", "for"}
 DAY_MANAGER_VIEWS = {"checkin", "meal", "drink", "substance", "activity", "medications"}
 DAY_MANAGER_FAVORITE_SCOPE_PREFIX = "__dmv:"
+GOAL_DRAFT_SESSION_KEY = "goal_coach_draft"
+GOAL_STATUS_OPTIONS = {"active", "paused", "completed", "archived"}
+GOAL_TYPE_DEFAULT_LABELS = {
+    "weight_loss": "Weight loss",
+    "sleep": "Sleep better",
+    "alcohol": "Reduce alcohol",
+    "activity": "Be more active",
+    "focus": "Improve focus",
+    "stress": "Lower stress",
+    "skill": "Learn a skill",
+    "custom": "Custom goal",
+}
+PROFILE_MISSING_PROMPTS = {
+    "age": "How old are you? Age helps me calibrate realistic daily load and recovery.",
+    "biological_sex": "What is your biological sex? It helps with sleep and metabolism pattern interpretation.",
+    "time_zone": "What time zone are you in? I need it to keep daily tracking windows accurate.",
+    "height_cm": "What is your current height? It helps anchor body-composition and progress trends.",
+    "weight_kg": "What is your current weight? This gives us a baseline for energy and weight-related goals.",
+    "primary_goal": "What is your primary goal right now? Keep it specific so I can coach better.",
+    "fitness_level": "What best describes your fitness level today: sedentary, light, moderate, or intense?",
+    "diet_style": "What is your current diet style (for example: omnivore, low-carb, vegetarian)?",
+    "medical_conditions": "Any known medical conditions I should factor into coaching guidance?",
+}
 ADMIN_SESSION_KEY = "admin_user_id"
 ADMIN_BOOTSTRAP_USERNAME = os.getenv("ADMIN_BOOTSTRAP_USERNAME", "testpilot")
 ADMIN_BOOTSTRAP_PASSWORD = os.getenv("ADMIN_BOOTSTRAP_PASSWORD", "1234")
@@ -1595,6 +1620,559 @@ def build_home_weekly_context(user: User, profile: UserProfile):
     }
 
 
+def build_profile_nudge_context(profile: UserProfile | None, *, local_today: date):
+    if profile is None:
+        return None
+
+    missing = profile.missing_required_fields()
+    if not missing:
+        return None
+    if profile.profile_nudge_opt_out:
+        return None
+    if profile.profile_nudge_snooze_until and profile.profile_nudge_snooze_until >= local_today:
+        return None
+
+    field = missing[0]
+    prompt = PROFILE_MISSING_PROMPTS.get(
+        field,
+        "I need one more profile data point to coach you better. Can you fill it in now?",
+    )
+    return {
+        "field": field,
+        "prompt": prompt,
+        "remaining_count": len(missing),
+    }
+
+
+def infer_goal_type_from_text(raw_text: str | None):
+    text = (raw_text or "").strip().lower()
+    if not text:
+        return "custom"
+    if any(token in text for token in ["lose", "weight", "pound", "lb", "fat loss", "body fat"]):
+        return "weight_loss"
+    if any(token in text for token in ["sleep", "insomnia", "rested", "restorative"]):
+        return "sleep"
+    if any(token in text for token in ["alcohol", "drink less", "sobriety", "sober", "beer", "wine"]):
+        return "alcohol"
+    if any(token in text for token in ["workout", "exercise", "activity", "steps", "move more", "gym"]):
+        return "activity"
+    if any(token in text for token in ["focus", "productivity", "deep work", "concentrate"]):
+        return "focus"
+    if any(token in text for token in ["stress", "anxiety", "calm", "overwhelm"]):
+        return "stress"
+    if any(token in text for token in ["skill", "learn", "practice", "study", "language", "coding"]):
+        return "skill"
+    return "custom"
+
+
+def infer_goal_target_from_text(goal_type: str, raw_text: str | None):
+    text = (raw_text or "").strip().lower()
+    if not text:
+        return (None, None)
+
+    number_match = re.search(r"(\d+(?:\.\d+)?)", text)
+    parsed_number = float(number_match.group(1)) if number_match else None
+
+    if goal_type == "weight_loss":
+        if parsed_number is not None:
+            return (round(parsed_number, 2), "lb" if "kg" not in text else "kg")
+        return (10.0, "lb")
+    if goal_type == "sleep":
+        if parsed_number is not None:
+            return (round(parsed_number, 1), "hours")
+        return (7.5, "hours")
+    if goal_type == "alcohol":
+        if "no alcohol" in text or "stop drinking" in text or "quit drinking" in text or "sober" in text:
+            return (0.0, "drinks/week")
+        if parsed_number is not None:
+            return (round(parsed_number, 1), "drinks/week")
+        return (2.0, "drinks/week")
+    if goal_type == "activity":
+        if parsed_number is not None:
+            if "min" in text:
+                return (round(parsed_number, 1), "minutes/day")
+            return (round(parsed_number, 1), "sessions/week")
+        return (4.0, "sessions/week")
+    if goal_type == "focus":
+        if parsed_number is not None:
+            return (round(parsed_number, 1), "focus score")
+        return (7.0, "focus score")
+    if goal_type == "stress":
+        if parsed_number is not None:
+            return (round(parsed_number, 1), "stress score")
+        return (4.0, "stress score")
+    if goal_type == "skill":
+        if parsed_number is not None:
+            return (round(parsed_number, 1), "minutes/day")
+        return (20.0, "minutes/day")
+    return (None, None)
+
+
+def infer_goal_duration_days(goal_type: str, target_value: float | None):
+    defaults = {
+        "weight_loss": 49,
+        "sleep": 21,
+        "alcohol": 30,
+        "activity": 28,
+        "focus": 28,
+        "stress": 28,
+        "skill": 30,
+        "custom": 30,
+    }
+    if goal_type == "weight_loss" and target_value is not None and target_value > 0:
+        return max(14, min(180, int(round(target_value * 5))))
+    return defaults.get(goal_type, 30)
+
+
+def goal_type_label(goal_type: str):
+    return GOAL_TYPE_DEFAULT_LABELS.get(goal_type, GOAL_TYPE_DEFAULT_LABELS["custom"])
+
+
+def build_goal_week_plan(goal_type: str):
+    plans = {
+        "weight_loss": [
+            "Set protein anchor for first two meals each day.",
+            "Walk at least 20 minutes after one meal daily.",
+            "Log dinner and evening snack before bedtime.",
+            "Hold one high-risk trigger meal to a pre-planned option.",
+        ],
+        "sleep": [
+            "Set one fixed wake time for all 7 days.",
+            "No caffeine in the final 8 hours before bed.",
+            "Log sleep quality every morning before 11am.",
+            "Cut screens in the final 45 minutes before bed.",
+        ],
+        "alcohol": [
+            "Set alcohol cap for the week and pre-log it.",
+            "Swap first evening drink with water or tea on 3 days.",
+            "Track anxiety + sleep quality every morning.",
+            "Identify one social trigger and pre-plan response.",
+        ],
+        "activity": [
+            "Schedule movement windows directly on calendar.",
+            "Minimum 20 minutes movement on low-energy days.",
+            "Log workout timing + intensity right after session.",
+            "Use one recovery day with mobility + walk.",
+        ],
+        "focus": [
+            "Protect one uninterrupted deep-work block daily.",
+            "Delay message/email checking for first work block.",
+            "Track midday focus and stress every day this week.",
+            "Review late-day energy dips and adjust lunch composition.",
+        ],
+        "stress": [
+            "One 10-minute decompression block daily.",
+            "Reduce late caffeine and log stress after 5pm.",
+            "Identify top stress trigger and one response plan.",
+            "Protect one low-stimulation evening this week.",
+        ],
+        "skill": [
+            "Define one micro-skill target for this week.",
+            "Daily focused practice block at consistent time.",
+            "Log what was practiced and friction points.",
+            "One weekly review: what improved, what to adjust.",
+        ],
+        "custom": [
+            "Define one clear daily action that fits in under 20 minutes.",
+            "Log execution every day for this week.",
+            "Review blockers after 3 days and simplify plan.",
+            "Keep scope tight: consistency first, intensity second.",
+        ],
+    }
+    return plans.get(goal_type, plans["custom"])
+
+
+def build_goal_draft(user: User, profile: UserProfile | None, prompt_text: str, constraints: str | None = None):
+    raw_prompt = normalize_text(prompt_text) or "Build a consistency goal."
+    goal_type = infer_goal_type_from_text(raw_prompt)
+    target_value, target_unit = infer_goal_target_from_text(goal_type, raw_prompt)
+    duration_days = infer_goal_duration_days(goal_type, target_value)
+    start_date = get_user_local_today(user)
+    target_date = start_date + timedelta(days=max(duration_days - 1, 0))
+
+    first_name = (normalize_text(user.full_name) or "there").split(" ", 1)[0]
+    title = raw_prompt[:180]
+    daily_commitment = {
+        "weight_loss": 25,
+        "sleep": 20,
+        "alcohol": 15,
+        "activity": 30,
+        "focus": 45,
+        "stress": 20,
+        "skill": 20,
+    }.get(goal_type, 20)
+
+    today_action = {
+        "weight_loss": "Log all meals today and add one 20-minute walk.",
+        "sleep": "Set tonight's lights-out time and avoid caffeine after mid-afternoon.",
+        "alcohol": "Pre-commit to your drink cap and log triggers if cravings show up.",
+        "activity": "Complete one movement block before evening.",
+        "focus": "Run one focused work block with phone notifications off.",
+        "stress": "Take one 10-minute reset block and log stress before bed.",
+        "skill": "Complete one uninterrupted practice block.",
+        "custom": "Take one action today that moves this goal forward.",
+    }.get(goal_type, "Take one action today that moves this goal forward.")
+
+    coach_message = (
+        f"{first_name}, day one starts now. "
+        f"We'll run this as a {duration_days}-day sprint and adjust weekly based on your data. "
+        "Consistency is the win condition."
+    )
+    if constraints:
+        coach_message += f" Constraints noted: {constraints[:180]}."
+
+    goal_label = goal_type_label(goal_type)
+    if profile and normalize_text(profile.primary_goal):
+        coach_message += f" This aligns with your profile goal: {normalize_text(profile.primary_goal)}."
+
+    return {
+        "title": title,
+        "goal_type": goal_type,
+        "goal_type_label": goal_label,
+        "start_date": start_date.isoformat(),
+        "target_date": target_date.isoformat(),
+        "target_value": target_value,
+        "target_unit": target_unit,
+        "constraints": normalize_text(constraints),
+        "daily_commitment_minutes": daily_commitment,
+        "coach_message": coach_message,
+        "today_action": today_action,
+        "week_plan": build_goal_week_plan(goal_type),
+        "source_prompt": raw_prompt,
+    }
+
+
+def get_goal_baseline_value(user: User, profile: UserProfile | None, goal_type: str):
+    if goal_type != "weight_loss":
+        return (None, None)
+
+    checkins = (
+        DailyCheckIn.query.filter(
+            DailyCheckIn.user_id == user.id,
+            DailyCheckIn.morning_weight_kg.isnot(None),
+        )
+        .order_by(DailyCheckIn.day.desc())
+        .limit(45)
+        .all()
+    )
+    for row in checkins:
+        hydrate_checkin_secure_fields(user, row)
+
+    unit_system = "imperial"
+    if profile and profile.unit_system in {"imperial", "metric"}:
+        unit_system = profile.unit_system
+
+    if checkins:
+        latest = checkins[0].morning_weight_kg
+        if latest is not None:
+            if unit_system == "imperial":
+                return (round(kg_to_lb(latest), 2), "lb")
+            return (round(float(latest), 2), "kg")
+
+    if profile and profile.weight_kg is not None:
+        if unit_system == "imperial":
+            return (round(kg_to_lb(profile.weight_kg), 2), "lb")
+        return (round(float(profile.weight_kg), 2), "kg")
+
+    return (None, "lb" if unit_system == "imperial" else "kg")
+
+
+def goal_action_streak(goal_id: int, user_id: int, *, local_today: date):
+    rows = (
+        UserGoalAction.query.filter(
+            UserGoalAction.goal_id == goal_id,
+            UserGoalAction.user_id == user_id,
+            UserGoalAction.day <= local_today,
+            UserGoalAction.day >= local_today - timedelta(days=120),
+            UserGoalAction.is_done.is_(True),
+        )
+        .order_by(UserGoalAction.day.desc())
+        .all()
+    )
+    done_days = {row.day for row in rows}
+    streak = 0
+    cursor = local_today
+    while cursor in done_days:
+        streak += 1
+        cursor -= timedelta(days=1)
+    return streak
+
+
+def build_goal_progress_card(user: User, goal: UserGoal, *, local_today: date):
+    elapsed_days = max(1, (local_today - goal.start_date).days + 1)
+    target_days = None
+    due_pct = None
+    if goal.target_date:
+        target_days = max(1, (goal.target_date - goal.start_date).days + 1)
+        due_pct = round(min(100.0, (elapsed_days / target_days) * 100.0), 1)
+
+    done_days = (
+        db.session.query(func.count(UserGoalAction.id))
+        .filter(
+            UserGoalAction.goal_id == goal.id,
+            UserGoalAction.user_id == user.id,
+            UserGoalAction.day >= goal.start_date,
+            UserGoalAction.day <= local_today,
+            UserGoalAction.is_done.is_(True),
+        )
+        .scalar()
+        or 0
+    )
+    consistency_pct = round((done_days / max(elapsed_days, 1)) * 100, 1)
+
+    today_action_row = UserGoalAction.query.filter_by(
+        goal_id=goal.id,
+        user_id=user.id,
+        day=local_today,
+    ).first()
+    today_done = bool(today_action_row and today_action_row.is_done)
+    streak = goal_action_streak(goal.id, user.id, local_today=local_today)
+
+    metric_pct = consistency_pct
+    metric_line = f"Consistency {consistency_pct}% ({done_days}/{elapsed_days} days)"
+
+    if goal.goal_type == "weight_loss":
+        checkins = (
+            DailyCheckIn.query.filter(
+                DailyCheckIn.user_id == user.id,
+                DailyCheckIn.day >= goal.start_date,
+                DailyCheckIn.day <= local_today,
+                DailyCheckIn.morning_weight_kg.isnot(None),
+            )
+            .order_by(DailyCheckIn.day.asc())
+            .all()
+        )
+        for row in checkins:
+            hydrate_checkin_secure_fields(user, row)
+        if checkins:
+            start_weight_kg = checkins[0].morning_weight_kg
+            current_weight_kg = checkins[-1].morning_weight_kg
+            if start_weight_kg is not None and current_weight_kg is not None:
+                use_lb = (goal.target_unit or "").lower() != "kg"
+                start_weight = kg_to_lb(start_weight_kg) if use_lb else float(start_weight_kg)
+                current_weight = kg_to_lb(current_weight_kg) if use_lb else float(current_weight_kg)
+                lost_value = max(0.0, start_weight - current_weight)
+                target_value = goal.target_value or 0.0
+                if target_value > 0:
+                    metric_pct = round(min(100.0, (lost_value / target_value) * 100.0), 1)
+                    metric_line = f"Weight change {lost_value:.1f}/{target_value:.1f} {goal.target_unit or ('lb' if use_lb else 'kg')}"
+                else:
+                    metric_line = f"Weight change {lost_value:.1f} {goal.target_unit or ('lb' if use_lb else 'kg')}"
+
+    elif goal.goal_type == "sleep":
+        checkins = (
+            DailyCheckIn.query.filter(
+                DailyCheckIn.user_id == user.id,
+                DailyCheckIn.day >= local_today - timedelta(days=6),
+                DailyCheckIn.day <= local_today,
+            )
+            .order_by(DailyCheckIn.day.asc())
+            .all()
+        )
+        for row in checkins:
+            hydrate_checkin_secure_fields(user, row)
+        values = [row.sleep_hours for row in checkins if row.sleep_hours is not None]
+        if values:
+            avg_sleep = sum(float(v) for v in values) / len(values)
+            target_hours = goal.target_value or 7.5
+            metric_pct = round(min(100.0, (avg_sleep / target_hours) * 100.0), 1)
+            metric_line = f"7-day sleep avg {avg_sleep:.1f}h (target {target_hours:.1f}h)"
+
+    elif goal.goal_type == "alcohol":
+        checkins = (
+            DailyCheckIn.query.filter(
+                DailyCheckIn.user_id == user.id,
+                DailyCheckIn.day >= local_today - timedelta(days=6),
+                DailyCheckIn.day <= local_today,
+            )
+            .order_by(DailyCheckIn.day.asc())
+            .all()
+        )
+        for row in checkins:
+            hydrate_checkin_secure_fields(user, row)
+        total_drinks = sum(float(row.alcohol_drinks or 0.0) for row in checkins)
+        target_week = goal.target_value if goal.target_value is not None else 0.0
+        if target_week <= 0:
+            metric_pct = 100.0 if total_drinks <= 0.01 else max(0.0, 100.0 - (total_drinks * 18.0))
+        else:
+            metric_pct = 100.0 if total_drinks <= target_week else max(
+                0.0,
+                100.0 - (((total_drinks - target_week) / max(target_week, 1.0)) * 100.0),
+            )
+        metric_pct = round(metric_pct, 1)
+        metric_line = f"7-day drinks {total_drinks:.1f} (target <= {target_week:.1f})"
+
+    elif goal.goal_type == "activity":
+        checkins = (
+            DailyCheckIn.query.filter(
+                DailyCheckIn.user_id == user.id,
+                DailyCheckIn.day >= local_today - timedelta(days=6),
+                DailyCheckIn.day <= local_today,
+            )
+            .order_by(DailyCheckIn.day.asc())
+            .all()
+        )
+        for row in checkins:
+            hydrate_checkin_secure_fields(user, row)
+        sessions = 0
+        for row in checkins:
+            if normalize_text(row.workout_timing) or row.workout_intensity is not None:
+                sessions += 1
+        target_sessions = goal.target_value or 4.0
+        metric_pct = round(min(100.0, (sessions / max(target_sessions, 1.0)) * 100.0), 1)
+        metric_line = f"7-day sessions {sessions} (target {target_sessions:.0f})"
+
+    elif goal.goal_type in {"focus", "stress"}:
+        checkins = (
+            DailyCheckIn.query.filter(
+                DailyCheckIn.user_id == user.id,
+                DailyCheckIn.day >= local_today - timedelta(days=6),
+                DailyCheckIn.day <= local_today,
+            )
+            .order_by(DailyCheckIn.day.asc())
+            .all()
+        )
+        for row in checkins:
+            hydrate_checkin_secure_fields(user, row)
+        if goal.goal_type == "focus":
+            values = [
+                checkin_metric_value(row, "focus", ["morning_focus", "midday_focus", "evening_focus"])
+                for row in checkins
+            ]
+            values = [value for value in values if value is not None]
+            if values:
+                avg_focus = sum(values) / len(values)
+                target_focus = goal.target_value or 7.0
+                metric_pct = round(min(100.0, (avg_focus / target_focus) * 100.0), 1)
+                metric_line = f"7-day focus avg {avg_focus:.1f} (target {target_focus:.1f})"
+        else:
+            values = [
+                checkin_metric_value(row, "stress", ["morning_stress", "midday_stress", "evening_stress"])
+                for row in checkins
+            ]
+            values = [value for value in values if value is not None]
+            if values:
+                avg_stress = sum(values) / len(values)
+                target_stress = goal.target_value if goal.target_value is not None else 4.0
+                metric_pct = 100.0 if avg_stress <= target_stress else max(
+                    0.0,
+                    100.0 - (((avg_stress - target_stress) / max(target_stress, 1.0)) * 100.0),
+                )
+                metric_pct = round(metric_pct, 1)
+                metric_line = f"7-day stress avg {avg_stress:.1f} (target <= {target_stress:.1f})"
+
+    progress_pct = round((metric_pct * 0.7) + (consistency_pct * 0.3), 1)
+
+    return {
+        "goal": goal,
+        "goal_type_label": goal_type_label(goal.goal_type),
+        "elapsed_days": elapsed_days,
+        "target_days": target_days,
+        "due_pct": due_pct,
+        "done_days": int(done_days),
+        "today_done": today_done,
+        "streak": streak,
+        "consistency_pct": consistency_pct,
+        "metric_pct": metric_pct,
+        "metric_line": metric_line,
+        "progress_pct": progress_pct,
+        "is_overdue": bool(goal.target_date and goal.target_date < local_today and goal.status == "active"),
+    }
+
+
+def build_home_goal_context(user: User, *, local_today: date):
+    goals = (
+        UserGoal.query.filter(UserGoal.user_id == user.id, UserGoal.status.in_(["active", "paused"]))
+        .order_by(
+            case((UserGoal.status == "active", 0), else_=1),
+            UserGoal.target_date.asc().nulls_last(),
+            UserGoal.created_at.asc(),
+        )
+        .limit(8)
+        .all()
+    )
+    goal_cards = [build_goal_progress_card(user, goal, local_today=local_today) for goal in goals]
+    active_cards = [card for card in goal_cards if card["goal"].status == "active"]
+
+    today_done_count = (
+        db.session.query(func.count(UserGoalAction.id))
+        .join(UserGoal, UserGoalAction.goal_id == UserGoal.id)
+        .filter(
+            UserGoal.user_id == user.id,
+            UserGoal.status == "active",
+            UserGoalAction.user_id == user.id,
+            UserGoalAction.day == local_today,
+            UserGoalAction.is_done.is_(True),
+        )
+        .scalar()
+        or 0
+    )
+
+    mim_notes = []
+    if not active_cards:
+        mim_notes.append("No active goals yet. Create one goal and start day one now.")
+    else:
+        pending_cards = [card for card in active_cards if not card["today_done"]]
+        if pending_cards:
+            first_pending = pending_cards[0]
+            today_action = normalize_text(first_pending["goal"].today_action) or "Take your first goal action today."
+            mim_notes.append(f"Today's priority: {today_action}")
+        if all(card["today_done"] for card in active_cards):
+            mim_notes.append("All active goals are checked off for today. Keep this streak going tomorrow.")
+
+        lagging_cards = [card for card in active_cards if card["progress_pct"] < 40]
+        if lagging_cards:
+            label = normalize_text(lagging_cards[0]["goal"].title) or lagging_cards[0]["goal_type_label"]
+            mim_notes.append(f"'{label}' is lagging. Shrink today's action to one easy win and complete it now.")
+
+        overdue_cards = [card for card in active_cards if card["is_overdue"]]
+        if overdue_cards:
+            mim_notes.append("At least one goal is past target date. Extend timeline and keep moving forward.")
+
+    return {
+        "goal_cards": goal_cards,
+        "active_count": len(active_cards),
+        "today_done_count": int(today_done_count),
+        "notes": mim_notes,
+        "top_goal": active_cards[0] if active_cards else (goal_cards[0] if goal_cards else None),
+    }
+
+
+def serialize_goal_draft_for_session(draft: dict):
+    if not isinstance(draft, dict):
+        return {}
+    payload = {}
+    for key in [
+        "title",
+        "goal_type",
+        "goal_type_label",
+        "start_date",
+        "target_date",
+        "target_value",
+        "target_unit",
+        "constraints",
+        "daily_commitment_minutes",
+        "coach_message",
+        "today_action",
+        "source_prompt",
+    ]:
+        payload[key] = draft.get(key)
+    week_plan = draft.get("week_plan")
+    payload["week_plan"] = [str(item).strip() for item in (week_plan or []) if str(item).strip()][:7]
+    return payload
+
+
+def load_goal_draft_from_session():
+    raw = session.get(GOAL_DRAFT_SESSION_KEY)
+    if not isinstance(raw, dict):
+        return None
+    return serialize_goal_draft_for_session(raw)
+
+
+def remove_goal_draft_from_session():
+    session.pop(GOAL_DRAFT_SESSION_KEY, None)
+
+
 def build_profile_template_context(profile):
     unit_system = profile.unit_system or "imperial"
     height_ft, height_in = cm_to_feet_inches(profile.height_cm)
@@ -1691,6 +2269,8 @@ def hard_delete_user_account(user_id: int):
     FavoriteMeal.query.filter_by(user_id=user_id).delete(synchronize_session=False)
     Meal.query.filter_by(user_id=user_id).delete(synchronize_session=False)
     Substance.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    UserGoalAction.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    UserGoal.query.filter_by(user_id=user_id).delete(synchronize_session=False)
     DailyCheckIn.query.filter_by(user_id=user_id).delete(synchronize_session=False)
     UserProfile.query.filter_by(user_id=user_id).delete(synchronize_session=False)
     User.query.filter_by(id=user_id).delete(synchronize_session=False)
@@ -1812,18 +2392,24 @@ def index():
         )
 
     profile = get_or_create_profile(g.user)
+    local_today = get_user_local_today(g.user)
     checkin_count = DailyCheckIn.query.filter_by(user_id=g.user.id).count()
     meal_count = Meal.query.filter_by(user_id=g.user.id).count()
     substance_count = Substance.query.filter_by(user_id=g.user.id).count()
     weekly = build_home_weekly_context(g.user, profile)
+    profile_nudge = build_profile_nudge_context(profile, local_today=local_today)
+    goals = build_home_goal_context(g.user, local_today=local_today)
     return render_template(
         "index.html",
         is_authenticated=True,
+        local_today=local_today,
         checkin_count=checkin_count,
         meal_count=meal_count,
         substance_count=substance_count,
         missing_required=profile.missing_required_fields(),
         weekly=weekly,
+        profile_nudge=profile_nudge,
+        goals=goals,
         public_content=public_content,
     )
 
@@ -2541,6 +3127,290 @@ def profile():
             return redirect(url_for("main.index"))
 
     return render_template("profile.html", **build_profile_template_context(profile))
+
+
+@bp.post("/profile-nudge-settings")
+@login_required
+def profile_nudge_settings():
+    profile = get_or_create_profile(g.user)
+    local_today = get_user_local_today(g.user)
+    action = (request.form.get("action") or "").strip().lower()
+
+    if action == "stop":
+        profile.profile_nudge_opt_out = True
+        profile.profile_nudge_snooze_until = None
+        flash("MIM profile prompts turned off. You can re-enable anytime.", "success")
+    elif action == "later":
+        profile.profile_nudge_opt_out = False
+        profile.profile_nudge_snooze_until = local_today + timedelta(days=1)
+        flash("Okay. MIM will ask again tomorrow.", "success")
+    elif action == "resume":
+        profile.profile_nudge_opt_out = False
+        profile.profile_nudge_snooze_until = None
+        flash("Profile prompts re-enabled.", "success")
+    else:
+        flash("Unknown profile prompt setting.", "error")
+
+    db.session.add(profile)
+    db.session.commit()
+
+    next_url = request.form.get("next") or url_for("main.index")
+    if not str(next_url).startswith("/"):
+        next_url = url_for("main.index")
+    return redirect(next_url)
+
+
+@bp.get("/goals")
+@login_required
+def goals_page():
+    local_today = get_user_local_today(g.user)
+    profile = get_or_create_profile(g.user)
+    status_filter = (request.args.get("status") or "all").strip().lower()
+    allowed_filters = {"all", "active", "paused", "completed", "archived"}
+    if status_filter not in allowed_filters:
+        status_filter = "all"
+
+    query = UserGoal.query.filter_by(user_id=g.user.id)
+    if status_filter != "all":
+        query = query.filter_by(status=status_filter)
+
+    goals = (
+        query.order_by(
+            case((UserGoal.status == "active", 0), else_=1),
+            UserGoal.target_date.asc().nulls_last(),
+            UserGoal.created_at.desc(),
+        )
+        .all()
+    )
+    goal_cards = [build_goal_progress_card(g.user, goal, local_today=local_today) for goal in goals]
+
+    status_counts = dict(
+        db.session.query(UserGoal.status, func.count(UserGoal.id))
+        .filter(UserGoal.user_id == g.user.id)
+        .group_by(UserGoal.status)
+        .all()
+    )
+    tab_counts = {
+        "all": sum(status_counts.values()),
+        "active": status_counts.get("active", 0),
+        "paused": status_counts.get("paused", 0),
+        "completed": status_counts.get("completed", 0),
+        "archived": status_counts.get("archived", 0),
+    }
+
+    draft = load_goal_draft_from_session()
+    profile_nudge = build_profile_nudge_context(profile, local_today=local_today)
+
+    return render_template(
+        "goals.html",
+        local_today=local_today,
+        profile_nudge=profile_nudge,
+        status_filter=status_filter,
+        tab_counts=tab_counts,
+        goal_cards=goal_cards,
+        draft=draft,
+        goal_type_options=GOAL_TYPE_DEFAULT_LABELS,
+    )
+
+
+@bp.post("/goals/coach")
+@login_required
+def goals_coach():
+    profile = get_or_create_profile(g.user)
+    prompt_text = normalize_text(request.form.get("goal_prompt"))
+    constraints = normalize_text(request.form.get("constraints"))
+    if not prompt_text:
+        flash("Tell MIM the goal you want to work on first.", "error")
+        return redirect(url_for("main.goals_page"))
+
+    draft = build_goal_draft(g.user, profile, prompt_text, constraints)
+    baseline_value, baseline_unit = get_goal_baseline_value(g.user, profile, draft["goal_type"])
+    draft["baseline_value"] = baseline_value
+    draft["baseline_unit"] = baseline_unit
+    if draft.get("goal_type") == "weight_loss" and not draft.get("target_unit") and baseline_unit:
+        draft["target_unit"] = baseline_unit
+
+    session[GOAL_DRAFT_SESSION_KEY] = serialize_goal_draft_for_session(draft)
+    flash("MIM drafted your goal plan. Review it and press Start This Goal.", "success")
+    return redirect(url_for("main.goals_page"))
+
+
+@bp.post("/goals/draft/clear")
+@login_required
+def goals_clear_draft():
+    remove_goal_draft_from_session()
+    flash("Goal draft cleared.", "success")
+    return redirect(url_for("main.goals_page"))
+
+
+@bp.post("/goals/create")
+@login_required
+def goals_create():
+    profile = get_or_create_profile(g.user)
+    local_today = get_user_local_today(g.user)
+    draft = load_goal_draft_from_session() or {}
+
+    title = normalize_text(request.form.get("title")) or normalize_text(draft.get("title"))
+    if not title:
+        flash("Goal title is required.", "error")
+        return redirect(url_for("main.goals_page"))
+
+    goal_type = (normalize_text(request.form.get("goal_type")) or normalize_text(draft.get("goal_type")) or "custom").lower()
+    if goal_type not in GOAL_TYPE_DEFAULT_LABELS:
+        goal_type = "custom"
+
+    status = (normalize_text(request.form.get("status")) or "active").lower()
+    if status not in GOAL_STATUS_OPTIONS:
+        status = "active"
+
+    start_date_raw = normalize_text(request.form.get("start_date")) or normalize_text(draft.get("start_date"))
+    try:
+        start_date = date.fromisoformat(start_date_raw) if start_date_raw else local_today
+    except ValueError:
+        start_date = local_today
+    if start_date > local_today:
+        start_date = local_today
+
+    target_date_raw = normalize_text(request.form.get("target_date")) or normalize_text(draft.get("target_date"))
+    target_date = None
+    if target_date_raw:
+        try:
+            target_date = date.fromisoformat(target_date_raw)
+        except ValueError:
+            target_date = None
+    if target_date and target_date < start_date:
+        target_date = start_date
+
+    target_value = parse_float(request.form.get("target_value"))
+    if target_value is None and draft.get("target_value") not in (None, ""):
+        target_value = parse_float(draft.get("target_value"))
+
+    target_unit = normalize_text(request.form.get("target_unit")) or normalize_text(draft.get("target_unit"))
+    constraints = normalize_text(request.form.get("constraints")) or normalize_text(draft.get("constraints"))
+    daily_commitment_minutes = parse_int(request.form.get("daily_commitment_minutes"))
+    if daily_commitment_minutes is None and draft.get("daily_commitment_minutes") not in (None, ""):
+        daily_commitment_minutes = parse_int(draft.get("daily_commitment_minutes"))
+
+    coach_message = normalize_text(request.form.get("coach_message")) or normalize_text(draft.get("coach_message"))
+    today_action = normalize_text(request.form.get("today_action")) or normalize_text(draft.get("today_action"))
+
+    week_plan_raw = request.form.get("week_plan")
+    week_plan = []
+    if week_plan_raw:
+        week_plan = [line.strip() for line in week_plan_raw.splitlines() if line.strip()][:7]
+    elif isinstance(draft.get("week_plan"), list):
+        week_plan = [str(item).strip() for item in draft.get("week_plan") if str(item).strip()][:7]
+    week_plan_payload = week_plan or None
+
+    baseline_value = parse_float(request.form.get("baseline_value"))
+    if baseline_value is None and draft.get("baseline_value") not in (None, ""):
+        baseline_value = parse_float(draft.get("baseline_value"))
+    baseline_unit = normalize_text(request.form.get("baseline_unit")) or normalize_text(draft.get("baseline_unit"))
+    if goal_type == "weight_loss" and baseline_value is None:
+        inferred_baseline_value, inferred_baseline_unit = get_goal_baseline_value(g.user, profile, goal_type)
+        baseline_value = inferred_baseline_value
+        baseline_unit = baseline_unit or inferred_baseline_unit
+        if target_unit is None:
+            target_unit = inferred_baseline_unit
+
+    goal = UserGoal(
+        user_id=g.user.id,
+        title=title[:180],
+        goal_type=goal_type,
+        status=status,
+        priority="medium",
+        start_date=start_date,
+        target_date=target_date,
+        target_value=target_value,
+        target_unit=target_unit[:40] if target_unit else None,
+        baseline_value=baseline_value,
+        baseline_unit=baseline_unit[:40] if baseline_unit else None,
+        constraints=constraints,
+        daily_commitment_minutes=daily_commitment_minutes,
+        coach_message=coach_message,
+        today_action=today_action,
+        week_plan=week_plan_payload,
+    )
+    db.session.add(goal)
+
+    if not normalize_text(profile.primary_goal):
+        profile.primary_goal = title[:255]
+        db.session.add(profile)
+
+    db.session.commit()
+    remove_goal_draft_from_session()
+    flash("Goal started. Day one is now.", "success")
+    return redirect(url_for("main.goals_page"))
+
+
+@bp.post("/goals/<int:goal_id>/status")
+@login_required
+def goals_update_status(goal_id: int):
+    goal = UserGoal.query.filter_by(id=goal_id, user_id=g.user.id).first_or_404()
+    status = (request.form.get("status") or "").strip().lower()
+    if status not in GOAL_STATUS_OPTIONS:
+        flash("Invalid goal status.", "error")
+        return redirect(url_for("main.goals_page"))
+
+    goal.status = status
+    db.session.add(goal)
+    db.session.commit()
+    flash("Goal status updated.", "success")
+    return redirect(url_for("main.goals_page"))
+
+
+@bp.post("/goals/<int:goal_id>/today-action")
+@login_required
+def goals_today_action(goal_id: int):
+    goal = UserGoal.query.filter_by(id=goal_id, user_id=g.user.id).first_or_404()
+    local_today = get_user_local_today(g.user)
+
+    today_action_text = normalize_text(request.form.get("today_action"))
+    if today_action_text:
+        goal.today_action = today_action_text[:255]
+
+    day_raw = normalize_text(request.form.get("day"))
+    try:
+        target_day = date.fromisoformat(day_raw) if day_raw else local_today
+    except ValueError:
+        target_day = local_today
+    if target_day > local_today:
+        target_day = local_today
+
+    done_value = request.form.get("done_today")
+    note_value = normalize_text(request.form.get("note"))
+    if done_value is not None or note_value is not None:
+        action_row = UserGoalAction.query.filter_by(
+            goal_id=goal.id,
+            user_id=g.user.id,
+            day=target_day,
+        ).first()
+        if action_row is None:
+            action_row = UserGoalAction(
+                goal_id=goal.id,
+                user_id=g.user.id,
+                day=target_day,
+            )
+        if done_value is not None:
+            action_row.is_done = parse_bool(done_value)
+        if note_value is not None:
+            action_row.note = note_value
+        db.session.add(action_row)
+
+    db.session.add(goal)
+    db.session.commit()
+    flash("Goal action updated.", "success")
+    return redirect(url_for("main.goals_page"))
+
+
+@bp.post("/goals/<int:goal_id>/delete")
+@login_required
+def goals_delete(goal_id: int):
+    goal = UserGoal.query.filter_by(id=goal_id, user_id=g.user.id).first_or_404()
+    db.session.delete(goal)
+    db.session.commit()
+    flash("Goal deleted.", "success")
+    return redirect(url_for("main.goals_page"))
 
 
 @bp.get("/checkin")

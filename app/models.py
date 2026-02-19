@@ -25,6 +25,8 @@ class User(db.Model):
     community_posts = db.relationship("CommunityPost", backref="user", lazy=True)
     community_comments = db.relationship("CommunityComment", backref="user", lazy=True)
     community_likes = db.relationship("CommunityLike", backref="user", lazy=True)
+    goals = db.relationship("UserGoal", backref="user", lazy=True)
+    goal_actions = db.relationship("UserGoalAction", backref="user", lazy=True)
 
 
 class UserProfile(db.Model):
@@ -85,6 +87,8 @@ class UserProfile(db.Model):
     stress_reactivity = db.Column(db.Text, nullable=True)
     social_pattern = db.Column(db.Text, nullable=True)
     screen_time_evening_hours = db.Column(db.Float, nullable=True)
+    profile_nudge_opt_out = db.Column(db.Boolean, nullable=False, default=False)
+    profile_nudge_snooze_until = db.Column(db.Date, nullable=True)
     encrypted_sensitive_payload = db.Column(db.LargeBinary, nullable=True)
 
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
@@ -290,6 +294,65 @@ class MIMChatMessage(db.Model):
     context = db.Column(db.String(40), nullable=True, default="general")
     encrypted_payload = db.Column(db.LargeBinary, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+
+class UserGoal(db.Model):
+    __tablename__ = "user_goals"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
+    title = db.Column(db.String(180), nullable=False)
+    goal_type = db.Column(db.String(40), nullable=False, default="custom", index=True)
+    status = db.Column(db.String(20), nullable=False, default="active", index=True)
+    priority = db.Column(db.String(20), nullable=False, default="medium", index=True)
+
+    start_date = db.Column(db.Date, nullable=False, default=date.today, index=True)
+    target_date = db.Column(db.Date, nullable=True, index=True)
+    target_value = db.Column(db.Float, nullable=True)
+    target_unit = db.Column(db.String(40), nullable=True)
+    baseline_value = db.Column(db.Float, nullable=True)
+    baseline_unit = db.Column(db.String(40), nullable=True)
+    constraints = db.Column(db.Text, nullable=True)
+    daily_commitment_minutes = db.Column(db.Integer, nullable=True)
+
+    coach_message = db.Column(db.Text, nullable=True)
+    today_action = db.Column(db.String(255), nullable=True)
+    week_plan = db.Column(db.JSON, nullable=True)
+
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(
+        db.DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
+
+    actions = db.relationship(
+        "UserGoalAction",
+        backref="goal",
+        lazy=True,
+        cascade="all, delete-orphan",
+    )
+
+
+class UserGoalAction(db.Model):
+    __tablename__ = "user_goal_actions"
+
+    id = db.Column(db.Integer, primary_key=True)
+    goal_id = db.Column(db.Integer, db.ForeignKey("user_goals.id"), nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
+    day = db.Column(db.Date, nullable=False, index=True)
+    is_done = db.Column(db.Boolean, nullable=False, default=True)
+    note = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(
+        db.DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
+
+    __table_args__ = (db.UniqueConstraint("goal_id", "day", name="uq_user_goal_actions_goal_day"),)
 
 
 class CommunityPost(db.Model):

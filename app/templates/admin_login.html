@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block content %}
+  <div class="card" style="max-width: 520px; margin: 28px auto;">
+    <h1>Admin Login</h1>
+    <p class="muted">Restricted access: CoachMIM admin operations.</p>
+    <form method="post" action="{{ url_for('main.admin_login') }}">
+      {% if next %}
+        <input type="hidden" name="next" value="{{ next }}" />
+      {% endif %}
+      <div class="grid" style="grid-template-columns: 1fr;">
+        <div>
+          <label for="username">Username</label>
+          <input id="username" name="username" autocomplete="username" required />
+        </div>
+        <div>
+          <label for="password">Password</label>
+          <input id="password" name="password" type="password" autocomplete="current-password" required />
+        </div>
+      </div>
+      <div style="margin-top: 12px;">
+        <button type="submit">Sign In</button>
+      </div>
+    </form>
+  </div>
+{% endblock %}

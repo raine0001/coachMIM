@@ -19,10 +19,8 @@
 
   <div class="card">
     <h1>CoachMIM</h1>
-    <p>
-      Structured self-report for longitudinal behavioral pattern detection.
-      Phase I focuses on clean baseline capture for 30-60 days.
-    </p>
+    <p>{{ public_content.home_intro }}</p>
+    <p class="muted">Phase I focuses on clean baseline capture for 30-60 days.</p>
   </div>
 
   {% if is_authenticated %}
@@ -144,4 +142,16 @@
       </p>
     </div>
   {% endif %}
+
+  <div class="card">
+    <h2>Support & Policies</h2>
+    <p class="muted">
+      Contact for help:
+      <a href="mailto:{{ public_content.contact_email }}">{{ public_content.contact_email }}</a>
+    </p>
+    <div class="home-quick-links">
+      <a class="home-quick-link" href="{{ url_for('main.privacy_page') }}">Privacy Policy</a>
+      <a class="home-quick-link" href="{{ url_for('main.terms_page') }}">Terms</a>
+    </div>
+  </div>
 {% endblock %}

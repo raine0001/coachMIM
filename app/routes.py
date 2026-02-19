@@ -21,6 +21,7 @@ from flask import (
     url_for,
 )
 from sqlalchemy import case, func, or_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
@@ -38,6 +39,8 @@ from app.ai import (
 )
 from app.food_catalog import import_foods_from_usda, seed_common_foods_if_needed
 from app.models import (
+    AdminUser,
+    BlockedEmail,
     CommunityComment,
     CommunityLike,
     CommunityPost,
@@ -46,6 +49,7 @@ from app.models import (
     FoodItem,
     MIMChatMessage,
     Meal,
+    SiteSetting,
     Substance,
     User,
     UserProfile,
@@ -111,6 +115,9 @@ GENERIC_MEAL_NAMES = {
 SEARCH_STOPWORDS = {"and", "or", "the", "a", "an", "of", "with", "to", "for"}
 DAY_MANAGER_VIEWS = {"checkin", "meal", "drink", "substance", "activity", "medications"}
 DAY_MANAGER_FAVORITE_SCOPE_PREFIX = "__dmv:"
+ADMIN_SESSION_KEY = "admin_user_id"
+ADMIN_BOOTSTRAP_USERNAME = os.getenv("ADMIN_BOOTSTRAP_USERNAME", "testpilot")
+ADMIN_BOOTSTRAP_PASSWORD = os.getenv("ADMIN_BOOTSTRAP_PASSWORD", "1234")
 COMMUNITY_CATEGORY_OPTIONS = [
     {"key": "health", "label": "Health"},
     {"key": "fitness", "label": "Fitness"},
@@ -123,6 +130,22 @@ COMMUNITY_CATEGORY_OPTIONS = [
     {"key": "general", "label": "General"},
 ]
 COMMUNITY_CATEGORY_KEYS = {item["key"] for item in COMMUNITY_CATEGORY_OPTIONS}
+SITE_SETTING_DEFAULTS = {
+    "home_intro": (
+        "CoachMIM is a structured self-report AI system for longitudinal behavioral "
+        "pattern detection."
+    ),
+    "contact_email": "support@coachmim.com",
+    "privacy_summary": (
+        "CoachMIM stores your data to provide tracking, trend analysis, and personalized "
+        "feedback. You can request account deletion at any time."
+    ),
+    "terms_summary": (
+        "CoachMIM provides educational wellness guidance and is not medical diagnosis "
+        "or treatment. In emergencies, contact local emergency services."
+    ),
+}
+SYSTEM_USER_EMAILS = {"mim-bot@coachmim.local", "admin-team@coachmim.local"}
 MASS_UNIT_TO_GRAMS = {
     "g": 1.0,
     "oz": 28.349523125,
@@ -1536,6 +1559,108 @@ def normalize_email(value: str | None):
     return value.strip().lower()
 
 
+def ensure_default_admin_user():
+    admin = AdminUser.query.filter_by(username=ADMIN_BOOTSTRAP_USERNAME).first()
+    if admin:
+        return admin
+    admin = AdminUser(
+        username=ADMIN_BOOTSTRAP_USERNAME,
+        password_hash=generate_password_hash(ADMIN_BOOTSTRAP_PASSWORD),
+    )
+    db.session.add(admin)
+    db.session.commit()
+    return admin
+
+
+def get_site_setting(key: str):
+    row = SiteSetting.query.filter_by(key=key).first()
+    if row and row.value is not None:
+        return row.value
+    return SITE_SETTING_DEFAULTS.get(key)
+
+
+def get_site_settings(keys: list[str]):
+    values = {}
+    rows = SiteSetting.query.filter(SiteSetting.key.in_(keys)).all() if keys else []
+    row_map = {row.key: row.value for row in rows}
+    for key in keys:
+        current_value = row_map.get(key)
+        values[key] = current_value if current_value not in (None, "") else SITE_SETTING_DEFAULTS.get(key)
+    return values
+
+
+def set_site_setting(key: str, value: str | None):
+    row = SiteSetting.query.filter_by(key=key).first()
+    if not row:
+        row = SiteSetting(key=key)
+    row.value = value
+    db.session.add(row)
+    return row
+
+
+def add_blocked_email(email: str | None, reason: str, admin_id: int | None):
+    normalized = normalize_email(email)
+    if not normalized:
+        return
+    existing = BlockedEmail.query.filter_by(email=normalized).first()
+    if existing:
+        existing.reason = reason
+        existing.created_by_admin_id = admin_id
+        db.session.add(existing)
+        return
+    db.session.add(
+        BlockedEmail(
+            email=normalized,
+            reason=reason,
+            created_by_admin_id=admin_id,
+        )
+    )
+
+
+def remove_blocked_email(email: str | None):
+    normalized = normalize_email(email)
+    if not normalized:
+        return
+    BlockedEmail.query.filter_by(email=normalized).delete(synchronize_session=False)
+
+
+def hard_delete_user_account(user_id: int):
+    CommunityLike.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    CommunityComment.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    CommunityPost.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    MIMChatMessage.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    FavoriteMeal.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    Meal.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    Substance.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    DailyCheckIn.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    UserProfile.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    User.query.filter_by(id=user_id).delete(synchronize_session=False)
+
+
+def get_or_create_system_user(*, email: str, full_name: str):
+    bot_email = normalize_email(email)
+    if not bot_email:
+        raise ValueError("system user email is required")
+    bot = User.query.filter_by(email=bot_email).first()
+    if bot:
+        return bot
+    bot = User(
+        full_name=full_name,
+        email=bot_email,
+        password_hash=None,
+        is_blocked=False,
+        is_spam=False,
+    )
+    db.session.add(bot)
+    try:
+        db.session.flush()
+    except IntegrityError:
+        db.session.rollback()
+        return User.query.filter_by(email=bot_email).first()
+    db.session.add(UserProfile(user_id=bot.id))
+    return bot
+
+
 def get_or_create_profile(user: User):
     profile = user.profile
     if not profile:
@@ -1552,6 +1677,17 @@ def login_required(view):
         if g.user is None:
             flash("Please log in first.", "error")
             return redirect(url_for("main.login", next=request.path))
+        return view(*args, **kwargs)
+
+    return wrapped
+
+
+def admin_login_required(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if g.get("admin_user") is None:
+            flash("Admin login required.", "error")
+            return redirect(url_for("main.admin_login", next=request.path))
         return view(*args, **kwargs)
 
     return wrapped
@@ -1574,23 +1710,47 @@ def profile_required(view):
 def load_logged_in_user():
     user_id = session.get("user_id")
     g.user = db.session.get(User, user_id) if user_id else None
+    admin_user_id = session.get(ADMIN_SESSION_KEY)
+    g.admin_user = db.session.get(AdminUser, admin_user_id) if admin_user_id else None
+    now_utc = datetime.utcnow()
+
     if g.user and g.user.profile:
         hydrate_profile_secure_fields(g.user, g.user.profile)
+    if g.user:
+        if g.user.is_blocked:
+            session.pop("user_id", None)
+            g.user = None
+            flash("Your account is blocked. Contact support for help.", "error")
+        else:
+            if g.user.last_active_at is None or (now_utc - g.user.last_active_at) > timedelta(minutes=5):
+                g.user.last_active_at = now_utc
+                db.session.add(g.user)
+                db.session.commit()
 
 
 @bp.app_context_processor
 def inject_user():
     current_user = g.get("user")
+    current_admin = g.get("admin_user")
     profile_complete = False
     if current_user and current_user.profile:
         profile_complete = len(current_user.profile.missing_required_fields()) == 0
-    return {"current_user": current_user, "profile_complete": profile_complete}
+    return {
+        "current_user": current_user,
+        "current_admin": current_admin,
+        "profile_complete": profile_complete,
+    }
 
 
 @bp.get("/")
 def index():
+    public_content = get_site_settings(["home_intro", "contact_email"])
     if g.user is None:
-        return render_template("index.html", is_authenticated=False)
+        return render_template(
+            "index.html",
+            is_authenticated=False,
+            public_content=public_content,
+        )
 
     profile = get_or_create_profile(g.user)
     checkin_count = DailyCheckIn.query.filter_by(user_id=g.user.id).count()
@@ -1605,6 +1765,7 @@ def index():
         substance_count=substance_count,
         missing_required=profile.missing_required_fields(),
         weekly=weekly,
+        public_content=public_content,
     )
 
 
@@ -1630,6 +1791,9 @@ def register():
             return render_template("register.html")
         if password != password_confirm:
             flash("Password confirmation does not match.", "error")
+            return render_template("register.html")
+        if email and BlockedEmail.query.filter_by(email=email).first():
+            flash("This email is blocked from registration. Contact support if this is a mistake.", "error")
             return render_template("register.html")
         if User.query.filter_by(email=email).first():
             flash("An account with that email already exists.", "error")
@@ -1668,10 +1832,16 @@ def login():
         if not user or not user.password_hash or not check_password_hash(user.password_hash, password):
             flash("Invalid email or password.", "error")
             return render_template("login.html", next=next_url)
+        if user.is_blocked:
+            flash("This account is blocked. Contact support if you need help.", "error")
+            return render_template("login.html", next=next_url)
 
         session.clear()
         session["user_id"] = user.id
         session.permanent = True
+        user.last_active_at = datetime.utcnow()
+        db.session.add(user)
+        db.session.commit()
         flash("Logged in.", "success")
 
         if next_url and next_url.startswith("/"):
@@ -1689,6 +1859,501 @@ def logout():
     return redirect(url_for("main.login"))
 
 
+@bp.route("/dontcrash", methods=["GET", "POST"])
+def admin_login():
+    ensure_default_admin_user()
+    next_url = request.args.get("next") or request.form.get("next")
+
+    if request.method == "POST":
+        username = normalize_text(request.form.get("username"))
+        password = request.form.get("password") or ""
+        admin = AdminUser.query.filter_by(username=username).first() if username else None
+        if not admin or not check_password_hash(admin.password_hash, password):
+            flash("Invalid admin username or password.", "error")
+            return render_template("admin_login.html", next=next_url)
+
+        session[ADMIN_SESSION_KEY] = admin.id
+        admin.last_login_at = datetime.utcnow()
+        db.session.add(admin)
+        db.session.commit()
+        flash("Admin login successful.", "success")
+
+        if next_url and next_url.startswith("/"):
+            return redirect(next_url)
+        return redirect(url_for("main.admin_dashboard"))
+
+    if g.get("admin_user"):
+        return redirect(url_for("main.admin_dashboard"))
+    return render_template("admin_login.html", next=next_url)
+
+
+@bp.post("/dontcrash/logout")
+@admin_login_required
+def admin_logout():
+    session.pop(ADMIN_SESSION_KEY, None)
+    flash("Admin logged out.", "success")
+    return redirect(url_for("main.admin_login"))
+
+
+@bp.get("/dontcrash/dashboard")
+@admin_login_required
+def admin_dashboard():
+    active_since = datetime.utcnow() - timedelta(minutes=15)
+
+    total_users = User.query.filter(~User.email.in_(SYSTEM_USER_EMAILS)).count()
+    active_users = (
+        User.query.filter(
+            ~User.email.in_(SYSTEM_USER_EMAILS),
+            User.is_blocked.is_(False),
+            User.last_active_at.isnot(None),
+            User.last_active_at >= active_since,
+        ).count()
+    )
+    blocked_users = User.query.filter(~User.email.in_(SYSTEM_USER_EMAILS), User.is_blocked.is_(True)).count()
+    spam_users = User.query.filter(~User.email.in_(SYSTEM_USER_EMAILS), User.is_spam.is_(True)).count()
+
+    community_post_count = CommunityPost.query.count()
+    flagged_posts_count = CommunityPost.query.filter_by(is_flagged=True).count()
+    flagged_comments_count = CommunityComment.query.filter_by(is_flagged=True).count()
+
+    signups_last_7d = User.query.filter(
+        ~User.email.in_(SYSTEM_USER_EMAILS),
+        User.created_at >= datetime.utcnow() - timedelta(days=7),
+    ).count()
+
+    return render_template(
+        "admin_dashboard.html",
+        total_users=total_users,
+        active_users=active_users,
+        blocked_users=blocked_users,
+        spam_users=spam_users,
+        signups_last_7d=signups_last_7d,
+        community_post_count=community_post_count,
+        flagged_posts_count=flagged_posts_count,
+        flagged_comments_count=flagged_comments_count,
+    )
+
+
+@bp.get("/dontcrash/users")
+@admin_login_required
+def admin_users():
+    users = (
+        User.query.filter(~User.email.in_(SYSTEM_USER_EMAILS))
+        .order_by(User.created_at.desc(), User.id.desc())
+        .all()
+    )
+
+    checkin_counts = dict(
+        db.session.query(DailyCheckIn.user_id, func.count(DailyCheckIn.id))
+        .group_by(DailyCheckIn.user_id)
+        .all()
+    )
+    post_counts = dict(
+        db.session.query(CommunityPost.user_id, func.count(CommunityPost.id))
+        .group_by(CommunityPost.user_id)
+        .all()
+    )
+
+    rows = []
+    for user in users:
+        rows.append(
+            {
+                "user": user,
+                "checkin_days": int(checkin_counts.get(user.id, 0)),
+                "community_posts": int(post_counts.get(user.id, 0)),
+            }
+        )
+
+    return render_template("admin_users.html", rows=rows)
+
+
+@bp.post("/dontcrash/users/<int:user_id>/action")
+@admin_login_required
+def admin_user_action(user_id: int):
+    action = (request.form.get("action") or "").strip().lower()
+    user = db.session.get(User, user_id)
+    if not user or normalize_email(user.email) in SYSTEM_USER_EMAILS:
+        flash("User account was not found.", "error")
+        return redirect(url_for("main.admin_users"))
+
+    if action == "delete":
+        email_snapshot = user.email
+        hard_delete_user_account(user_id)
+        remove_blocked_email(email_snapshot)
+        db.session.commit()
+        flash("Account deleted. This email can sign up again.", "success")
+        return redirect(url_for("main.admin_users"))
+
+    if action == "block":
+        user.is_blocked = True
+        user.is_spam = False
+        add_blocked_email(user.email, "blocked", g.admin_user.id)
+        db.session.add(user)
+        db.session.commit()
+        flash("Account blocked. Email cannot sign up again.", "success")
+        return redirect(url_for("main.admin_users"))
+
+    if action == "spam_block":
+        user.is_blocked = True
+        user.is_spam = True
+        add_blocked_email(user.email, "spam", g.admin_user.id)
+        CommunityPost.query.filter_by(user_id=user.id).update(
+            {
+                "is_hidden": True,
+                "is_flagged": True,
+                "flag_reason": "Auto-hidden after spam block.",
+            },
+            synchronize_session=False,
+        )
+        CommunityComment.query.filter_by(user_id=user.id).update(
+            {
+                "is_hidden": True,
+                "is_flagged": True,
+                "flag_reason": "Auto-hidden after spam block.",
+            },
+            synchronize_session=False,
+        )
+        db.session.add(user)
+        db.session.commit()
+        flash("User marked spam + blocked. Community content hidden.", "success")
+        return redirect(url_for("main.admin_users"))
+
+    if action == "unblock":
+        user.is_blocked = False
+        user.is_spam = False
+        remove_blocked_email(user.email)
+        db.session.add(user)
+        db.session.commit()
+        flash("User unblocked.", "success")
+        return redirect(url_for("main.admin_users"))
+
+    flash("Unknown user action.", "error")
+    return redirect(url_for("main.admin_users"))
+
+
+def _extract_title_and_body_from_mim_response(text: str):
+    raw = str(text or "").strip()
+    if not raw:
+        return (None, None)
+    lines = [line.strip() for line in raw.splitlines() if line.strip()]
+    title = None
+    body_lines = []
+    for line in lines:
+        lowered = line.lower()
+        if lowered.startswith("title:") and not title:
+            title = line.split(":", 1)[1].strip()
+            continue
+        if lowered.startswith("body:"):
+            body_lines.append(line.split(":", 1)[1].strip())
+            continue
+        body_lines.append(line)
+    body = "\n".join(body_lines).strip()
+    return (normalize_text(title), normalize_text(body))
+
+
+@bp.get("/dontcrash/community")
+@admin_login_required
+def admin_community():
+    author_id = parse_int(request.args.get("author_id"))
+    include_hidden = parse_bool(request.args.get("include_hidden"))
+
+    post_query = CommunityPost.query.options(
+        selectinload(CommunityPost.user),
+        selectinload(CommunityPost.comments).selectinload(CommunityComment.user),
+        selectinload(CommunityPost.likes),
+    )
+    if author_id:
+        post_query = post_query.filter(CommunityPost.user_id == author_id)
+    if not include_hidden:
+        post_query = post_query.filter(CommunityPost.is_hidden.is_(False))
+    posts = post_query.order_by(CommunityPost.created_at.desc(), CommunityPost.id.desc()).limit(180).all()
+
+    flagged_posts = (
+        CommunityPost.query.options(selectinload(CommunityPost.user))
+        .filter(CommunityPost.is_flagged.is_(True))
+        .order_by(CommunityPost.created_at.desc())
+        .limit(120)
+        .all()
+    )
+    flagged_comments = (
+        CommunityComment.query.options(
+            selectinload(CommunityComment.user),
+            selectinload(CommunityComment.post),
+        )
+        .filter(CommunityComment.is_flagged.is_(True))
+        .order_by(CommunityComment.created_at.desc())
+        .limit(120)
+        .all()
+    )
+
+    return render_template(
+        "admin_community.html",
+        posts=posts,
+        flagged_posts=flagged_posts,
+        flagged_comments=flagged_comments,
+        include_hidden=include_hidden,
+        author_id=author_id,
+        category_options=COMMUNITY_CATEGORY_OPTIONS,
+    )
+
+
+@bp.post("/dontcrash/community/post")
+@admin_login_required
+def admin_community_post():
+    category = normalize_community_category(request.form.get("category"))
+    title = normalize_text(request.form.get("title"))
+    content = normalize_text(request.form.get("content"))
+    generate_prompt = normalize_text(request.form.get("generate_prompt"))
+    post_as = (request.form.get("post_as") or "mim").strip().lower()
+
+    if generate_prompt:
+        try:
+            mim_result = ask_mim_general_chat(
+                first_name="Admin",
+                question=(
+                    "Write a short community post for a health app.\n"
+                    f"Category: {category}\n"
+                    f"Topic: {generate_prompt}\n"
+                    "Format:\nTitle: ...\nBody: ..."
+                ),
+                history=[],
+            )
+            guessed_title, guessed_body = _extract_title_and_body_from_mim_response(mim_result)
+            if not title and guessed_title:
+                title = guessed_title
+            if not content and guessed_body:
+                content = guessed_body
+        except Exception:
+            current_app.logger.exception("admin community MIM generation failed")
+
+    if not title or len(title) < 4:
+        flash("Title is required (min 4 chars).", "error")
+        return redirect(url_for("main.admin_community"))
+    if not content or len(content) < 12:
+        flash("Content is required (min 12 chars).", "error")
+        return redirect(url_for("main.admin_community"))
+
+    blocked, reason = community_content_is_blocked(f"{title}\n{content}")
+    if blocked:
+        flash(reason or "This content was blocked by moderation.", "error")
+        return redirect(url_for("main.admin_community"))
+
+    if post_as == "admin":
+        author = get_or_create_system_user(
+            email="admin-team@coachmim.local",
+            full_name="CoachMIM Admin",
+        )
+    else:
+        author = get_or_create_system_user(
+            email="mim-bot@coachmim.local",
+            full_name="MIM",
+        )
+    if author is None:
+        flash("Could not resolve a system author account for this post.", "error")
+        return redirect(url_for("main.admin_community"))
+
+    post = CommunityPost(
+        user_id=author.id,
+        category=category,
+        title=title[:180],
+        content=content,
+        is_hidden=False,
+        is_flagged=False,
+    )
+    db.session.add(post)
+    db.session.commit()
+    flash("Community content posted.", "success")
+    return redirect(url_for("main.admin_community") + f"#admin-post-{post.id}")
+
+
+@bp.post("/dontcrash/community/post/<int:post_id>/moderate")
+@admin_login_required
+def admin_community_moderate_post(post_id: int):
+    action = (request.form.get("action") or "").strip().lower()
+    post = db.session.get(CommunityPost, post_id)
+    if not post:
+        flash("Post not found.", "error")
+        return redirect(url_for("main.admin_community"))
+
+    if action == "approve":
+        post.is_flagged = False
+        post.flag_reason = None
+        db.session.add(post)
+        db.session.commit()
+        flash("Post approved.", "success")
+        return redirect(url_for("main.admin_community"))
+
+    if action == "decline":
+        post.is_hidden = True
+        post.is_flagged = False
+        post.flag_reason = "Declined by admin."
+        db.session.add(post)
+        db.session.commit()
+        flash("Post declined and hidden.", "success")
+        return redirect(url_for("main.admin_community"))
+
+    if action == "restore":
+        post.is_hidden = False
+        post.is_flagged = False
+        post.flag_reason = None
+        db.session.add(post)
+        db.session.commit()
+        flash("Post restored.", "success")
+        return redirect(url_for("main.admin_community"))
+
+    if action == "block_user":
+        user = db.session.get(User, post.user_id)
+        if user:
+            user.is_blocked = True
+            user.is_spam = True
+            add_blocked_email(user.email, "spam", g.admin_user.id)
+            db.session.add(user)
+            CommunityPost.query.filter_by(user_id=user.id).update(
+                {
+                    "is_hidden": True,
+                    "is_flagged": True,
+                    "flag_reason": "User blocked by admin moderation.",
+                },
+                synchronize_session=False,
+            )
+            CommunityComment.query.filter_by(user_id=user.id).update(
+                {
+                    "is_hidden": True,
+                    "is_flagged": True,
+                    "flag_reason": "User blocked by admin moderation.",
+                },
+                synchronize_session=False,
+            )
+        post.is_hidden = True
+        post.is_flagged = True
+        post.flag_reason = "User blocked by admin moderation."
+        db.session.add(post)
+        db.session.commit()
+        flash("Post author blocked and content hidden.", "success")
+        return redirect(url_for("main.admin_community"))
+
+    flash("Unknown moderation action.", "error")
+    return redirect(url_for("main.admin_community"))
+
+
+@bp.post("/dontcrash/community/comment/<int:comment_id>/moderate")
+@admin_login_required
+def admin_community_moderate_comment(comment_id: int):
+    action = (request.form.get("action") or "").strip().lower()
+    comment = db.session.get(CommunityComment, comment_id)
+    if not comment:
+        flash("Comment not found.", "error")
+        return redirect(url_for("main.admin_community"))
+
+    if action == "approve":
+        comment.is_flagged = False
+        comment.flag_reason = None
+        db.session.add(comment)
+        db.session.commit()
+        flash("Comment approved.", "success")
+        return redirect(url_for("main.admin_community"))
+
+    if action == "decline":
+        comment.is_hidden = True
+        comment.is_flagged = False
+        comment.flag_reason = "Declined by admin."
+        db.session.add(comment)
+        db.session.commit()
+        flash("Comment declined and hidden.", "success")
+        return redirect(url_for("main.admin_community"))
+
+    if action == "block_user":
+        user = db.session.get(User, comment.user_id)
+        if user:
+            user.is_blocked = True
+            user.is_spam = True
+            add_blocked_email(user.email, "spam", g.admin_user.id)
+            db.session.add(user)
+            CommunityPost.query.filter_by(user_id=user.id).update(
+                {
+                    "is_hidden": True,
+                    "is_flagged": True,
+                    "flag_reason": "User blocked by admin moderation.",
+                },
+                synchronize_session=False,
+            )
+            CommunityComment.query.filter_by(user_id=user.id).update(
+                {
+                    "is_hidden": True,
+                    "is_flagged": True,
+                    "flag_reason": "User blocked by admin moderation.",
+                },
+                synchronize_session=False,
+            )
+        comment.is_hidden = True
+        comment.is_flagged = True
+        comment.flag_reason = "User blocked by admin moderation."
+        db.session.add(comment)
+        db.session.commit()
+        flash("Comment author blocked and content hidden.", "success")
+        return redirect(url_for("main.admin_community"))
+
+    flash("Unknown moderation action.", "error")
+    return redirect(url_for("main.admin_community"))
+
+
+@bp.route("/dontcrash/frontpage", methods=["GET", "POST"])
+@admin_login_required
+def admin_frontpage():
+    if request.method == "POST":
+        section = (request.form.get("section") or "").strip().lower()
+        if section == "settings":
+            set_site_setting("home_intro", normalize_text(request.form.get("home_intro")))
+            set_site_setting("contact_email", normalize_text(request.form.get("contact_email")))
+            set_site_setting("privacy_summary", normalize_text(request.form.get("privacy_summary")))
+            set_site_setting("terms_summary", normalize_text(request.form.get("terms_summary")))
+            db.session.commit()
+            flash("Front page settings updated.", "success")
+            return redirect(url_for("main.admin_frontpage"))
+
+        if section == "password":
+            current_password = request.form.get("current_password") or ""
+            new_password = request.form.get("new_password") or ""
+            confirm_password = request.form.get("confirm_password") or ""
+            if not check_password_hash(g.admin_user.password_hash, current_password):
+                flash("Current admin password is incorrect.", "error")
+                return redirect(url_for("main.admin_frontpage"))
+            if len(new_password) < 8:
+                flash("New password must be at least 8 characters.", "error")
+                return redirect(url_for("main.admin_frontpage"))
+            if new_password != confirm_password:
+                flash("New password confirmation does not match.", "error")
+                return redirect(url_for("main.admin_frontpage"))
+
+            g.admin_user.password_hash = generate_password_hash(new_password)
+            db.session.add(g.admin_user)
+            db.session.commit()
+            flash("Admin password updated.", "success")
+            return redirect(url_for("main.admin_frontpage"))
+
+    settings = get_site_settings(["home_intro", "contact_email", "privacy_summary", "terms_summary"])
+    using_bootstrap_password = check_password_hash(g.admin_user.password_hash, ADMIN_BOOTSTRAP_PASSWORD)
+    return render_template(
+        "admin_frontpage.html",
+        settings=settings,
+        using_bootstrap_password=using_bootstrap_password,
+    )
+
+
+@bp.get("/privacy")
+def privacy_page():
+    summary = get_site_setting("privacy_summary")
+    contact_email = get_site_setting("contact_email")
+    return render_template("privacy.html", summary=summary, contact_email=contact_email)
+
+
+@bp.get("/terms")
+def terms_page():
+    summary = get_site_setting("terms_summary")
+    contact_email = get_site_setting("contact_email")
+    return render_template("terms.html", summary=summary, contact_email=contact_email)
+
+
 @bp.route("/profile", methods=["GET", "POST"])
 @login_required
 def profile():
@@ -1702,6 +2367,10 @@ def profile():
             return render_template("profile.html", **build_profile_template_context(profile))
         if not email:
             flash("Email is required.", "error")
+            return render_template("profile.html", **build_profile_template_context(profile))
+        blocked_entry = BlockedEmail.query.filter_by(email=email).first()
+        if blocked_entry and email != normalize_email(g.user.email):
+            flash("This email is blocked and cannot be used on CoachMIM.", "error")
             return render_template("profile.html", **build_profile_template_context(profile))
         existing_user = User.query.filter(User.email == email, User.id != g.user.id).first()
         if existing_user:
@@ -3226,22 +3895,37 @@ def ask_mim_clear():
 @login_required
 def community_page():
     selected_category = get_community_filter_or_all(request.args.get("category"))
+    author_id = parse_int(request.args.get("author"))
 
     post_query = (
-        CommunityPost.query.options(
+        CommunityPost.query.join(User, CommunityPost.user_id == User.id).options(
             selectinload(CommunityPost.user),
             selectinload(CommunityPost.comments).selectinload(CommunityComment.user),
             selectinload(CommunityPost.likes),
+        )
+        .filter(
+            CommunityPost.is_hidden.is_(False),
+            User.is_blocked.is_(False),
+            User.is_spam.is_(False),
         )
         .order_by(CommunityPost.created_at.desc(), CommunityPost.id.desc())
     )
     if selected_category != "all":
         post_query = post_query.filter(CommunityPost.category == selected_category)
+    if author_id:
+        post_query = post_query.filter(CommunityPost.user_id == author_id)
 
     posts = post_query.limit(120).all()
     post_cards = []
     for post in posts:
-        ordered_comments = sorted(post.comments, key=lambda row: (row.created_at, row.id))
+        ordered_comments = sorted(
+            [
+                row
+                for row in post.comments
+                if not row.is_hidden and row.user and not row.user.is_blocked and not row.user.is_spam
+            ],
+            key=lambda row: (row.created_at, row.id),
+        )
         post_cards.append(
             {
                 "post": post,
@@ -3256,6 +3940,12 @@ def community_page():
 
     grouped_counts = dict(
         db.session.query(CommunityPost.category, func.count(CommunityPost.id))
+        .join(User, CommunityPost.user_id == User.id)
+        .filter(
+            CommunityPost.is_hidden.is_(False),
+            User.is_blocked.is_(False),
+            User.is_spam.is_(False),
+        )
         .group_by(CommunityPost.category)
         .all()
     )
@@ -3328,7 +4018,7 @@ def community_create_post():
 def community_add_comment(post_id: int):
     return_category = get_community_filter_or_all(request.form.get("category"))
     post = db.session.get(CommunityPost, post_id)
-    if post is None:
+    if post is None or post.is_hidden:
         flash("That community post no longer exists.", "error")
         return redirect(url_for("main.community_page", category=return_category))
 
@@ -3354,6 +4044,44 @@ def community_add_comment(post_id: int):
     )
     db.session.commit()
     return redirect(url_for("main.community_page", category=return_category) + f"#post-{post.id}")
+
+
+@bp.post("/community/<int:post_id>/report")
+@login_required
+def community_report_post(post_id: int):
+    return_category = get_community_filter_or_all(request.form.get("category"))
+    post = db.session.get(CommunityPost, post_id)
+    if post is None:
+        flash("That community post no longer exists.", "error")
+        return redirect(url_for("main.community_page", category=return_category))
+
+    reason = normalize_text(request.form.get("reason")) or "User report"
+    reporter = community_display_name(g.user)
+    post.is_flagged = True
+    post.flag_reason = f"{reason} (reported by {reporter})"
+    db.session.add(post)
+    db.session.commit()
+    flash("Post reported for review.", "success")
+    return redirect(url_for("main.community_page", category=return_category) + f"#post-{post.id}")
+
+
+@bp.post("/community/comment/<int:comment_id>/report")
+@login_required
+def community_report_comment(comment_id: int):
+    return_category = get_community_filter_or_all(request.form.get("category"))
+    comment = db.session.get(CommunityComment, comment_id)
+    if comment is None:
+        flash("That comment no longer exists.", "error")
+        return redirect(url_for("main.community_page", category=return_category))
+
+    reason = normalize_text(request.form.get("reason")) or "User report"
+    reporter = community_display_name(g.user)
+    comment.is_flagged = True
+    comment.flag_reason = f"{reason} (reported by {reporter})"
+    db.session.add(comment)
+    db.session.commit()
+    flash("Comment reported for review.", "success")
+    return redirect(url_for("main.community_page", category=return_category) + f"#post-{comment.post_id}")
 
 
 @bp.post("/community/<int:post_id>/like")

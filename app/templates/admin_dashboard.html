@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block content %}
+  <div class="card">
+    <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+      <h1 style="margin-bottom: 0;">Admin Dashboard</h1>
+      <form method="post" action="{{ url_for('main.admin_logout') }}">
+        <button type="submit">Admin Logout</button>
+      </form>
+    </div>
+    <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px;">
+      <a href="{{ url_for('main.admin_dashboard') }}">Dashboard</a>
+      <a href="{{ url_for('main.admin_users') }}">User Accounts</a>
+      <a href="{{ url_for('main.admin_community') }}">Community Content</a>
+      <a href="{{ url_for('main.admin_frontpage') }}">Front Page</a>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h3>Total Users</h3>
+      <div class="metric">{{ total_users }}</div>
+    </div>
+    <div class="card">
+      <h3>Logged-In Users (15m)</h3>
+      <div class="metric">{{ active_users }}</div>
+    </div>
+    <div class="card">
+      <h3>Blocked Users</h3>
+      <div class="metric">{{ blocked_users }}</div>
+    </div>
+    <div class="card">
+      <h3>Spam Users</h3>
+      <div class="metric">{{ spam_users }}</div>
+    </div>
+    <div class="card">
+      <h3>Community Posts</h3>
+      <div class="metric">{{ community_post_count }}</div>
+    </div>
+    <div class="card">
+      <h3>Flagged Content</h3>
+      <div class="metric">{{ flagged_posts_count + flagged_comments_count }}</div>
+      <div class="muted">Posts: {{ flagged_posts_count }} | Comments: {{ flagged_comments_count }}</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Operational Snapshot</h2>
+    <ul>
+      <li>New users (last 7 days): {{ signups_last_7d }}</li>
+      <li><a href="{{ url_for('main.admin_users') }}">Review account actions</a></li>
+      <li><a href="{{ url_for('main.admin_community') }}">Review flagged community content</a></li>
+      <li><a href="{{ url_for('main.admin_frontpage') }}">Edit contact/privacy/terms content</a></li>
+    </ul>
+  </div>
+{% endblock %}

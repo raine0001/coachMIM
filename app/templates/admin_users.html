@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block content %}
+  <div class="card">
+    <h1>User Account Management</h1>
+    <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px;">
+      <a href="{{ url_for('main.admin_dashboard') }}">Dashboard</a>
+      <a href="{{ url_for('main.admin_users') }}">User Accounts</a>
+      <a href="{{ url_for('main.admin_community') }}">Community Content</a>
+      <a href="{{ url_for('main.admin_frontpage') }}">Front Page</a>
+    </div>
+  </div>
+
+  <div class="card">
+    {% if rows %}
+      <div style="overflow-x: auto;">
+        <table style="width: 100%; border-collapse: collapse;">
+          <thead>
+            <tr>
+              <th style="text-align: left; border-bottom: 1px solid #d7dee7; padding: 8px;">Name</th>
+              <th style="text-align: left; border-bottom: 1px solid #d7dee7; padding: 8px;">Email</th>
+              <th style="text-align: left; border-bottom: 1px solid #d7dee7; padding: 8px;">Signed Up</th>
+              <th style="text-align: right; border-bottom: 1px solid #d7dee7; padding: 8px;">Days Checked In</th>
+              <th style="text-align: right; border-bottom: 1px solid #d7dee7; padding: 8px;">Community Posts</th>
+              <th style="text-align: left; border-bottom: 1px solid #d7dee7; padding: 8px;">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in rows %}
+              {% set user = row.user %}
+              <tr>
+                <td style="padding: 8px; border-bottom: 1px solid #eef3f8;">
+                  {{ user.full_name or "Unknown" }}
+                  {% if user.is_blocked %}
+                    <span class="muted">(blocked{% if user.is_spam %}, spam{% endif %})</span>
+                  {% endif %}
+                </td>
+                <td style="padding: 8px; border-bottom: 1px solid #eef3f8;">{{ user.email or "-" }}</td>
+                <td style="padding: 8px; border-bottom: 1px solid #eef3f8;">{{ user.created_at.strftime("%Y-%m-%d") }}</td>
+                <td style="padding: 8px; border-bottom: 1px solid #eef3f8; text-align: right;">{{ row.checkin_days }}</td>
+                <td style="padding: 8px; border-bottom: 1px solid #eef3f8; text-align: right;">
+                  <a href="{{ url_for('main.admin_community', author_id=user.id) }}">{{ row.community_posts }}</a>
+                </td>
+                <td style="padding: 8px; border-bottom: 1px solid #eef3f8;">
+                  <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+                    <form method="post" action="{{ url_for('main.admin_user_action', user_id=user.id) }}">
+                      <input type="hidden" name="action" value="delete" />
+                      <button type="submit">Delete</button>
+                    </form>
+                    <form method="post" action="{{ url_for('main.admin_user_action', user_id=user.id) }}">
+                      <input type="hidden" name="action" value="block" />
+                      <button type="submit">Block</button>
+                    </form>
+                    <form method="post" action="{{ url_for('main.admin_user_action', user_id=user.id) }}">
+                      <input type="hidden" name="action" value="spam_block" />
+                      <button type="submit" style="background: #b42318;">Spam + Block</button>
+                    </form>
+                    {% if user.is_blocked %}
+                      <form method="post" action="{{ url_for('main.admin_user_action', user_id=user.id) }}">
+                        <input type="hidden" name="action" value="unblock" />
+                        <button type="submit">Unblock</button>
+                      </form>
+                    {% endif %}
+                  </div>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p class="muted">No user accounts found.</p>
+    {% endif %}
+  </div>
+{% endblock %}

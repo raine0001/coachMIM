@@ -158,6 +158,12 @@
           <a class="link-btn" href="{{ card.share.email }}">Email</a>
           <button type="button" class="link-btn copy-link-btn" data-url="{{ card.share.copy_url }}">Copy Link</button>
 
+          <form method="post" action="{{ url_for('main.community_report_post', post_id=post.id) }}">
+            <input type="hidden" name="category" value="{{ selected_category }}" />
+            <input type="hidden" name="reason" value="User reported post" />
+            <button class="link-btn" type="submit">Report</button>
+          </form>
+
           {% if post.user_id == current_user.id %}
             <form method="post" action="{{ url_for('main.community_delete_post', post_id=post.id) }}">
               <input type="hidden" name="category" value="{{ selected_category }}" />
@@ -175,6 +181,11 @@
                   {{ comment_name }} | {{ comment.created_at.strftime('%b %d, %Y %I:%M %p') }}
                 </div>
                 <p>{{ comment.content | e | replace('\n', '<br />') | safe }}</p>
+                <form method="post" action="{{ url_for('main.community_report_comment', comment_id=comment.id) }}" style="margin-top: 6px;">
+                  <input type="hidden" name="category" value="{{ selected_category }}" />
+                  <input type="hidden" name="reason" value="User reported comment" />
+                  <button class="link-btn" type="submit">Report Comment</button>
+                </form>
               </div>
             {% endfor %}
           {% else %}

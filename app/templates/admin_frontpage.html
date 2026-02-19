@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block content %}
+  <style>
+    .front-block {
+      margin-top: 8px;
+    }
+  </style>
+  <div class="card">
+    <h1>Front Page Management</h1>
+    <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px;">
+      <a href="{{ url_for('main.admin_dashboard') }}">Dashboard</a>
+      <a href="{{ url_for('main.admin_users') }}">User Accounts</a>
+      <a href="{{ url_for('main.admin_community') }}">Community Content</a>
+      <a href="{{ url_for('main.admin_frontpage') }}">Front Page</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Public Content Settings</h2>
+    <form method="post" action="{{ url_for('main.admin_frontpage') }}">
+      <input type="hidden" name="section" value="settings" />
+      <div class="front-block">
+        <label for="home_intro">Home Intro</label>
+        <textarea id="home_intro" name="home_intro" maxlength="1500">{{ settings.home_intro }}</textarea>
+      </div>
+      <div class="grid">
+        <div>
+          <label for="contact_email">Contact Email</label>
+          <input id="contact_email" name="contact_email" value="{{ settings.contact_email }}" />
+        </div>
+      </div>
+      <div class="front-block">
+        <label for="privacy_summary">Privacy Summary</label>
+        <textarea id="privacy_summary" name="privacy_summary" maxlength="4000">{{ settings.privacy_summary }}</textarea>
+      </div>
+      <div class="front-block">
+        <label for="terms_summary">Terms Summary</label>
+        <textarea id="terms_summary" name="terms_summary" maxlength="4000">{{ settings.terms_summary }}</textarea>
+      </div>
+      <div style="margin-top: 10px;">
+        <button type="submit">Save Front Page Settings</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Admin Password</h2>
+    {% if using_bootstrap_password %}
+      <p class="flash error" style="margin-top: 0;">Default admin password is still active. Change it now.</p>
+    {% endif %}
+    <form method="post" action="{{ url_for('main.admin_frontpage') }}">
+      <input type="hidden" name="section" value="password" />
+      <div class="grid">
+        <div>
+          <label for="current_password">Current Password</label>
+          <input id="current_password" name="current_password" type="password" required />
+        </div>
+        <div>
+          <label for="new_password">New Password</label>
+          <input id="new_password" name="new_password" type="password" minlength="8" required />
+        </div>
+        <div>
+          <label for="confirm_password">Confirm New Password</label>
+          <input id="confirm_password" name="confirm_password" type="password" minlength="8" required />
+        </div>
+      </div>
+      <div style="margin-top: 10px;">
+        <button type="submit">Change Admin Password</button>
+      </div>
+    </form>
+  </div>
+{% endblock %}

@@ -11,6 +11,9 @@ class User(db.Model):
     email = db.Column(db.String(255), unique=True, nullable=True)
     password_hash = db.Column(db.String(255), nullable=True)
     encrypted_dek = db.Column(db.LargeBinary, nullable=True)
+    is_blocked = db.Column(db.Boolean, nullable=False, default=False)
+    is_spam = db.Column(db.Boolean, nullable=False, default=False)
+    last_active_at = db.Column(db.DateTime, nullable=True, index=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
     profile = db.relationship("UserProfile", backref="user", uselist=False, lazy=True)
@@ -297,6 +300,9 @@ class CommunityPost(db.Model):
     category = db.Column(db.String(40), nullable=False, index=True)
     title = db.Column(db.String(180), nullable=False)
     content = db.Column(db.Text, nullable=False)
+    is_hidden = db.Column(db.Boolean, nullable=False, default=False, index=True)
+    is_flagged = db.Column(db.Boolean, nullable=False, default=False, index=True)
+    flag_reason = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
     updated_at = db.Column(
         db.DateTime,
@@ -326,6 +332,9 @@ class CommunityComment(db.Model):
     post_id = db.Column(db.Integer, db.ForeignKey("community_posts.id"), nullable=False, index=True)
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
     content = db.Column(db.Text, nullable=False)
+    is_hidden = db.Column(db.Boolean, nullable=False, default=False, index=True)
+    is_flagged = db.Column(db.Boolean, nullable=False, default=False, index=True)
+    flag_reason = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
 
 
@@ -338,3 +347,43 @@ class CommunityLike(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
 
     __table_args__ = (db.UniqueConstraint("post_id", "user_id", name="uq_community_likes_post_user"),)
+
+
+class AdminUser(db.Model):
+    __tablename__ = "admin_users"
+
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(80), unique=True, nullable=False, index=True)
+    password_hash = db.Column(db.String(255), nullable=False)
+    last_login_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(
+        db.DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
+
+
+class BlockedEmail(db.Model):
+    __tablename__ = "blocked_emails"
+
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(255), unique=True, nullable=False, index=True)
+    reason = db.Column(db.String(80), nullable=True)
+    created_by_admin_id = db.Column(db.Integer, db.ForeignKey("admin_users.id"), nullable=True, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+
+
+class SiteSetting(db.Model):
+    __tablename__ = "site_settings"
+
+    id = db.Column(db.Integer, primary_key=True)
+    key = db.Column(db.String(120), unique=True, nullable=False, index=True)
+    value = db.Column(db.Text, nullable=True)
+    updated_at = db.Column(
+        db.DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )

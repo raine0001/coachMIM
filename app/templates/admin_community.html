@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+{% block content %}
+  <div class="card">
+    <h1>Community Content Management</h1>
+    <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px;">
+      <a href="{{ url_for('main.admin_dashboard') }}">Dashboard</a>
+      <a href="{{ url_for('main.admin_users') }}">User Accounts</a>
+      <a href="{{ url_for('main.admin_community') }}">Community Content</a>
+      <a href="{{ url_for('main.admin_frontpage') }}">Front Page</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Add Community Content</h2>
+    <form method="post" action="{{ url_for('main.admin_community_post') }}">
+      <div class="grid">
+        <div>
+          <label for="admin_post_category">Category</label>
+          <select id="admin_post_category" name="category">
+            {% for option in category_options %}
+              <option value="{{ option.key }}">{{ option.label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label for="admin_post_as">Post As</label>
+          <select id="admin_post_as" name="post_as">
+            <option value="mim">MIM</option>
+            <option value="admin">CoachMIM Admin</option>
+          </select>
+        </div>
+      </div>
+      <div class="grid" style="margin-top: 8px;">
+        <div>
+          <label for="admin_post_title">Title</label>
+          <input id="admin_post_title" name="title" maxlength="180" placeholder="Post title" />
+        </div>
+        <div>
+          <label for="admin_generate_prompt">Use MIM To Draft (optional topic)</label>
+          <input id="admin_generate_prompt" name="generate_prompt" placeholder="e.g., healthy post-workout snack ideas" />
+        </div>
+      </div>
+      <div style="margin-top: 8px;">
+        <label for="admin_post_content">Content</label>
+        <textarea id="admin_post_content" name="content" maxlength="4000" placeholder="Type content or let MIM draft from topic."></textarea>
+      </div>
+      <div style="margin-top: 10px;">
+        <button type="submit">Publish Content</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Flagged Content Queue</h2>
+    <h3>Flagged Posts</h3>
+    {% if flagged_posts %}
+      {% for post in flagged_posts %}
+        <div id="admin-post-{{ post.id }}" style="border: 1px solid #d7dee7; border-radius: 10px; padding: 10px; margin-bottom: 10px;">
+          <div class="muted">
+            {{ post.created_at.strftime("%Y-%m-%d %H:%M") }} | {{ post.category|capitalize }} |
+            by {{ post.user.full_name if post.user else "Unknown" }}
+          </div>
+          <h4 style="margin: 6px 0;">{{ post.title }}</h4>
+          <p style="margin: 0 0 8px;">{{ post.content }}</p>
+          {% if post.flag_reason %}
+            <p class="muted" style="margin: 0 0 8px;">Reason: {{ post.flag_reason }}</p>
+          {% endif %}
+          <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+            <form method="post" action="{{ url_for('main.admin_community_moderate_post', post_id=post.id) }}">
+              <input type="hidden" name="action" value="approve" />
+              <button type="submit">Approve</button>
+            </form>
+            <form method="post" action="{{ url_for('main.admin_community_moderate_post', post_id=post.id) }}">
+              <input type="hidden" name="action" value="decline" />
+              <button type="submit" style="background: #b42318;">Decline</button>
+            </form>
+            <form method="post" action="{{ url_for('main.admin_community_moderate_post', post_id=post.id) }}">
+              <input type="hidden" name="action" value="restore" />
+              <button type="submit">Restore</button>
+            </form>
+            <form method="post" action="{{ url_for('main.admin_community_moderate_post', post_id=post.id) }}">
+              <input type="hidden" name="action" value="block_user" />
+              <button type="submit" style="background: #b42318;">Block User</button>
+            </form>
+          </div>
+        </div>
+      {% endfor %}
+    {% else %}
+      <p class="muted">No flagged posts.</p>
+    {% endif %}
+
+    <h3>Flagged Comments</h3>
+    {% if flagged_comments %}
+      {% for comment in flagged_comments %}
+        <div style="border: 1px solid #d7dee7; border-radius: 10px; padding: 10px; margin-bottom: 10px;">
+          <div class="muted">
+            {{ comment.created_at.strftime("%Y-%m-%d %H:%M") }} |
+            by {{ comment.user.full_name if comment.user else "Unknown" }} |
+            post #{{ comment.post_id }}
+          </div>
+          <p style="margin: 6px 0 8px;">{{ comment.content }}</p>
+          {% if comment.flag_reason %}
+            <p class="muted" style="margin: 0 0 8px;">Reason: {{ comment.flag_reason }}</p>
+          {% endif %}
+          <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+            <form method="post" action="{{ url_for('main.admin_community_moderate_comment', comment_id=comment.id) }}">
+              <input type="hidden" name="action" value="approve" />
+              <button type="submit">Approve</button>
+            </form>
+            <form method="post" action="{{ url_for('main.admin_community_moderate_comment', comment_id=comment.id) }}">
+              <input type="hidden" name="action" value="decline" />
+              <button type="submit" style="background: #b42318;">Decline</button>
+            </form>
+            <form method="post" action="{{ url_for('main.admin_community_moderate_comment', comment_id=comment.id) }}">
+              <input type="hidden" name="action" value="block_user" />
+              <button type="submit" style="background: #b42318;">Block User</button>
+            </form>
+          </div>
+        </div>
+      {% endfor %}
+    {% else %}
+      <p class="muted">No flagged comments.</p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h2>Community Feed (Admin View)</h2>
+    <form method="get" action="{{ url_for('main.admin_community') }}" class="grid">
+      <div>
+        <label for="author_id">Filter by User ID (optional)</label>
+        <input id="author_id" name="author_id" value="{{ author_id if author_id else '' }}" />
+      </div>
+      <div>
+        <label for="include_hidden">Include Hidden</label>
+        <select id="include_hidden" name="include_hidden">
+          <option value="0" {% if not include_hidden %}selected{% endif %}>No</option>
+          <option value="1" {% if include_hidden %}selected{% endif %}>Yes</option>
+        </select>
+      </div>
+      <div style="align-self: end;">
+        <button type="submit">Apply Filter</button>
+      </div>
+    </form>
+
+    {% if posts %}
+      {% for post in posts %}
+        <div style="border: 1px solid #d7dee7; border-radius: 10px; padding: 10px; margin-top: 10px;">
+          <div class="muted">
+            #{{ post.id }} | {{ post.created_at.strftime("%Y-%m-%d %H:%M") }} |
+            user #{{ post.user_id }} ({{ post.user.full_name if post.user else "Unknown" }}) |
+            {{ post.category|capitalize }} |
+            hidden={{ "yes" if post.is_hidden else "no" }} |
+            flagged={{ "yes" if post.is_flagged else "no" }}
+          </div>
+          <h4 style="margin: 6px 0;">{{ post.title }}</h4>
+          <p style="margin: 0;">{{ post.content }}</p>
+        </div>
+      {% endfor %}
+    {% else %}
+      <p class="muted">No community posts found for this filter.</p>
+    {% endif %}
+  </div>
+{% endblock %}

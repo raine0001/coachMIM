@@ -1851,6 +1851,22 @@ def login():
     return render_template("login.html", next=request.args.get("next"))
 
 
+@bp.route("/lost-password", methods=["GET", "POST"])
+def lost_password():
+    if request.method == "POST":
+        email = normalize_email(request.form.get("email"))
+        contact_email = get_site_setting("contact_email") or "support@coachmim.com"
+        if email:
+            flash(
+                "Password reset is currently handled by support. "
+                f"Please email {contact_email} from your account email.",
+                "success",
+            )
+        else:
+            flash("Enter the email used on your account.", "error")
+    return render_template("lost_password.html")
+
+
 @bp.post("/logout")
 @login_required
 def logout():

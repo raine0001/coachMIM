@@ -1,6 +1,71 @@
 {% extends "base.html" %}
 {% block content %}
   <style>
+    .landing-wrap {
+      max-width: 520px;
+      margin: 0 auto;
+    }
+    .landing-title {
+      font-size: clamp(2rem, 8vw, 2.5rem);
+      line-height: 1.05;
+      margin-bottom: 8px;
+      letter-spacing: 0.2px;
+    }
+    .landing-sub {
+      margin-top: 0;
+      color: var(--muted);
+      font-size: 1rem;
+    }
+    .landing-image-box {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      overflow: hidden;
+      background: #fff;
+      margin: 12px 0 14px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 220px;
+    }
+    .landing-image-box img {
+      width: 100%;
+      max-width: 360px;
+      height: auto;
+      display: block;
+    }
+    .landing-actions {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 10px;
+      margin-top: 6px;
+    }
+    .landing-btn {
+      text-decoration: none;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 11px 12px;
+      background: #fff;
+      color: var(--text);
+      font-weight: 700;
+      text-align: center;
+      display: block;
+    }
+    .landing-btn.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+    .landing-links {
+      margin-top: 14px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      justify-content: center;
+      font-size: 0.95rem;
+    }
+    .landing-links a {
+      color: var(--muted);
+    }
     .home-quick-links {
       display: flex;
       flex-wrap: wrap;
@@ -18,7 +83,7 @@
   </style>
 
   <div class="card">
-    <h1>CoachMIM</h1>
+    <h1>Coach MIM</h1>
     <p>{{ public_content.home_intro }}</p>
     <p class="muted">Phase I focuses on clean baseline capture for 30-60 days.</p>
   </div>
@@ -128,30 +193,35 @@
       </div>
     </div>
   {% else %}
-    <div class="card">
-      <h2>Start Here</h2>
-      <ol>
-        <li>Create an account.</li>
-        <li>Complete your core profile baseline.</li>
-        <li>Begin daily check-ins and meal logging.</li>
-      </ol>
-      <p>
-        <a href="{{ url_for('main.register') }}">Create account</a>
-        or
-        <a href="{{ url_for('main.login') }}">log in</a>.
-      </p>
+    <div class="card landing-wrap">
+      <h2 class="landing-title">Coach MIM</h2>
+      <p class="landing-sub">{{ public_content.home_intro }}</p>
+      <div class="landing-image-box">
+        <img src="{{ url_for('static', filename='mim-logo.png') }}" alt="Coach MIM" />
+      </div>
+      <div class="landing-actions">
+        <a class="landing-btn primary" href="{{ url_for('main.login') }}">Login</a>
+        <a class="landing-btn" href="{{ url_for('main.register') }}">Sign Up</a>
+        <a class="landing-btn" href="{{ url_for('main.lost_password') }}">Lost Password</a>
+      </div>
+      <div class="landing-links">
+        <a href="{{ url_for('main.privacy_page') }}">Privacy</a>
+        <a href="{{ url_for('main.terms_page') }}">Terms</a>
+      </div>
     </div>
   {% endif %}
 
-  <div class="card">
-    <h2>Support & Policies</h2>
-    <p class="muted">
-      Contact for help:
-      <a href="mailto:{{ public_content.contact_email }}">{{ public_content.contact_email }}</a>
-    </p>
-    <div class="home-quick-links">
-      <a class="home-quick-link" href="{{ url_for('main.privacy_page') }}">Privacy Policy</a>
-      <a class="home-quick-link" href="{{ url_for('main.terms_page') }}">Terms</a>
+  {% if is_authenticated %}
+    <div class="card">
+      <h2>Support & Policies</h2>
+      <p class="muted">
+        Contact for help:
+        <a href="mailto:{{ public_content.contact_email }}">{{ public_content.contact_email }}</a>
+      </p>
+      <div class="home-quick-links">
+        <a class="home-quick-link" href="{{ url_for('main.privacy_page') }}">Privacy Policy</a>
+        <a class="home-quick-link" href="{{ url_for('main.terms_page') }}">Terms</a>
+      </div>
     </div>
-  </div>
+  {% endif %}
 {% endblock %}

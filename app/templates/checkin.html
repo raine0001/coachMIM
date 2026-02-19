@@ -1,6 +1,63 @@
 {% extends "base.html" %}
 {% block content %}
   {% set mim_logo_url = url_for('static', filename='mim-logo.png') %}
+  {% set energy_scale = [
+    (1, "Completely drained. Can barely function."),
+    (2, "Exhausted. Simple tasks feel heavy."),
+    (3, "Very low energy. Foggy and slow."),
+    (4, "Low energy. Getting through basics only."),
+    (5, "Neutral. Functioning, but not motivated."),
+    (6, "Moderate energy. Can focus with effort."),
+    (7, "Good energy. Productive and steady."),
+    (8, "High energy. Clear, engaged, efficient."),
+    (9, "Very high energy. Sharp, motivated, strong drive."),
+    (10, "Peak energy. Alert, focused, resilient, ready to take on anything.")
+  ] %}
+  {% set focus_scale = [
+    (1, "Cannot concentrate at all"),
+    (2, "Extremely distracted, mind scattered"),
+    (3, "Very low focus, frequent interruptions"),
+    (4, "Struggling to stay on task"),
+    (5, "Moderate focus, easily pulled away"),
+    (6, "Can focus with effort"),
+    (7, "Steady focus for sustained tasks"),
+    (8, "Strong concentration, minimal distraction"),
+    (9, "Deep focus, highly productive"),
+    (10, "Flow state, fully immersed and efficient")
+  ] %}
+  {% set mood_scale = [
+    (1, "Very low mood, distressed"),
+    (2, "Strongly negative"),
+    (3, "Down, discouraged"),
+    (4, "Slightly low mood"),
+    (5, "Neutral"),
+    (6, "Mildly positive"),
+    (7, "Good mood"),
+    (8, "Very positive, upbeat"),
+    (9, "Strongly positive, confident"),
+    (10, "Exceptionally positive, joyful and grounded")
+  ] %}
+  {% set stress_scale = [
+    (1, "Completely calm"),
+    (2, "Very relaxed"),
+    (3, "Mild tension"),
+    (4, "Slight pressure"),
+    (5, "Moderate stress"),
+    (6, "Noticeable stress, manageable"),
+    (7, "High stress, impacting focus"),
+    (8, "Very high stress, difficulty concentrating"),
+    (9, "Overwhelmed"),
+    (10, "Acute stress, near breaking point")
+  ] %}
+
+  {% macro rating_select(field_id, field_name, current_value, options, placeholder) -%}
+    <select id="{{ field_id }}" name="{{ field_name }}">
+      <option value="" {% if current_value is none %}selected{% endif %}>{{ placeholder }}</option>
+      {% for score, text in options %}
+        <option value="{{ score }}" {% if current_value == score %}selected{% endif %}>{{ score }} - {{ text }}</option>
+      {% endfor %}
+    </select>
+  {%- endmacro %}
 
   <style>
     .checkin-page .card {
@@ -438,8 +495,20 @@
             <input id="sleep_hours" name="sleep_hours" type="number" min="0" max="24" step="0.1" value="{{ record.sleep_hours if record else '' }}" />
           </div>
           <div>
-            <label for="sleep_quality">Sleep Quality (1-10)</label>
-            <input id="sleep_quality" name="sleep_quality" type="number" min="1" max="10" value="{{ record.sleep_quality if record else '' }}" />
+            <label for="sleep_quality">Sleep Quality</label>
+            <select id="sleep_quality" name="sleep_quality">
+              <option value="" {% if not record or record.sleep_quality is none %}selected{% endif %}>Choose a sleep quality score</option>
+              <option value="1" {% if record and record.sleep_quality == 1 %}selected{% endif %}>1 - No sleep</option>
+              <option value="2" {% if record and record.sleep_quality == 2 %}selected{% endif %}>2 - &lt;2 hours, fragmented</option>
+              <option value="3" {% if record and record.sleep_quality == 3 %}selected{% endif %}>3 - 2-4 hours, very restless</option>
+              <option value="4" {% if record and record.sleep_quality == 4 %}selected{% endif %}>4 - 4-5 hours, multiple awakenings</option>
+              <option value="5" {% if record and record.sleep_quality == 5 %}selected{% endif %}>5 - 5-6 hours, light/uneven sleep</option>
+              <option value="6" {% if record and record.sleep_quality == 6 %}selected{% endif %}>6 - 6-7 hours, some interruptions</option>
+              <option value="7" {% if record and record.sleep_quality == 7 %}selected{% endif %}>7 - 7-8 hours, mostly uninterrupted</option>
+              <option value="8" {% if record and record.sleep_quality == 8 %}selected{% endif %}>8 - 7-9 hours, solid sleep</option>
+              <option value="9" {% if record and record.sleep_quality == 9 %}selected{% endif %}>9 - Deep and restorative, woke refreshed</option>
+              <option value="10" {% if record and record.sleep_quality == 10 %}selected{% endif %}>10 - Exceptional sleep, energized and clear all day</option>
+            </select>
           </div>
         </div>
         <div class="checkin-form-block">
@@ -452,20 +521,20 @@
         <h2>Morning</h2>
         <div class="grid">
           <div>
-            <label for="morning_energy">Energy (1-10)</label>
-            <input id="morning_energy" name="morning_energy" type="number" min="1" max="10" value="{{ record.morning_energy if record else '' }}" />
+            <label for="morning_energy">Energy</label>
+            {{ rating_select("morning_energy", "morning_energy", record.morning_energy if record else none, energy_scale, "Select energy level") }}
           </div>
           <div>
-            <label for="morning_focus">Focus (1-10)</label>
-            <input id="morning_focus" name="morning_focus" type="number" min="1" max="10" value="{{ record.morning_focus if record else '' }}" />
+            <label for="morning_focus">Focus Level</label>
+            {{ rating_select("morning_focus", "morning_focus", record.morning_focus if record else none, focus_scale, "Select focus level") }}
           </div>
           <div>
-            <label for="morning_mood">Mood (1-10)</label>
-            <input id="morning_mood" name="morning_mood" type="number" min="1" max="10" value="{{ record.morning_mood if record else '' }}" />
+            <label for="morning_mood">Mood Level</label>
+            {{ rating_select("morning_mood", "morning_mood", record.morning_mood if record else none, mood_scale, "Select mood level") }}
           </div>
           <div>
-            <label for="morning_stress">Stress (1-10)</label>
-            <input id="morning_stress" name="morning_stress" type="number" min="1" max="10" value="{{ record.morning_stress if record else '' }}" />
+            <label for="morning_stress">Stress Level</label>
+            {{ rating_select("morning_stress", "morning_stress", record.morning_stress if record else none, stress_scale, "Select stress level") }}
           </div>
           <div>
             <label for="morning_weight">Morning Weight ({{ checkin_weight_unit }})</label>
@@ -482,20 +551,20 @@
         <h2>Midday</h2>
         <div class="grid">
           <div>
-            <label for="midday_energy">Energy (1-10)</label>
-            <input id="midday_energy" name="midday_energy" type="number" min="1" max="10" value="{{ record.midday_energy if record else '' }}" />
+            <label for="midday_energy">Energy</label>
+            {{ rating_select("midday_energy", "midday_energy", record.midday_energy if record else none, energy_scale, "Select energy level") }}
           </div>
           <div>
-            <label for="midday_focus">Focus (1-10)</label>
-            <input id="midday_focus" name="midday_focus" type="number" min="1" max="10" value="{{ record.midday_focus if record else '' }}" />
+            <label for="midday_focus">Focus Level</label>
+            {{ rating_select("midday_focus", "midday_focus", record.midday_focus if record else none, focus_scale, "Select focus level") }}
           </div>
           <div>
-            <label for="midday_mood">Mood (1-10)</label>
-            <input id="midday_mood" name="midday_mood" type="number" min="1" max="10" value="{{ record.midday_mood if record else '' }}" />
+            <label for="midday_mood">Mood Level</label>
+            {{ rating_select("midday_mood", "midday_mood", record.midday_mood if record else none, mood_scale, "Select mood level") }}
           </div>
           <div>
-            <label for="midday_stress">Stress (1-10)</label>
-            <input id="midday_stress" name="midday_stress" type="number" min="1" max="10" value="{{ record.midday_stress if record else '' }}" />
+            <label for="midday_stress">Stress Level</label>
+            {{ rating_select("midday_stress", "midday_stress", record.midday_stress if record else none, stress_scale, "Select stress level") }}
           </div>
         </div>
         <div class="checkin-form-block">
@@ -508,20 +577,20 @@
         <h2>Evening</h2>
         <div class="grid">
           <div>
-            <label for="evening_energy">Energy (1-10)</label>
-            <input id="evening_energy" name="evening_energy" type="number" min="1" max="10" value="{{ record.evening_energy if record else '' }}" />
+            <label for="evening_energy">Energy</label>
+            {{ rating_select("evening_energy", "evening_energy", record.evening_energy if record else none, energy_scale, "Select energy level") }}
           </div>
           <div>
-            <label for="evening_focus">Focus (1-10)</label>
-            <input id="evening_focus" name="evening_focus" type="number" min="1" max="10" value="{{ record.evening_focus if record else '' }}" />
+            <label for="evening_focus">Focus Level</label>
+            {{ rating_select("evening_focus", "evening_focus", record.evening_focus if record else none, focus_scale, "Select focus level") }}
           </div>
           <div>
-            <label for="evening_mood">Mood (1-10)</label>
-            <input id="evening_mood" name="evening_mood" type="number" min="1" max="10" value="{{ record.evening_mood if record else '' }}" />
+            <label for="evening_mood">Mood Level</label>
+            {{ rating_select("evening_mood", "evening_mood", record.evening_mood if record else none, mood_scale, "Select mood level") }}
           </div>
           <div>
-            <label for="evening_stress">Stress (1-10)</label>
-            <input id="evening_stress" name="evening_stress" type="number" min="1" max="10" value="{{ record.evening_stress if record else '' }}" />
+            <label for="evening_stress">Stress Level</label>
+            {{ rating_select("evening_stress", "evening_stress", record.evening_stress if record else none, stress_scale, "Select stress level") }}
           </div>
         </div>
         <div class="checkin-form-block">

@@ -333,6 +333,12 @@
     .manager-coach-card h2 {
       margin-bottom: 8px;
     }
+    .tip-source {
+      font-size: 0.82rem;
+      color: #0f766e;
+      font-weight: 700;
+      margin-left: 6px;
+    }
     .brain-spark-box {
       border: 1px solid #d7dee7;
       border-radius: 10px;
@@ -509,10 +515,25 @@
   <div class="card manager-coach-card">
     <div class="manager-coach-grid">
       <div>
-        <h2>{{ day_manager_tip.title }}</h2>
-        <p>{{ day_manager_tip.tip_text }}</p>
-        <p class="muted">{{ day_manager_tip.micro_action }}</p>
+        <h2>
+          {{ day_manager_tip_personalized.title }}
+          {% if day_manager_tip_personalized.source == "ai" %}
+            <span class="tip-source">AI Personalized</span>
+          {% endif %}
+        </h2>
+        <p>{{ day_manager_tip_personalized.tip_text }}</p>
+        <p class="muted">{{ day_manager_tip_personalized.next_action or day_manager_tip.micro_action }}</p>
         <a class="secondary-link-btn" href="{{ day_manager_tip.cta_url }}">{{ day_manager_tip.cta_label }}</a>
+        {% if day_manager_tip_personalized.recommended_posts %}
+          <div style="margin-top: 10px;">
+            <div class="muted"><strong>Recommended community posts</strong></div>
+            <ul class="inline-list">
+              {% for post in day_manager_tip_personalized.recommended_posts %}
+                <li><a href="{{ post.url }}">{{ post.title }}</a> <span class="muted">({{ post.category|capitalize }})</span></li>
+              {% endfor %}
+            </ul>
+          </div>
+        {% endif %}
       </div>
       <div class="brain-spark-box">
         <h3>Brain Spark</h3>
@@ -757,6 +778,7 @@
     {% endif %}
     <div class="quick-open-link">
       <a href="{{ url_for('main.meal_form', day=selected_day) }}">Open Full Meal Logger</a>
+      <a href="{{ url_for('main.recipe_calculator_page', day=selected_day, type='meal') }}">Open Recipe Calculator</a>
     </div>
     <form method="post" action="{{ url_for('main.checkin_meal_quick_save') }}">
       <input type="hidden" name="day" value="{{ selected_day }}" />
@@ -956,6 +978,9 @@
   <div class="card">
     <h2>Drinks For {{ selected_day }}</h2>
     <p class="muted">Quick-log drinks separately to make caffeine/hydration timing easier to track.</p>
+    <div class="quick-open-link">
+      <a href="{{ url_for('main.recipe_calculator_page', day=selected_day, type='drink') }}">Open Recipe Calculator</a>
+    </div>
     {% if edit_drink_entry %}
       <div class="edit-mode-banner">
         Editing drink entry from {{ edit_drink_entry.eaten_at.strftime("%H:%M") }}. Update values, then press Update Drink Entry.

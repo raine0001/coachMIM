@@ -141,6 +141,102 @@ def ask_mim_general_chat(
     return answer or "I couldn't generate a response. Please try rephrasing your question."
 
 
+def generate_daily_personalized_tip(
+    *,
+    first_name: str,
+    context: str,
+    local_day_iso: str,
+    profile_goal: str | None,
+    weekly_summary: dict | None,
+    day_summary: dict | None,
+    candidate_posts: Sequence[dict] | None = None,
+) -> dict:
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return {}
+
+    model = os.getenv("OPENAI_DAILY_TIP_MODEL", "gpt-4.1-mini")
+    client = OpenAI(api_key=api_key)
+
+    safe_context = str(context or "home").strip().lower()
+    post_rows = []
+    for row in list(candidate_posts or [])[:16]:
+        if not isinstance(row, dict):
+            continue
+        post_id = row.get("id")
+        try:
+            post_id = int(post_id)
+        except (TypeError, ValueError):
+            continue
+        post_rows.append(
+            {
+                "id": post_id,
+                "title": str(row.get("title") or "").strip()[:180],
+                "category": str(row.get("category") or "").strip()[:40],
+                "excerpt": str(row.get("excerpt") or "").strip()[:220],
+            }
+        )
+
+    payload = {
+        "context": safe_context,
+        "day": str(local_day_iso or ""),
+        "first_name": str(first_name or "there"),
+        "profile_goal": str(profile_goal or "").strip()[:200],
+        "weekly_summary": weekly_summary or {},
+        "day_summary": day_summary or {},
+        "candidate_posts": post_rows,
+    }
+
+    prompt = (
+        "You are Coach MIM. Create one concise personalized 'Did You Know' coaching tip "
+        "for this user and context. Keep it practical and behavior-focused.\n"
+        "Return JSON only with keys:\n"
+        "tip_title (string, <= 60 chars),\n"
+        "tip_text (string, <= 240 chars),\n"
+        "next_action (string, <= 120 chars),\n"
+        "recommended_post_ids (array of up to 3 integer ids from candidate_posts only).\n"
+        "Do not diagnose disease. Keep guidance general and safe.\n\n"
+        f"Input JSON:\n{json.dumps(payload, ensure_ascii=True)}"
+    )
+
+    try:
+        response = client.responses.create(model=model, input=prompt)
+    except Exception:
+        return {}
+
+    parsed = _extract_json_object(response.output_text or "")
+    if not isinstance(parsed, dict):
+        return {}
+
+    title = str(parsed.get("tip_title") or "").strip()[:60]
+    tip_text = str(parsed.get("tip_text") or "").strip()[:240]
+    next_action = str(parsed.get("next_action") or "").strip()[:120]
+    raw_ids = parsed.get("recommended_post_ids")
+    candidate_ids = {row["id"] for row in post_rows}
+    post_ids = []
+    if isinstance(raw_ids, list):
+        for value in raw_ids:
+            try:
+                post_id = int(value)
+            except (TypeError, ValueError):
+                continue
+            if post_id in candidate_ids and post_id not in post_ids:
+                post_ids.append(post_id)
+            if len(post_ids) >= 3:
+                break
+
+    if not tip_text:
+        return {}
+
+    return {
+        "tip_title": title or "Did You Know",
+        "tip_text": tip_text,
+        "next_action": next_action or None,
+        "recommended_post_ids": post_ids,
+        "model_name": model,
+    }
+
+
 MEAL_PARSE_ALLOWED_UNITS = {"serving", "g", "ml", "oz", "lb", "cup", "tbsp", "tsp", "item"}
 MEAL_PARSE_UNIT_ALIASES = {
     "serving": "serving",

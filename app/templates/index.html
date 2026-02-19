@@ -207,6 +207,12 @@
       color: var(--muted);
       margin-left: 4px;
     }
+    .tip-source {
+      font-size: 0.82rem;
+      color: #0f766e;
+      font-weight: 700;
+      margin-left: 6px;
+    }
   </style>
 
   {% if is_authenticated %}
@@ -269,6 +275,27 @@
             <button class="small-btn" type="submit">Do Not Ask Again</button>
           </form>
         </div>
+      {% endif %}
+    </div>
+
+    <div class="card">
+      <h2>
+        {{ home_ai_tip.title }}
+        {% if home_ai_tip.source == "ai" %}
+          <span class="tip-source">AI Personalized</span>
+        {% endif %}
+      </h2>
+      <p>{{ home_ai_tip.tip_text }}</p>
+      {% if home_ai_tip.next_action %}
+        <p class="muted">{{ home_ai_tip.next_action }}</p>
+      {% endif %}
+      {% if home_ai_tip.recommended_posts %}
+        <div class="muted"><strong>Recommended community posts</strong></div>
+        <ul style="margin-top: 6px;">
+          {% for post in home_ai_tip.recommended_posts %}
+            <li><a href="{{ post.url }}">{{ post.title }}</a> <span class="muted">({{ post.category|capitalize }})</span></li>
+          {% endfor %}
+        </ul>
       {% endif %}
     </div>
 

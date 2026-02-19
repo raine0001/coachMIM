@@ -28,6 +28,7 @@ class User(db.Model):
     support_messages = db.relationship("SupportMessage", backref="user", lazy=True)
     goals = db.relationship("UserGoal", backref="user", lazy=True)
     goal_actions = db.relationship("UserGoalAction", backref="user", lazy=True)
+    daily_coach_insights = db.relationship("UserDailyCoachInsight", backref="user", lazy=True)
 
 
 class UserProfile(db.Model):
@@ -467,3 +468,30 @@ class SupportMessage(db.Model):
     admin_note = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
     resolved_at = db.Column(db.DateTime, nullable=True, index=True)
+
+
+class UserDailyCoachInsight(db.Model):
+    __tablename__ = "user_daily_coach_insights"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
+    day = db.Column(db.Date, nullable=False, index=True)
+    context = db.Column(db.String(32), nullable=False, index=True)
+    tip_title = db.Column(db.String(180), nullable=True)
+    tip_text = db.Column(db.Text, nullable=True)
+    next_action = db.Column(db.String(255), nullable=True)
+    recommended_post_ids = db.Column(db.JSON, nullable=True)
+    source = db.Column(db.String(20), nullable=False, default="rule", index=True)
+    model_name = db.Column(db.String(80), nullable=True)
+    encrypted_payload = db.Column(db.LargeBinary, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+    updated_at = db.Column(
+        db.DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
+
+    __table_args__ = (
+        db.UniqueConstraint("user_id", "day", "context", name="uq_user_daily_coach_insight_user_day_context"),
+    )

@@ -33,6 +33,7 @@ from app.ai import (
     ai_reflection,
     community_content_is_blocked,
     coach_prompt_missing_fields,
+    generate_daily_personalized_tip,
     parse_day_manager_context_assist,
     parse_meal_sentence,
     parse_nutrition_label_image,
@@ -54,6 +55,7 @@ from app.models import (
     Substance,
     SupportMessage,
     User,
+    UserDailyCoachInsight,
     UserGoal,
     UserGoalAction,
     UserProfile,
@@ -199,6 +201,15 @@ VOLUME_UNIT_TO_ML = {
     "tsp": 5.0,
     "oz": 29.5735,
 }
+AI_TIP_CONTEXT_CATEGORY_HINTS = {
+    "home": ["health", "lifestyle", "fitness", "recipes"],
+    "checkin": ["health", "lifestyle"],
+    "meal": ["recipes", "food", "health"],
+    "drink": ["food", "health", "lifestyle"],
+    "substance": ["health", "lifestyle"],
+    "activity": ["exercise", "fitness", "health"],
+    "medications": ["supplements", "health"],
+}
 BRAIN_SPARK_PROMPTS = [
     {
         "question": "Quick focus check: What is 18 x 3?",
@@ -306,6 +317,7 @@ FAVORITE_ENCRYPTED_FIELDS = [
 ]
 SUBSTANCE_ENCRYPTED_FIELDS = ["amount", "notes"]
 CHAT_ENCRYPTED_FIELDS = ["content"]
+COACH_INSIGHT_ENCRYPTED_FIELDS = ["tip_title", "tip_text", "next_action", "recommended_post_ids"]
 
 
 def hydrate_profile_secure_fields(user: User, profile: UserProfile | None):
@@ -437,6 +449,28 @@ def persist_chat_secure_fields(user: User, message: MIMChatMessage):
         encrypted_attr="encrypted_payload",
         fields=CHAT_ENCRYPTED_FIELDS,
         scope="mim_chat_message",
+    )
+
+
+def hydrate_coach_insight_secure_fields(user: User, insight: UserDailyCoachInsight | None):
+    if user is None or insight is None:
+        return
+    hydrate_model_fields(
+        user=user,
+        model=insight,
+        encrypted_attr="encrypted_payload",
+        fields=COACH_INSIGHT_ENCRYPTED_FIELDS,
+        scope="daily_coach_insight",
+    )
+
+
+def persist_coach_insight_secure_fields(user: User, insight: UserDailyCoachInsight):
+    encrypt_model_fields(
+        user=user,
+        model=insight,
+        encrypted_attr="encrypted_payload",
+        fields=COACH_INSIGHT_ENCRYPTED_FIELDS,
+        scope="daily_coach_insight",
     )
 
 
@@ -2053,6 +2087,249 @@ def build_home_scoreboard_context(user: User, *, local_today: date):
     }
 
 
+def _community_post_candidates_for_tips(*, context: str, limit: int = 24):
+    hint_categories = AI_TIP_CONTEXT_CATEGORY_HINTS.get(context, AI_TIP_CONTEXT_CATEGORY_HINTS["home"])
+
+    posts = (
+        CommunityPost.query.join(User, CommunityPost.user_id == User.id)
+        .options(
+            selectinload(CommunityPost.likes),
+            selectinload(CommunityPost.comments).selectinload(CommunityComment.user),
+        )
+        .filter(
+            CommunityPost.is_hidden.is_(False),
+            CommunityPost.is_flagged.is_(False),
+            User.is_blocked.is_(False),
+            User.is_spam.is_(False),
+        )
+        .order_by(CommunityPost.created_at.desc(), CommunityPost.id.desc())
+        .limit(120)
+        .all()
+    )
+
+    scored = []
+    for post in posts:
+        safe_comment_count = sum(
+            1
+            for comment in post.comments
+            if not comment.is_hidden and not comment.is_flagged and comment.user and not comment.user.is_blocked and not comment.user.is_spam
+        )
+        like_count = len(post.likes)
+        engagement_score = float(like_count) + (safe_comment_count * 1.25)
+        category_boost = 2.5 if post.category in hint_categories else 0.0
+        recency_boost = max(0.0, 2.0 - ((datetime.utcnow() - post.created_at).days / 7.0))
+        total_score = engagement_score + category_boost + recency_boost
+        excerpt = (normalize_text(post.content) or "")[:220]
+        scored.append(
+            (
+                total_score,
+                {
+                    "id": post.id,
+                    "title": post.title or "Community post",
+                    "category": post.category or "general",
+                    "excerpt": excerpt,
+                    "like_count": like_count,
+                    "comment_count": safe_comment_count,
+                    "url": url_for("main.community_page", category=post.category or "general") + f"#post-{post.id}",
+                },
+            )
+        )
+
+    scored.sort(key=lambda row: row[0], reverse=True)
+    return [row[1] for row in scored[: max(3, limit)]]
+
+
+def _map_recommended_posts(candidate_posts: list[dict], post_ids: list[int], *, max_items: int = 3):
+    post_map = {int(row["id"]): row for row in candidate_posts if row.get("id") is not None}
+    output = []
+    for post_id in post_ids:
+        row = post_map.get(int(post_id))
+        if not row:
+            continue
+        output.append(row)
+        if len(output) >= max_items:
+            break
+    return output
+
+
+def _fallback_recommended_posts(candidate_posts: list[dict], *, context: str, max_items: int = 3):
+    if not candidate_posts:
+        return []
+    hint_categories = AI_TIP_CONTEXT_CATEGORY_HINTS.get(context, AI_TIP_CONTEXT_CATEGORY_HINTS["home"])
+    prioritized = [row for row in candidate_posts if row.get("category") in hint_categories]
+    if len(prioritized) < max_items:
+        seen_ids = {int(row["id"]) for row in prioritized if row.get("id") is not None}
+        for row in candidate_posts:
+            row_id = row.get("id")
+            if row_id is None:
+                continue
+            row_id = int(row_id)
+            if row_id in seen_ids:
+                continue
+            prioritized.append(row)
+            seen_ids.add(row_id)
+            if len(prioritized) >= max_items:
+                break
+    return prioritized[:max_items]
+
+
+def _sanitize_post_ids(values):
+    output = []
+    if not isinstance(values, list):
+        return output
+    for value in values:
+        parsed = parse_int(value)
+        if parsed is not None and parsed not in output:
+            output.append(parsed)
+    return output
+
+
+def _build_daily_tip_signal_payload(
+    *,
+    user: User,
+    profile: UserProfile | None,
+    context: str,
+    selected_day: date,
+    weekly: dict | None,
+    goals: dict | None,
+    day_summary: dict | None,
+):
+    first_name = (normalize_text(user.full_name) or "there").split(" ", 1)[0]
+    top_goal = None
+    if goals and goals.get("top_goal") and goals["top_goal"].get("goal"):
+        top_goal = normalize_text(goals["top_goal"]["goal"].title)
+
+    payload = {
+        "context": context,
+        "selected_day": selected_day.isoformat(),
+        "first_name": first_name,
+        "primary_goal": normalize_text(profile.primary_goal) if profile else None,
+        "top_goal": top_goal,
+        "weekly": {
+            "today_completion_pct": weekly.get("today_completion_pct") if weekly else None,
+            "coverage_to_date_pct": weekly.get("coverage_to_date_pct") if weekly else None,
+            "workout_sessions": weekly.get("workout_sessions") if weekly else None,
+            "avg_sleep": weekly.get("avg_sleep") if weekly else None,
+            "avg_energy": weekly.get("avg_energy") if weekly else None,
+            "avg_stress": weekly.get("avg_stress") if weekly else None,
+        },
+        "day_summary": day_summary or {},
+    }
+    return payload
+
+
+def build_personalized_daily_tip_context(
+    *,
+    user: User,
+    profile: UserProfile | None,
+    context: str,
+    selected_day: date,
+    fallback_tip: dict,
+    weekly: dict | None = None,
+    goals: dict | None = None,
+    day_summary: dict | None = None,
+):
+    safe_context = str(context or "home").strip().lower()
+    if safe_context not in {"home", "checkin", "meal", "drink", "substance", "activity", "medications"}:
+        safe_context = "home"
+
+    insight = UserDailyCoachInsight.query.filter_by(
+        user_id=user.id,
+        day=selected_day,
+        context=safe_context,
+    ).first()
+    hydrate_coach_insight_secure_fields(user, insight)
+
+    candidate_posts = _community_post_candidates_for_tips(context=safe_context, limit=24)
+
+    if insight and normalize_text(insight.tip_text):
+        recommended_ids = _sanitize_post_ids(insight.recommended_post_ids)
+        recommended_posts = _map_recommended_posts(candidate_posts, recommended_ids, max_items=3)
+        if not recommended_posts:
+            recommended_posts = _fallback_recommended_posts(candidate_posts, context=safe_context, max_items=3)
+        return {
+            "title": normalize_text(insight.tip_title) or "Did You Know",
+            "tip_text": normalize_text(insight.tip_text) or fallback_tip["tip_text"],
+            "next_action": normalize_text(insight.next_action) or fallback_tip.get("micro_action"),
+            "recommended_posts": recommended_posts,
+            "source": insight.source or "rule",
+        }
+
+    weekly_payload = weekly or build_home_weekly_context(user, profile or get_or_create_profile(user))
+    goals_payload = goals or build_home_goal_context(user, local_today=get_user_local_today(user))
+    signal_payload = _build_daily_tip_signal_payload(
+        user=user,
+        profile=profile,
+        context=safe_context,
+        selected_day=selected_day,
+        weekly=weekly_payload,
+        goals=goals_payload,
+        day_summary=day_summary,
+    )
+    ai_tip = generate_daily_personalized_tip(
+        first_name=signal_payload["first_name"],
+        context=safe_context,
+        local_day_iso=selected_day.isoformat(),
+        profile_goal=signal_payload["primary_goal"] or signal_payload["top_goal"],
+        weekly_summary=signal_payload.get("weekly"),
+        day_summary=signal_payload.get("day_summary"),
+        candidate_posts=candidate_posts,
+    )
+
+    if ai_tip and normalize_text(ai_tip.get("tip_text")):
+        if insight is None:
+            insight = UserDailyCoachInsight(
+                user_id=user.id,
+                day=selected_day,
+                context=safe_context,
+            )
+        ai_post_ids = _sanitize_post_ids(ai_tip.get("recommended_post_ids"))
+        insight.tip_title = normalize_text(ai_tip.get("tip_title")) or "Did You Know"
+        insight.tip_text = normalize_text(ai_tip.get("tip_text"))
+        insight.next_action = normalize_text(ai_tip.get("next_action"))
+        insight.recommended_post_ids = ai_post_ids
+        insight.source = "ai"
+        insight.model_name = normalize_text(ai_tip.get("model_name"))
+        persist_coach_insight_secure_fields(user, insight)
+        db.session.add(insight)
+        db.session.commit()
+
+        recommended_posts = _map_recommended_posts(candidate_posts, ai_post_ids, max_items=3)
+        if not recommended_posts:
+            recommended_posts = _fallback_recommended_posts(candidate_posts, context=safe_context, max_items=3)
+        return {
+            "title": insight.tip_title or "Did You Know",
+            "tip_text": insight.tip_text,
+            "next_action": insight.next_action or fallback_tip.get("micro_action"),
+            "recommended_posts": recommended_posts,
+            "source": "ai",
+        }
+
+    if insight is None:
+        insight = UserDailyCoachInsight(
+            user_id=user.id,
+            day=selected_day,
+            context=safe_context,
+        )
+    insight.tip_title = fallback_tip.get("title") or "MIM Coach Tip"
+    insight.tip_text = fallback_tip.get("tip_text")
+    insight.next_action = fallback_tip.get("micro_action")
+    insight.recommended_post_ids = []
+    insight.source = "rule"
+    insight.model_name = None
+    persist_coach_insight_secure_fields(user, insight)
+    db.session.add(insight)
+    db.session.commit()
+
+    return {
+        "title": insight.tip_title or "MIM Coach Tip",
+        "tip_text": insight.tip_text,
+        "next_action": insight.next_action,
+        "recommended_posts": _fallback_recommended_posts(candidate_posts, context=safe_context, max_items=3),
+        "source": "rule",
+    }
+
+
 def build_day_manager_tip_context(
     *,
     manager_view: str,
@@ -2954,6 +3231,7 @@ def hard_delete_user_account(user_id: int):
     CommunityComment.query.filter_by(user_id=user_id).delete(synchronize_session=False)
     CommunityPost.query.filter_by(user_id=user_id).delete(synchronize_session=False)
     MIMChatMessage.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    UserDailyCoachInsight.query.filter_by(user_id=user_id).delete(synchronize_session=False)
     SupportMessage.query.filter_by(user_id=user_id).delete(synchronize_session=False)
     FavoriteMeal.query.filter_by(user_id=user_id).delete(synchronize_session=False)
     Meal.query.filter_by(user_id=user_id).delete(synchronize_session=False)
@@ -3095,6 +3373,27 @@ def index():
         profile_nudge=profile_nudge,
         scoreboard=scoreboard,
     )
+    home_fallback_tip = {
+        "title": "Did You Know",
+        "tip_text": "Consistent daily logs beat perfect days. Small repeatable wins create measurable momentum.",
+        "micro_action": "Complete your next required segment now and log one meal with protein.",
+    }
+    home_day_summary = {
+        "today_completion_pct": weekly.get("today_completion_pct"),
+        "today_missing_count": weekly.get("today_missing_count"),
+        "today_required_segments": weekly.get("today_required_segments"),
+        "today_completed_segments": weekly.get("today_completed_segments"),
+    }
+    home_ai_tip = build_personalized_daily_tip_context(
+        user=g.user,
+        profile=profile,
+        context="home",
+        selected_day=local_today,
+        fallback_tip=home_fallback_tip,
+        weekly=weekly,
+        goals=goals,
+        day_summary=home_day_summary,
+    )
     return render_template(
         "index.html",
         is_authenticated=True,
@@ -3104,6 +3403,7 @@ def index():
         profile_nudge=profile_nudge,
         goals=goals,
         scoreboard=scoreboard,
+        home_ai_tip=home_ai_tip,
         coach_overview=coach_overview,
         public_content=public_content,
     )
@@ -4401,6 +4701,25 @@ def checkin_form():
         day_activity_entries=day_activity_entries,
         day_medication_entries=day_medication_entries,
     )
+    checkin_done_count = sum(1 for seg_name in CHECKIN_SEGMENT_ORDER if selected_segments.get(seg_name))
+    day_summary = {
+        "selected_day": selected_day.isoformat(),
+        "checkin_segments_done": checkin_done_count,
+        "checkin_segments_total": len(CHECKIN_SEGMENT_ORDER),
+        "meal_count": selected_day_meal_count,
+        "drink_count": selected_day_drink_count,
+        "substance_count": selected_day_substance_count,
+        "activity_count": selected_day_activity_count,
+        "medication_count": selected_day_medication_count,
+    }
+    day_manager_tip_personalized = build_personalized_daily_tip_context(
+        user=g.user,
+        profile=g.user.profile,
+        context=manager_view,
+        selected_day=selected_day,
+        fallback_tip=day_manager_tip,
+        day_summary=day_summary,
+    )
     brain_spark = build_brain_spark_context(selected_day=selected_day, manager_view=manager_view)
 
     prev_day = selected_day - timedelta(days=1)
@@ -4420,6 +4739,7 @@ def checkin_form():
         selected_segments=selected_segments,
         checkin_default_tab=checkin_default_tab,
         day_manager_tip=day_manager_tip,
+        day_manager_tip_personalized=day_manager_tip_personalized,
         brain_spark=brain_spark,
         history_rows=history_rows,
         prev_day=prev_day.isoformat(),
@@ -4957,6 +5277,229 @@ def checkin_substance_quick_delete(entry_id: int):
     return redirect(url_for("main.checkin_form", day=selected_day.isoformat(), view=manager_view))
 
 
+@bp.get("/recipe-calculator")
+@login_required
+@profile_required
+def recipe_calculator_page():
+    local_today = get_user_local_today(g.user)
+    day_str = request.args.get("day")
+    entry_type = _normalize_recipe_entry_type(request.args.get("type"))
+
+    if day_str:
+        try:
+            selected_day = date.fromisoformat(day_str)
+        except ValueError:
+            selected_day = local_today
+            flash("Invalid day format. Showing current local day.", "error")
+    else:
+        selected_day = local_today
+
+    if selected_day > local_today:
+        selected_day = local_today
+        flash("Future days are disabled. Showing current local day.", "error")
+
+    start, end = day_bounds(selected_day)
+    day_entries = (
+        Meal.query.filter(
+            Meal.user_id == g.user.id,
+            Meal.eaten_at >= start,
+            Meal.eaten_at < end,
+        )
+        .order_by(Meal.eaten_at.desc())
+        .limit(60)
+        .all()
+    )
+    for meal in day_entries:
+        hydrate_meal_secure_fields(g.user, meal)
+
+    quick_favorites = _build_day_manager_favorites_for_user(g.user.id)
+    local_now = datetime.now(get_user_zoneinfo(g.user))
+    default_time = local_now.strftime("%H:%M")
+
+    prev_day = selected_day - timedelta(days=1)
+    next_day = selected_day + timedelta(days=1)
+    can_go_next = next_day <= local_today
+
+    return render_template(
+        "recipe_calculator.html",
+        selected_day=selected_day.isoformat(),
+        selected_day_weekday=selected_day.strftime("%A"),
+        selected_day_pretty=selected_day.strftime("%B %d, %Y"),
+        local_today=local_today.isoformat(),
+        prev_day=prev_day.isoformat(),
+        next_day=next_day.isoformat(),
+        can_go_next=can_go_next,
+        entry_type=entry_type,
+        default_eaten_at=f"{selected_day.isoformat()}T{default_time}",
+        meal_favorites=quick_favorites["meal"],
+        drink_favorites=quick_favorites["drink"],
+        day_entries=day_entries,
+    )
+
+
+@bp.post("/recipe-calculator/calculate")
+@login_required
+@profile_required
+def recipe_calculator_calculate():
+    body = request.get_json(silent=True) if request.is_json else {}
+    raw_ingredients = []
+    entry_type = "meal"
+    label_raw = None
+    title_raw = None
+    if isinstance(body, dict):
+        raw_ingredients = body.get("ingredients") or []
+        entry_type = _normalize_recipe_entry_type(body.get("entry_type"))
+        label_raw = normalize_text(body.get("label"))
+        title_raw = normalize_text(body.get("title"))
+
+    ingredient_rows = _parse_recipe_ingredient_rows(raw_ingredients)
+    if not ingredient_rows:
+        return jsonify({"ok": False, "error": "Add at least one ingredient before calculating."}), 400
+
+    calculated = _calculate_recipe_from_rows(ingredient_rows)
+    totals = calculated["totals"]
+    suggested_label = label_raw
+    if entry_type == "drink" and not suggested_label:
+        suggested_label = "Drink"
+
+    suggested_fields = {
+        "description": title_raw or calculated.get("title_hint"),
+        "label": suggested_label,
+        "portion_notes": calculated.get("portion_hint"),
+        "calories": totals.get("calories"),
+        "protein_g": totals.get("protein_g"),
+        "carbs_g": totals.get("carbs_g"),
+        "fat_g": totals.get("fat_g"),
+        "sugar_g": totals.get("sugar_g"),
+        "sodium_mg": totals.get("sodium_mg"),
+        "caffeine_mg": totals.get("caffeine_mg"),
+    }
+
+    return jsonify(
+        {
+            "ok": True,
+            "entry_type": entry_type,
+            "totals": totals,
+            "ingredients": calculated["ingredients"],
+            "matched_count": calculated["matched_count"],
+            "total_count": calculated["total_count"],
+            "unmatched": calculated["unmatched"],
+            "confidence": calculated["confidence"],
+            "suggested_fields": suggested_fields,
+        }
+    )
+
+
+@bp.post("/recipe-calculator/save")
+@login_required
+@profile_required
+def recipe_calculator_save():
+    local_today = get_user_local_today(g.user)
+    day_raw = request.form.get("day", local_today.isoformat())
+    try:
+        selected_day = date.fromisoformat(day_raw)
+    except ValueError:
+        selected_day = local_today
+
+    if selected_day > local_today:
+        selected_day = local_today
+
+    entry_type = _normalize_recipe_entry_type(request.form.get("entry_type"))
+    is_beverage = entry_type == "drink"
+
+    eaten_at_raw = request.form.get("eaten_at")
+    if not eaten_at_raw:
+        fallback_time = datetime.now(get_user_zoneinfo(g.user)).strftime("%H:%M")
+        eaten_at_raw = f"{selected_day.isoformat()}T{fallback_time}"
+
+    try:
+        eaten_at_dt = datetime.fromisoformat(eaten_at_raw)
+    except ValueError:
+        flash("Invalid date/time. Use the picker and try again.", "error")
+        return redirect(url_for("main.recipe_calculator_page", day=selected_day.isoformat(), type=entry_type))
+
+    recipe_name = normalize_text(request.form.get("description")) or "Custom recipe"
+    label_value = normalize_text(request.form.get("label"))
+    if is_beverage and not label_value:
+        label_value = "Drink"
+    portion_notes = normalize_text(request.form.get("portion_notes"))
+
+    calories_value = parse_int(request.form.get("calories"))
+    protein_value = parse_float(request.form.get("protein_g"))
+    carbs_value = parse_float(request.form.get("carbs_g"))
+    fat_value = parse_float(request.form.get("fat_g"))
+    sugar_value = parse_float(request.form.get("sugar_g"))
+    sodium_value = parse_float(request.form.get("sodium_mg"))
+    caffeine_value = parse_float(request.form.get("caffeine_mg"))
+
+    ingredients_payload = parse_ingredients_json(request.form.get("ingredients_json")) or []
+    if not portion_notes and ingredients_payload:
+        compact_rows = [
+            {
+                "name": row.get("food_name"),
+                "quantity": row.get("quantity"),
+                "unit": row.get("unit"),
+            }
+            for row in ingredients_payload
+        ]
+        portion_notes = _compact_ingredient_summary(compact_rows)
+
+    meal = Meal(user_id=g.user.id, eaten_at=eaten_at_dt)
+    meal.label = label_value
+    meal.description = recipe_name
+    meal.portion_notes = portion_notes
+    meal.tags = None
+    meal.calories = calories_value
+    meal.protein_g = protein_value
+    meal.carbs_g = carbs_value
+    meal.fat_g = fat_value
+    meal.sugar_g = sugar_value
+    meal.sodium_mg = sodium_value
+    meal.caffeine_mg = caffeine_value
+    meal.is_beverage = is_beverage
+    if len(ingredients_payload) == 1 and ingredients_payload[0].get("food_item_id"):
+        meal.food_item_id = ingredients_payload[0].get("food_item_id")
+
+    if not meal_has_meaningful_content(meal, has_new_photo=False):
+        flash("Recipe entry is empty. Add a name, ingredient, or nutrition values before saving.", "error")
+        return redirect(url_for("main.recipe_calculator_page", day=selected_day.isoformat(), type=entry_type))
+
+    persist_meal_secure_fields(g.user, meal)
+    db.session.add(meal)
+
+    saved_favorite = False
+    if parse_bool(request.form.get("save_favorite")):
+        favorite_name = normalize_text(request.form.get("favorite_name")) or normalize_text(recipe_name)
+        if favorite_name:
+            favorite_scope = "drink" if is_beverage else "meal"
+            favorite_name, favorite = _resolve_favorite_slot(g.user.id, favorite_name, favorite_scope)
+            if favorite_name:
+                if not favorite:
+                    favorite = FavoriteMeal(user_id=g.user.id, name=favorite_name)
+                favorite.name = favorite_name
+                favorite.food_item_id = meal.food_item_id
+                favorite.label = meal.label
+                favorite.description = meal.description
+                favorite.portion_notes = meal.portion_notes
+                favorite.tags = _apply_favorite_scope(meal.tags, favorite_scope)
+                favorite.is_beverage = meal.is_beverage
+                favorite.calories = meal.calories
+                favorite.protein_g = meal.protein_g
+                favorite.carbs_g = meal.carbs_g
+                favorite.fat_g = meal.fat_g
+                favorite.sugar_g = meal.sugar_g
+                favorite.sodium_mg = meal.sodium_mg
+                favorite.caffeine_mg = meal.caffeine_mg
+                favorite.ingredients = ingredients_payload or None
+                persist_favorite_secure_fields(g.user, favorite)
+                db.session.add(favorite)
+                saved_favorite = True
+
+    db.session.commit()
+    flash("Recipe saved and added to favorites." if saved_favorite else "Recipe entry logged.", "success")
+    return redirect(url_for("main.recipe_calculator_page", day=selected_day.isoformat(), type=entry_type))
+
+
 @bp.get("/meal")
 @login_required
 @profile_required
@@ -5354,6 +5897,162 @@ def _compact_ingredient_summary(ingredients: list[dict]) -> str | None:
     extra_count = max(0, len(ingredients) - len(chunks))
     tail = f" +{extra_count} more" if extra_count else ""
     return ", ".join(chunks) + tail
+
+
+def _normalize_recipe_entry_type(value: str | None) -> str:
+    return "drink" if (value or "").strip().lower() == "drink" else "meal"
+
+
+def _parse_recipe_ingredient_rows(raw_items) -> list[dict]:
+    if not isinstance(raw_items, list):
+        return []
+
+    cleaned = []
+    for item in raw_items[:40]:
+        if not isinstance(item, dict):
+            continue
+        name = normalize_text(item.get("name") or item.get("food_name") or item.get("ingredient"))
+        if not name:
+            continue
+        quantity = parse_float(item.get("quantity"))
+        if quantity is None or quantity <= 0:
+            quantity = 1.0
+        unit = normalize_builder_unit(item.get("unit"))
+        cleaned.append(
+            {
+                "name": name[:255],
+                "quantity": round(float(quantity), 3),
+                "unit": unit,
+            }
+        )
+    return cleaned
+
+
+def _recipe_title_hint_from_rows(rows: list[dict]) -> str | None:
+    names = []
+    for row in rows:
+        name = normalize_text(row.get("name"))
+        if not name:
+            continue
+        names.append(name)
+        if len(names) == 2:
+            break
+    if not names:
+        return None
+    if len(names) == 1:
+        return names[0].title()
+    return f"{names[0].title()} + {names[1].title()}"
+
+
+def _calculate_recipe_from_rows(ingredient_rows: list[dict]) -> dict:
+    seed_common_foods_if_needed()
+    resolved_rows = []
+    totals = {
+        "calories": 0.0,
+        "protein_g": 0.0,
+        "carbs_g": 0.0,
+        "fat_g": 0.0,
+        "sugar_g": 0.0,
+        "sodium_mg": 0.0,
+        "caffeine_mg": 0.0,
+    }
+    matched_count = 0
+    unmatched_names: list[str] = []
+
+    for row in ingredient_rows:
+        ingredient_name = row["name"]
+        quantity = _safe_float(row.get("quantity"), fallback=1.0)
+        unit = normalize_builder_unit(row.get("unit"))
+
+        matched_item, score = find_best_food_item_match(ingredient_name)
+        row_payload = {
+            "food_item_id": None,
+            "food_name": ingredient_name,
+            "input_name": ingredient_name,
+            "quantity": round(float(quantity), 3),
+            "unit": unit,
+            "serving_size": None,
+            "serving_unit": None,
+            "calories": None,
+            "protein_g": None,
+            "carbs_g": None,
+            "fat_g": None,
+            "sugar_g": None,
+            "sodium_mg": None,
+            "caffeine_mg": None,
+            "match_score": round(float(score), 3) if score else 0.0,
+            "match_source": "none",
+            "matched_display_name": None,
+        }
+
+        if matched_item:
+            matched_count += 1
+            factor = _estimate_meal_factor(quantity, unit, matched_item)
+            row_payload["food_item_id"] = matched_item.id
+            row_payload["food_name"] = matched_item.display_name()
+            row_payload["serving_size"] = matched_item.serving_size
+            row_payload["serving_unit"] = matched_item.serving_unit
+            row_payload["match_source"] = matched_item.source or "local"
+            row_payload["matched_display_name"] = matched_item.display_name()
+
+            calories_value = _safe_float(matched_item.calories) * factor
+            protein_value = _safe_float(matched_item.protein_g) * factor
+            carbs_value = _safe_float(matched_item.carbs_g) * factor
+            fat_value = _safe_float(matched_item.fat_g) * factor
+            sugar_value = _safe_float(matched_item.sugar_g) * factor
+            sodium_value = _safe_float(matched_item.sodium_mg) * factor
+            caffeine_value = _safe_float(matched_item.caffeine_mg) * factor
+
+            row_payload["calories"] = round(calories_value, 1)
+            row_payload["protein_g"] = round(protein_value, 2)
+            row_payload["carbs_g"] = round(carbs_value, 2)
+            row_payload["fat_g"] = round(fat_value, 2)
+            row_payload["sugar_g"] = round(sugar_value, 2)
+            row_payload["sodium_mg"] = round(sodium_value, 2)
+            row_payload["caffeine_mg"] = round(caffeine_value, 2)
+
+            totals["calories"] += calories_value
+            totals["protein_g"] += protein_value
+            totals["carbs_g"] += carbs_value
+            totals["fat_g"] += fat_value
+            totals["sugar_g"] += sugar_value
+            totals["sodium_mg"] += sodium_value
+            totals["caffeine_mg"] += caffeine_value
+        else:
+            unmatched_names.append(ingredient_name)
+
+        resolved_rows.append(row_payload)
+
+    total_count = len(ingredient_rows)
+    confidence = (matched_count / total_count) if total_count else 0.0
+
+    summary_rows = [
+        {
+            "name": row.get("input_name") or row.get("food_name"),
+            "quantity": row.get("quantity"),
+            "unit": row.get("unit"),
+        }
+        for row in resolved_rows
+    ]
+
+    return {
+        "ingredients": resolved_rows,
+        "matched_count": matched_count,
+        "total_count": total_count,
+        "unmatched": unmatched_names,
+        "confidence": round(confidence, 3),
+        "portion_hint": _compact_ingredient_summary(summary_rows),
+        "title_hint": _recipe_title_hint_from_rows(summary_rows),
+        "totals": {
+            "calories": int(round(totals["calories"])) if totals["calories"] > 0 else 0,
+            "protein_g": round(totals["protein_g"], 1),
+            "carbs_g": round(totals["carbs_g"], 1),
+            "fat_g": round(totals["fat_g"], 1),
+            "sugar_g": round(totals["sugar_g"], 1),
+            "sodium_mg": round(totals["sodium_mg"], 1),
+            "caffeine_mg": round(totals["caffeine_mg"], 1),
+        },
+    }
 
 
 @bp.get("/foods/search")

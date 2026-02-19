@@ -1,0 +1,643 @@
+{% extends "base.html" %}
+{% block content %}
+  <style>
+    .recipe-page .card {
+      padding: 14px;
+      margin-bottom: 12px;
+    }
+    .recipe-hero-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .recipe-hero-title {
+      font-size: 1.8rem;
+      font-weight: 800;
+      line-height: 1.15;
+      margin: 0;
+    }
+    .recipe-day-nav {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .recipe-day-nav a,
+    .recipe-day-nav span {
+      padding: 7px 11px;
+      border: 1px solid #d7dee7;
+      border-radius: 8px;
+      text-decoration: none;
+      background: #fff;
+      color: #17212b;
+      font-size: 0.92rem;
+      white-space: nowrap;
+    }
+    .recipe-day-nav span {
+      color: #98a2b3;
+    }
+    .recipe-builder-panel {
+      border: 1px solid #d7dee7;
+      border-radius: 10px;
+      background: #f9fcff;
+      padding: 10px;
+      margin-top: 10px;
+    }
+    .recipe-row {
+      display: grid;
+      grid-template-columns: 1.5fr 0.5fr 0.6fr auto;
+      gap: 8px;
+      align-items: end;
+      margin-bottom: 8px;
+    }
+    .recipe-row .remove-btn {
+      border: 1px solid #d7dee7;
+      background: #fff;
+      color: #17212b;
+      padding: 8px 10px;
+    }
+    .recipe-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 8px;
+      align-items: center;
+    }
+    .recipe-actions .secondary {
+      border: 1px solid #d7dee7;
+      background: #fff;
+      color: #17212b;
+    }
+    .calc-loading {
+      display: none;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+    .inline-spinner {
+      width: 14px;
+      height: 14px;
+      border: 2px solid #d7dee7;
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: recipe-spin 0.7s linear infinite;
+      flex-shrink: 0;
+    }
+    @keyframes recipe-spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+    .recipe-status {
+      margin: 8px 0 0;
+      font-size: 0.92rem;
+    }
+    .match-table-wrap {
+      overflow-x: auto;
+      margin-top: 10px;
+    }
+    .match-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+      min-width: 620px;
+    }
+    .match-table th,
+    .match-table td {
+      border-bottom: 1px solid #e8edf4;
+      padding: 6px;
+      text-align: left;
+      vertical-align: top;
+    }
+    .match-table .align-right {
+      text-align: right;
+    }
+    .entry-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+    }
+    .entry-table th,
+    .entry-table td {
+      border-bottom: 1px solid #e8edf4;
+      padding: 7px;
+    }
+    .entry-table .align-right {
+      text-align: right;
+    }
+    .entry-actions {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+    }
+    .entry-actions a {
+      color: #175cd3;
+      text-decoration: underline;
+    }
+    .entry-actions form {
+      margin: 0;
+    }
+    .entry-actions button {
+      border: none;
+      background: transparent;
+      color: #b42318;
+      text-decoration: underline;
+      padding: 0;
+      font-size: 0.9rem;
+    }
+    @media (max-width: 760px) {
+      .recipe-hero-title {
+        font-size: 1.45rem;
+      }
+      .recipe-row {
+        grid-template-columns: 1fr;
+      }
+      .match-table {
+        min-width: 0;
+      }
+      .entry-table {
+        min-width: 580px;
+      }
+    }
+  </style>
+
+  <div class="recipe-page">
+    <div class="card">
+      <div class="recipe-hero-row">
+        <h1 class="recipe-hero-title">{{ selected_day_weekday }}, {{ selected_day_pretty }}</h1>
+        <div class="recipe-day-nav">
+          <a href="{{ url_for('main.recipe_calculator_page', day=prev_day, type=entry_type) }}">&lt; Prev</a>
+          {% if can_go_next %}
+            <a href="{{ url_for('main.recipe_calculator_page', day=next_day, type=entry_type) }}">Next &gt;</a>
+          {% else %}
+            <span>Next &gt;</span>
+          {% endif %}
+          <a href="{{ url_for('main.recipe_calculator_page', day=local_today, type=entry_type) }}">Today</a>
+        </div>
+      </div>
+      <p class="muted">Recipe Calculator builds nutrition from ingredient lists, then logs to this day.</p>
+    </div>
+
+    <div class="card">
+      <h2>Recipe Nutrition Calculator</h2>
+      <p class="muted">Add one ingredient at a time, press <strong>MIM Calculate</strong>, review totals, then save entry/favorite.</p>
+
+      <form id="recipe_form" method="post" action="{{ url_for('main.recipe_calculator_save') }}">
+        <input type="hidden" name="day" value="{{ selected_day }}" />
+        <input type="hidden" name="ingredients_json" id="recipe_ingredients_json" value="[]" />
+
+        <div class="grid">
+          <div>
+            <label for="recipe_entry_type">Entry Type</label>
+            <select id="recipe_entry_type" name="entry_type">
+              <option value="meal" {% if entry_type == "meal" %}selected{% endif %}>Food / Meal</option>
+              <option value="drink" {% if entry_type == "drink" %}selected{% endif %}>Drink</option>
+            </select>
+          </div>
+          <div>
+            <label for="recipe_eaten_at">Time</label>
+            <input id="recipe_eaten_at" name="eaten_at" type="datetime-local" value="{{ default_eaten_at }}" required />
+          </div>
+          <div>
+            <label for="recipe_favorite_id">Quick Favorite</label>
+            <select id="recipe_favorite_id">
+              <option value="">Choose a favorite</option>
+              {% for favorite in meal_favorites %}
+                <option
+                  data-entry-type="meal"
+                  data-description="{{ favorite.description }}"
+                  data-label="{{ favorite.label }}"
+                  data-portion-notes="{{ favorite.portion_notes }}"
+                  data-calories="{{ favorite.calories }}"
+                  data-protein-g="{{ favorite.protein_g }}"
+                  data-carbs-g="{{ favorite.carbs_g }}"
+                  data-fat-g="{{ favorite.fat_g }}"
+                  data-sugar-g="{{ favorite.sugar_g }}"
+                  data-sodium-mg="{{ favorite.sodium_mg }}"
+                  data-caffeine-mg="{{ favorite.caffeine_mg }}"
+                >{{ favorite.name }}</option>
+              {% endfor %}
+              {% for favorite in drink_favorites %}
+                <option
+                  data-entry-type="drink"
+                  data-description="{{ favorite.description }}"
+                  data-label="{{ favorite.label }}"
+                  data-portion-notes="{{ favorite.portion_notes }}"
+                  data-calories="{{ favorite.calories }}"
+                  data-protein-g="{{ favorite.protein_g }}"
+                  data-carbs-g="{{ favorite.carbs_g }}"
+                  data-fat-g="{{ favorite.fat_g }}"
+                  data-sugar-g="{{ favorite.sugar_g }}"
+                  data-sodium-mg="{{ favorite.sodium_mg }}"
+                  data-caffeine-mg="{{ favorite.caffeine_mg }}"
+                >{{ favorite.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label for="recipe_description">Recipe Name</label>
+            <input id="recipe_description" name="description" placeholder="e.g., Electrolyte lemon water" required />
+          </div>
+          <div>
+            <label for="recipe_label">Label</label>
+            <input id="recipe_label" name="label" placeholder="Breakfast / Snack / Drink" />
+          </div>
+          <div>
+            <label for="recipe_portion_notes">Portion Notes</label>
+            <input id="recipe_portion_notes" name="portion_notes" placeholder="1 serving, 20 oz, etc." />
+          </div>
+        </div>
+
+        <div class="recipe-builder-panel">
+          <label>Ingredients</label>
+          <div id="recipe_rows"></div>
+          <div class="recipe-actions">
+            <button class="secondary" type="button" id="recipe_add_row">+ Add Ingredient</button>
+            <button type="button" id="recipe_calculate">MIM Calculate</button>
+            <div id="recipe_loading" class="calc-loading">
+              <span class="inline-spinner"></span>
+              <span>MIM is calculating nutrition...</span>
+            </div>
+          </div>
+          <p id="recipe_status" class="recipe-status muted"></p>
+
+          <div class="match-table-wrap">
+            <table class="match-table">
+              <thead>
+                <tr>
+                  <th>Ingredient</th>
+                  <th>Matched Catalog Item</th>
+                  <th class="align-right">Cal</th>
+                  <th class="align-right">P/C/F</th>
+                  <th class="align-right">Sugar</th>
+                </tr>
+              </thead>
+              <tbody id="recipe_match_rows">
+                <tr>
+                  <td colspan="5" class="muted">No calculation yet.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="grid" style="margin-top: 10px;">
+          <div>
+            <label for="recipe_calories">Calories</label>
+            <input id="recipe_calories" name="calories" type="number" min="0" />
+          </div>
+          <div>
+            <label for="recipe_protein_g">Protein (g)</label>
+            <input id="recipe_protein_g" name="protein_g" type="number" min="0" step="0.1" />
+          </div>
+          <div>
+            <label for="recipe_carbs_g">Carbs (g)</label>
+            <input id="recipe_carbs_g" name="carbs_g" type="number" min="0" step="0.1" />
+          </div>
+          <div>
+            <label for="recipe_fat_g">Fat (g)</label>
+            <input id="recipe_fat_g" name="fat_g" type="number" min="0" step="0.1" />
+          </div>
+          <div>
+            <label for="recipe_sugar_g">Sugar (g)</label>
+            <input id="recipe_sugar_g" name="sugar_g" type="number" min="0" step="0.1" />
+          </div>
+          <div>
+            <label for="recipe_sodium_mg">Sodium (mg)</label>
+            <input id="recipe_sodium_mg" name="sodium_mg" type="number" min="0" step="0.1" />
+          </div>
+          <div>
+            <label for="recipe_caffeine_mg">Caffeine (mg)</label>
+            <input id="recipe_caffeine_mg" name="caffeine_mg" type="number" min="0" step="0.1" />
+          </div>
+        </div>
+
+        <div class="grid" style="margin-top: 8px;">
+          <div>
+            <label for="recipe_save_favorite">Favorite</label>
+            <label style="font-weight: 500; margin-bottom: 0;">
+              <input id="recipe_save_favorite" name="save_favorite" type="checkbox" />
+              Save this as favorite
+            </label>
+          </div>
+          <div>
+            <label for="recipe_favorite_name">Favorite Name (optional)</label>
+            <input id="recipe_favorite_name" name="favorite_name" placeholder="e.g., morning lemon water" />
+          </div>
+        </div>
+
+        <div class="recipe-actions" style="margin-top: 12px;">
+          <button type="submit">Save Recipe Entry</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="card">
+      <h2>Entries For {{ selected_day }}</h2>
+      {% if day_entries %}
+        <div style="overflow-x: auto;">
+          <table class="entry-table">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Type</th>
+                <th>Item</th>
+                <th>Portion</th>
+                <th class="align-right">Calories</th>
+                <th class="align-right">P/C/F</th>
+                <th class="align-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for meal in day_entries %}
+                <tr>
+                  <td>{{ meal.eaten_at.strftime("%H:%M") }}</td>
+                  <td>{{ "Drink" if meal.is_beverage else "Food" }}</td>
+                  <td>{{ meal.description or (meal.food_item.display_name() if meal.food_item else "Entry") }}</td>
+                  <td>{{ meal.portion_notes or "n/a" }}</td>
+                  <td class="align-right">{{ meal.calories if meal.calories is not none else "-" }}</td>
+                  <td class="align-right">
+                    {{ meal.protein_g if meal.protein_g is not none else "-" }}/{{ meal.carbs_g if meal.carbs_g is not none else "-" }}/{{ meal.fat_g if meal.fat_g is not none else "-" }}
+                  </td>
+                  <td class="align-right">
+                    <div class="entry-actions">
+                      <a href="{{ url_for('main.checkin_form', day=selected_day, view='drink' if meal.is_beverage else 'meal', edit_drink_id=meal.id if meal.is_beverage else None, edit_meal_id=meal.id if not meal.is_beverage else None) }}">Edit</a>
+                      <form
+                        method="post"
+                        action="{{ url_for('main.checkin_meal_quick_delete', meal_id=meal.id) }}"
+                        onsubmit="return confirm('Delete this entry?');"
+                      >
+                        <input type="hidden" name="day" value="{{ selected_day }}" />
+                        <input type="hidden" name="view" value="{{ 'drink' if meal.is_beverage else 'meal' }}" />
+                        <button type="submit">Delete</button>
+                      </form>
+                    </div>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <p class="muted">No food/drink entries for this day yet.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      const unitOptions = ["serving", "g", "oz", "lb", "ml", "cup", "tbsp", "tsp", "item"];
+      const rowsHost = document.getElementById("recipe_rows");
+      const addButton = document.getElementById("recipe_add_row");
+      const calcButton = document.getElementById("recipe_calculate");
+      const loadingEl = document.getElementById("recipe_loading");
+      const statusEl = document.getElementById("recipe_status");
+      const matchRowsEl = document.getElementById("recipe_match_rows");
+      const ingredientsHidden = document.getElementById("recipe_ingredients_json");
+      const entryTypeField = document.getElementById("recipe_entry_type");
+      const favoriteSelect = document.getElementById("recipe_favorite_id");
+
+      const fieldMap = {
+        description: document.getElementById("recipe_description"),
+        label: document.getElementById("recipe_label"),
+        portion_notes: document.getElementById("recipe_portion_notes"),
+        calories: document.getElementById("recipe_calories"),
+        protein_g: document.getElementById("recipe_protein_g"),
+        carbs_g: document.getElementById("recipe_carbs_g"),
+        fat_g: document.getElementById("recipe_fat_g"),
+        sugar_g: document.getElementById("recipe_sugar_g"),
+        sodium_mg: document.getElementById("recipe_sodium_mg"),
+        caffeine_mg: document.getElementById("recipe_caffeine_mg"),
+        favorite_name: document.getElementById("recipe_favorite_name")
+      };
+
+      function normalizeText(value) {
+        return String(value || "").replace(/\s+/g, " ").trim();
+      }
+
+      function buildUnitOptions(selected) {
+        return unitOptions
+          .map((unit) => `<option value="${unit}" ${unit === selected ? "selected" : ""}>${unit}</option>`)
+          .join("");
+      }
+
+      function createRow(data = {}) {
+        const row = document.createElement("div");
+        row.className = "recipe-row";
+        row.innerHTML = `
+          <div>
+            <label>Ingredient</label>
+            <input type="text" class="ingredient-name" placeholder="e.g., honey" value="${normalizeText(data.name || data.food_name || "")}" />
+          </div>
+          <div>
+            <label>Qty</label>
+            <input type="number" min="0" step="0.01" class="ingredient-qty" value="${data.quantity !== undefined && data.quantity !== null ? data.quantity : 1}" />
+          </div>
+          <div>
+            <label>Unit</label>
+            <select class="ingredient-unit">${buildUnitOptions(data.unit || "serving")}</select>
+          </div>
+          <div>
+            <label>&nbsp;</label>
+            <button type="button" class="remove-btn">Remove</button>
+          </div>
+        `;
+        rowsHost.appendChild(row);
+      }
+
+      function collectRows() {
+        const rows = [];
+        rowsHost.querySelectorAll(".recipe-row").forEach((row) => {
+          const name = normalizeText(row.querySelector(".ingredient-name")?.value);
+          const qtyRaw = row.querySelector(".ingredient-qty")?.value;
+          const qty = Number(qtyRaw);
+          const unit = normalizeText(row.querySelector(".ingredient-unit")?.value) || "serving";
+          if (!name) return;
+          rows.push({
+            name,
+            quantity: Number.isFinite(qty) && qty > 0 ? qty : 1,
+            unit
+          });
+        });
+        return rows;
+      }
+
+      function setStatus(message, isError = false) {
+        statusEl.textContent = message || "";
+        statusEl.style.color = isError ? "#b42318" : "";
+      }
+
+      function setLoading(isLoading) {
+        loadingEl.style.display = isLoading ? "inline-flex" : "none";
+        calcButton.disabled = isLoading;
+      }
+
+      function renderMatchRows(rows) {
+        if (!Array.isArray(rows) || rows.length === 0) {
+          matchRowsEl.innerHTML = '<tr><td colspan="5" class="muted">No calculation rows.</td></tr>';
+          return;
+        }
+        matchRowsEl.innerHTML = rows
+          .map((row) => {
+            const sourceName = normalizeText(row.matched_display_name || "");
+            const matchedText = sourceName || "No confident match";
+            const cal = row.calories !== null && row.calories !== undefined ? Number(row.calories).toFixed(0) : "-";
+            const protein = row.protein_g !== null && row.protein_g !== undefined ? Number(row.protein_g).toFixed(1) : "-";
+            const carbs = row.carbs_g !== null && row.carbs_g !== undefined ? Number(row.carbs_g).toFixed(1) : "-";
+            const fat = row.fat_g !== null && row.fat_g !== undefined ? Number(row.fat_g).toFixed(1) : "-";
+            const sugar = row.sugar_g !== null && row.sugar_g !== undefined ? Number(row.sugar_g).toFixed(1) : "-";
+            return `
+              <tr>
+                <td>${normalizeText(row.input_name || row.food_name || "-")}</td>
+                <td>${matchedText}</td>
+                <td class="align-right">${cal}</td>
+                <td class="align-right">${protein}/${carbs}/${fat}</td>
+                <td class="align-right">${sugar}</td>
+              </tr>
+            `;
+          })
+          .join("");
+      }
+
+      function applyTotals(totals) {
+        if (!totals || typeof totals !== "object") return;
+        Object.keys(totals).forEach((key) => {
+          const field = fieldMap[key];
+          if (!field) return;
+          const value = totals[key];
+          field.value = value === null || value === undefined ? "" : String(value);
+        });
+      }
+
+      function applySuggestedFields(suggested) {
+        if (!suggested || typeof suggested !== "object") return;
+        ["description", "label", "portion_notes"].forEach((key) => {
+          const field = fieldMap[key];
+          if (!field) return;
+          if (!normalizeText(field.value) && normalizeText(suggested[key])) {
+            field.value = String(suggested[key]);
+          }
+        });
+      }
+
+      async function calculateRecipe() {
+        const ingredients = collectRows();
+        if (!ingredients.length) {
+          setStatus("Add at least one ingredient before calculating.", true);
+          return;
+        }
+
+        setLoading(true);
+        setStatus("Running MIM calculation...");
+
+        try {
+          const response = await fetch("{{ url_for('main.recipe_calculator_calculate') }}", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              entry_type: entryTypeField.value,
+              title: fieldMap.description.value,
+              label: fieldMap.label.value,
+              ingredients
+            })
+          });
+          const data = await response.json();
+          if (!response.ok || !data.ok) {
+            throw new Error(data.error || "Recipe calculation failed.");
+          }
+
+          renderMatchRows(data.ingredients || []);
+          applyTotals(data.totals || {});
+          applySuggestedFields(data.suggested_fields || {});
+          ingredientsHidden.value = JSON.stringify(Array.isArray(data.ingredients) ? data.ingredients : []);
+
+          const matched = Number(data.matched_count || 0);
+          const total = Number(data.total_count || 0);
+          const confidence = Number(data.confidence || 0);
+          const unmatched = Array.isArray(data.unmatched) ? data.unmatched.filter(Boolean) : [];
+          const baseStatus = `Matched ${matched}/${total} ingredients (confidence ${Math.round(confidence * 100)}%).`;
+          const unmatchedStatus = unmatched.length ? ` Unmatched: ${unmatched.slice(0, 5).join(", ")}.` : "";
+          setStatus(baseStatus + unmatchedStatus, false);
+
+          if (!normalizeText(fieldMap.favorite_name.value) && normalizeText(fieldMap.description.value)) {
+            fieldMap.favorite_name.value = normalizeText(fieldMap.description.value);
+          }
+        } catch (error) {
+          setStatus(error.message || "Recipe calculation failed.", true);
+        } finally {
+          setLoading(false);
+        }
+      }
+
+      function refreshFavoriteOptions() {
+        const targetType = entryTypeField.value === "drink" ? "drink" : "meal";
+        let selectedIsVisible = false;
+        Array.from(favoriteSelect.options).forEach((opt, index) => {
+          if (index === 0) {
+            opt.hidden = false;
+            return;
+          }
+          const rowType = opt.dataset.entryType || "meal";
+          const show = rowType === targetType;
+          opt.hidden = !show;
+          if (show && opt.selected) {
+            selectedIsVisible = true;
+          }
+        });
+        if (!selectedIsVisible) {
+          favoriteSelect.selectedIndex = 0;
+        }
+        if (targetType === "drink" && !normalizeText(fieldMap.label.value)) {
+          fieldMap.label.value = "Drink";
+        }
+      }
+
+      function applyFavorite(option) {
+        if (!option || !option.value) return;
+        fieldMap.description.value = option.dataset.description || option.textContent.trim();
+        fieldMap.label.value = option.dataset.label || (entryTypeField.value === "drink" ? "Drink" : "");
+        fieldMap.portion_notes.value = option.dataset.portionNotes || option.dataset.portion_notes || "";
+        fieldMap.calories.value = option.dataset.calories || "";
+        fieldMap.protein_g.value = option.dataset.proteinG || option.dataset.protein_g || "";
+        fieldMap.carbs_g.value = option.dataset.carbsG || option.dataset.carbs_g || "";
+        fieldMap.fat_g.value = option.dataset.fatG || option.dataset.fat_g || "";
+        fieldMap.sugar_g.value = option.dataset.sugarG || option.dataset.sugar_g || "";
+        fieldMap.sodium_mg.value = option.dataset.sodiumMg || option.dataset.sodium_mg || "";
+        fieldMap.caffeine_mg.value = option.dataset.caffeineMg || option.dataset.caffeine_mg || "";
+        if (!normalizeText(fieldMap.favorite_name.value)) {
+          fieldMap.favorite_name.value = option.textContent.trim();
+        }
+      }
+
+      addButton.addEventListener("click", () => createRow());
+      calcButton.addEventListener("click", calculateRecipe);
+
+      rowsHost.addEventListener("click", (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) return;
+        if (!target.classList.contains("remove-btn")) return;
+        const row = target.closest(".recipe-row");
+        if (row) row.remove();
+        if (!rowsHost.querySelector(".recipe-row")) {
+          createRow();
+        }
+      });
+
+      entryTypeField.addEventListener("change", () => {
+        refreshFavoriteOptions();
+      });
+
+      favoriteSelect.addEventListener("change", () => {
+        const selected = favoriteSelect.options[favoriteSelect.selectedIndex];
+        applyFavorite(selected);
+      });
+
+      createRow();
+      refreshFavoriteOptions();
+    })();
+  </script>
+{% endblock %}

@@ -102,13 +102,13 @@
     }
   </style>
 
-  <div class="card">
-    <h1>Coach MIM</h1>
-    <p>{{ public_content.home_intro }}</p>
-    <p class="muted">Phase I focuses on clean baseline capture for 30-60 days.</p>
-  </div>
-
   {% if is_authenticated %}
+    <div class="card">
+      <h1>Coach MIM</h1>
+      <p>{{ public_content.home_intro }}</p>
+      <p class="muted">Phase I focuses on clean baseline capture for 30-60 days.</p>
+    </div>
+
     <div class="card">
       <h2>Welcome back, {{ current_user.full_name or "CoachMIM user" }}</h2>
       {% if missing_required %}

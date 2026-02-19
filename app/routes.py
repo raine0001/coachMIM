@@ -1,6 +1,7 @@
 import json
 import os
 import re
+from collections import defaultdict
 from datetime import date, datetime, timedelta
 from difflib import SequenceMatcher
 from functools import wraps
@@ -132,6 +133,7 @@ SEARCH_STOPWORDS = {"and", "or", "the", "a", "an", "of", "with", "to", "for"}
 DAY_MANAGER_VIEWS = {"checkin", "meal", "drink", "substance", "activity", "medications"}
 DAY_MANAGER_FAVORITE_SCOPE_PREFIX = "__dmv:"
 GOAL_DRAFT_SESSION_KEY = "goal_coach_draft"
+BRAIN_SPARK_SESSION_KEY = "brain_spark_done_v1"
 GOAL_STATUS_OPTIONS = {"active", "paused", "completed", "archived"}
 GOAL_TYPE_DEFAULT_LABELS = {
     "weight_loss": "Weight loss",
@@ -197,6 +199,29 @@ VOLUME_UNIT_TO_ML = {
     "tsp": 5.0,
     "oz": 29.5735,
 }
+BRAIN_SPARK_PROMPTS = [
+    {
+        "question": "Quick focus check: What is 18 x 3?",
+        "answers": ["54"],
+    },
+    {
+        "question": "Memory check: Name one meal you logged yesterday.",
+        "answers": [],
+        "accept_any_nonempty": True,
+    },
+    {
+        "question": "Mini puzzle: If sleep drops, which metric often drops next: focus or height?",
+        "answers": ["focus"],
+    },
+    {
+        "question": "Breath reset: Inhale 4 sec, exhale 6 sec for 5 rounds. Type 'done' when complete.",
+        "answers": ["done"],
+    },
+    {
+        "question": "Tiny math: 2.5 + 2.5 + 2.5 = ?",
+        "answers": ["7.5", "7.50"],
+    },
+]
 
 PROFILE_ENCRYPTED_FIELDS = [
     "phone",
@@ -1781,6 +1806,403 @@ def build_home_weekly_context(user: User, profile: UserProfile):
     }
 
 
+def _iter_days_desc(start_day: date, end_day: date):
+    current = end_day
+    while current >= start_day:
+        yield current
+        current -= timedelta(days=1)
+
+
+def _day_has_any_signal(
+    *,
+    day_value: date,
+    checkin_by_day: dict[date, DailyCheckIn],
+    meals_by_day: dict[date, list[Meal]],
+    substances_by_day: dict[date, list[Substance]],
+):
+    record = checkin_by_day.get(day_value)
+    return bool(checkin_has_any_data(record) or meals_by_day.get(day_value) or substances_by_day.get(day_value))
+
+
+def _day_stress_average(record: DailyCheckIn | None):
+    if not record:
+        return None
+    values = []
+    for field in ["stress", "morning_stress", "midday_stress", "evening_stress"]:
+        value = getattr(record, field, None)
+        if value is not None:
+            values.append(float(value))
+    return average_or_none(values, digits=2) if values else None
+
+
+def _compute_current_streak(*, start_day: date, end_day: date, condition_fn):
+    streak = 0
+    for day_value in _iter_days_desc(start_day, end_day):
+        if condition_fn(day_value):
+            streak += 1
+        else:
+            break
+    return streak
+
+
+def _compute_recent_hits(*, end_day: date, days: int, condition_fn):
+    hits = 0
+    for offset in range(days):
+        day_value = end_day - timedelta(days=offset)
+        if condition_fn(day_value):
+            hits += 1
+    return hits
+
+
+def build_home_scoreboard_context(user: User, *, local_today: date):
+    lookback_days = 90
+    history_start = local_today - timedelta(days=lookback_days - 1)
+    history_start_dt, _ = day_bounds(history_start)
+    _, history_end_dt = day_bounds(local_today)
+
+    checkins = (
+        DailyCheckIn.query.filter(
+            DailyCheckIn.user_id == user.id,
+            DailyCheckIn.day >= history_start,
+            DailyCheckIn.day <= local_today,
+        )
+        .order_by(DailyCheckIn.day.asc())
+        .all()
+    )
+    for entry in checkins:
+        hydrate_checkin_secure_fields(user, entry)
+
+    meals = (
+        Meal.query.filter(
+            Meal.user_id == user.id,
+            Meal.eaten_at >= history_start_dt,
+            Meal.eaten_at < history_end_dt,
+        )
+        .order_by(Meal.eaten_at.asc())
+        .all()
+    )
+    for entry in meals:
+        hydrate_meal_secure_fields(user, entry)
+
+    substances = (
+        Substance.query.filter(
+            Substance.user_id == user.id,
+            Substance.taken_at >= history_start_dt,
+            Substance.taken_at < history_end_dt,
+        )
+        .order_by(Substance.taken_at.asc())
+        .all()
+    )
+    for entry in substances:
+        hydrate_substance_secure_fields(user, entry)
+
+    done_goal_actions = (
+        UserGoalAction.query.filter(
+            UserGoalAction.user_id == user.id,
+            UserGoalAction.day >= history_start,
+            UserGoalAction.day <= local_today,
+            UserGoalAction.is_done.is_(True),
+        )
+        .all()
+    )
+    goal_action_days = {row.day for row in done_goal_actions}
+
+    checkin_by_day = {entry.day: entry for entry in checkins}
+    meals_by_day: dict[date, list[Meal]] = defaultdict(list)
+    for entry in meals:
+        meals_by_day[entry.eaten_at.date()].append(entry)
+    substances_by_day: dict[date, list[Substance]] = defaultdict(list)
+    for entry in substances:
+        substances_by_day[entry.taken_at.date()].append(entry)
+
+    def day_has_signal(day_value: date):
+        return _day_has_any_signal(
+            day_value=day_value,
+            checkin_by_day=checkin_by_day,
+            meals_by_day=meals_by_day,
+            substances_by_day=substances_by_day,
+        )
+
+    def day_alcohol_free(day_value: date):
+        if not day_has_signal(day_value):
+            return False
+        record = checkin_by_day.get(day_value)
+        day_substances = substances_by_day.get(day_value, [])
+        alcohol_from_checkin = bool(
+            record and record.alcohol_drinks is not None and float(record.alcohol_drinks) > 0
+        )
+        alcohol_from_substances = any(
+            (entry.kind or "").strip().lower() == "alcohol" for entry in day_substances
+        )
+        return not (alcohol_from_checkin or alcohol_from_substances)
+
+    def day_low_sugar(day_value: date):
+        if not day_has_signal(day_value):
+            return False
+        day_meals = meals_by_day.get(day_value, [])
+        if not day_meals:
+            return False
+        sugar_values = [float(entry.sugar_g) for entry in day_meals if entry.sugar_g is not None]
+        if not sugar_values:
+            return False
+        return sum(sugar_values) <= 35.0
+
+    def day_activity_logged(day_value: date):
+        if not day_has_signal(day_value):
+            return False
+        record = checkin_by_day.get(day_value)
+        day_substances = substances_by_day.get(day_value, [])
+        from_substance_log = any((entry.kind or "").strip().lower() == "activity" for entry in day_substances)
+        from_checkin = bool(
+            record
+            and (
+                normalize_text(record.workout_timing) is not None
+                or record.workout_intensity is not None
+            )
+        )
+        return from_substance_log or from_checkin
+
+    def day_low_stress(day_value: date):
+        if not day_has_signal(day_value):
+            return False
+        stress_avg = _day_stress_average(checkin_by_day.get(day_value))
+        return stress_avg is not None and stress_avg <= 3.0
+
+    def day_great_sleep(day_value: date):
+        if not day_has_signal(day_value):
+            return False
+        record = checkin_by_day.get(day_value)
+        if not record:
+            return False
+        if record.sleep_hours is None or record.sleep_quality is None:
+            return False
+        return float(record.sleep_hours) >= 7.0 and int(record.sleep_quality) >= 8
+
+    def day_goal_action_done(day_value: date):
+        return day_value in goal_action_days
+
+    weekly_window_days = min(7, (local_today - history_start).days + 1)
+
+    def make_item(key: str, label: str, goal_line: str, condition_fn):
+        streak = _compute_current_streak(
+            start_day=history_start,
+            end_day=local_today,
+            condition_fn=condition_fn,
+        )
+        week_hits = _compute_recent_hits(
+            end_day=local_today,
+            days=weekly_window_days,
+            condition_fn=condition_fn,
+        )
+        if streak >= 7:
+            status = "strong"
+            tone = "Locked in"
+        elif streak >= 3:
+            status = "building"
+            tone = "Building momentum"
+        elif streak >= 1:
+            status = "started"
+            tone = "Started"
+        else:
+            status = "reset"
+            tone = "Day one now"
+        return {
+            "key": key,
+            "label": label,
+            "goal_line": goal_line,
+            "streak_days": streak,
+            "week_hits": week_hits,
+            "status": status,
+            "tone": tone,
+            "today_ok": bool(condition_fn(local_today)),
+        }
+
+    items = [
+        make_item("alcohol_free", "No Alcohol", "No alcohol entries/logs", day_alcohol_free),
+        make_item("low_sugar", "Low Sugar Days", "<=35g sugar on logged days", day_low_sugar),
+        make_item("activity", "Activity Logged", "Workout/activity recorded", day_activity_logged),
+        make_item("low_stress", "Low Stress Days", "Average stress <=3", day_low_stress),
+        make_item("great_sleep", "Great Sleep", ">=7h and sleep quality >=8", day_great_sleep),
+        make_item("goal_action", "Goal Actions Done", "Daily goal action completed", day_goal_action_done),
+    ]
+
+    top_item = max(items, key=lambda item: (item["streak_days"], item["week_hits"])) if items else None
+    lag_item = min(items, key=lambda item: (item["streak_days"], item["week_hits"])) if items else None
+
+    summary_parts = []
+    if top_item and top_item["streak_days"] > 0:
+        summary_parts.append(
+            f"Strongest streak: {top_item['label']} ({top_item['streak_days']} day{'s' if top_item['streak_days'] != 1 else ''})"
+        )
+    else:
+        summary_parts.append("Streaks are at day one. Build momentum with one completed action now")
+
+    if lag_item:
+        summary_parts.append(
+            f"Lowest trend: {lag_item['label']} ({lag_item['week_hits']}/{weekly_window_days} this week)"
+        )
+
+    next_action = None
+    if lag_item:
+        next_action = f"Priority next win: complete {lag_item['label']} today."
+
+    return {
+        "cards": items,
+        "summary": ". ".join(summary_parts) + ".",
+        "next_action": next_action,
+    }
+
+
+def build_day_manager_tip_context(
+    *,
+    manager_view: str,
+    selected_day: date,
+    selected_segments: dict[str, bool],
+    day_food_entries: list[Meal],
+    day_drink_entries: list[Meal],
+    day_substance_entries: list[Substance],
+    day_activity_entries: list[Substance],
+    day_medication_entries: list[Substance],
+):
+    if manager_view not in DAY_MANAGER_VIEWS:
+        manager_view = "checkin"
+
+    seed = selected_day.toordinal()
+    view_tip_rows = {
+        "checkin": [
+            "Micro-consistency beats intensity. Capturing each segment gives MIM better pattern confidence.",
+            "Morning and midday logs are your leading indicators for energy and focus swings.",
+            "Daily check-ins turn random feelings into measurable trends you can actually coach.",
+        ],
+        "meal": [
+            "Protein at each meal can reduce afternoon crashes and improve appetite stability.",
+            "Adding fiber to one meal can flatten glucose spikes and smooth next-block focus.",
+            "Meal timing consistency often predicts energy consistency better than calories alone.",
+        ],
+        "drink": [
+            "Caffeine can stay active for 6-8 hours. Late intake often reduces sleep depth.",
+            "Hydration timing matters. A large hydration gap can mimic low-energy symptoms.",
+            "Sugary drinks can look like quick energy but often increase afternoon volatility.",
+        ],
+        "substance": [
+            "Alcohol or nicotine timing can shift next-day anxiety and sleep quality patterns.",
+            "Logging exact timing matters more than rough totals for lag-based analysis.",
+            "Small repeated stimulant doses can stack into hidden stress load by evening.",
+        ],
+        "activity": [
+            "A 10-20 minute walk after meals can improve glucose response and reduce slump risk.",
+            "Workout timing can influence same-day focus and next-day recovery quality.",
+            "Short consistent sessions usually outperform sporadic intense sessions for adherence.",
+        ],
+        "medications": [
+            "Consistent timing helps reveal whether a medication or supplement is helping.",
+            "Track dose + time together so MIM can detect delayed effects accurately.",
+            "If side effects appear, logging exact onset timing improves pattern clarity.",
+        ],
+    }
+
+    tip_list = view_tip_rows.get(manager_view, view_tip_rows["checkin"])
+    tip_text = tip_list[seed % len(tip_list)]
+
+    micro_action = "Save one entry now so your daily signal stays clean."
+    cta_label = "Open Community"
+    cta_url = url_for("main.community_page", category="general")
+
+    if manager_view == "checkin":
+        pending = [name for name in CHECKIN_SEGMENT_ORDER if not selected_segments.get(name)]
+        if pending:
+            first_pending = pending[0]
+            micro_action = f"Next step: complete {CHECKIN_SEGMENT_LABELS[first_pending]} before you leave this screen."
+        else:
+            micro_action = "All check-in segments are complete. Keep this consistency streak alive tomorrow."
+        cta_label = "See Health Tips"
+        cta_url = url_for("main.community_page", category="health")
+    elif manager_view == "meal":
+        protein_total = sum(float(entry.protein_g or 0) for entry in day_food_entries)
+        if day_food_entries and protein_total < 30:
+            tip_text = (
+                "Protein is low so far today. Anchoring one meal with 25-35g protein usually improves satiety and focus."
+            )
+        micro_action = "Log one complete meal with portion + protein to improve today’s coaching signal."
+        cta_label = "Recipe Ideas"
+        cta_url = url_for("main.community_page", category="recipes")
+    elif manager_view == "drink":
+        caffeine_total = sum(float(entry.caffeine_mg or 0) for entry in day_drink_entries)
+        if caffeine_total >= 250:
+            tip_text = "Caffeine is already moderate-high today. Consider a low-caffeine option after midday."
+        micro_action = "Capture your next drink with caffeine mg to protect sleep and anxiety trend quality."
+        cta_label = "Drink Ideas"
+        cta_url = url_for("main.community_page", category="food")
+    elif manager_view == "substance":
+        used_alcohol = any((entry.kind or "").strip().lower() == "alcohol" for entry in day_substance_entries)
+        if used_alcohol:
+            tip_text = "Alcohol logged today: add tonight's sleep and tomorrow's anxiety score for cleaner cause/effect."
+        micro_action = "Log exact amount + time to improve lag-correlation detection."
+        cta_label = "Recovery Tips"
+        cta_url = url_for("main.community_page", category="health")
+    elif manager_view == "activity":
+        if not day_activity_entries:
+            tip_text = "Even one short movement block today improves trend confidence and goal adherence."
+        micro_action = "Log one movement session (duration + intensity) before the day closes."
+        cta_label = "Exercise Ideas"
+        cta_url = url_for("main.community_page", category="exercise")
+    elif manager_view == "medications":
+        if not day_medication_entries:
+            micro_action = "Log dose and timing so MIM can detect impact windows."
+        else:
+            micro_action = "Keep dose timing consistent and note side effects for pattern clarity."
+        cta_label = "Supplement Discussions"
+        cta_url = url_for("main.community_page", category="supplements")
+
+    return {
+        "title": "MIM Coach Tip",
+        "tip_text": tip_text,
+        "micro_action": micro_action,
+        "cta_label": cta_label,
+        "cta_url": cta_url,
+    }
+
+
+def _normalize_brain_answer(value: str | None):
+    text = (value or "").strip().lower()
+    text = re.sub(r"\s+", " ", text)
+    compact = re.sub(r"[^a-z0-9.]+", "", text)
+    return text, compact
+
+
+def build_brain_spark_context(*, selected_day: date, manager_view: str):
+    ordered_views = ["checkin", "meal", "drink", "substance", "activity", "medications"]
+    view_offset = ordered_views.index(manager_view) if manager_view in ordered_views else 0
+    prompt_index = (selected_day.toordinal() + (view_offset * 3)) % len(BRAIN_SPARK_PROMPTS)
+    prompt_row = BRAIN_SPARK_PROMPTS[prompt_index]
+    spark_id = f"{selected_day.isoformat()}:{manager_view}:{prompt_index}"
+
+    done_map = session.get(BRAIN_SPARK_SESSION_KEY)
+    if not isinstance(done_map, dict):
+        done_map = {}
+
+    return {
+        "spark_id": spark_id,
+        "question": prompt_row["question"],
+        "answers": prompt_row.get("answers") or [],
+        "accept_any_nonempty": bool(prompt_row.get("accept_any_nonempty")),
+        "is_done": bool(done_map.get(spark_id)),
+    }
+
+
+def brain_spark_answer_is_correct(*, spark_context: dict, answer: str | None):
+    raw_answer, compact_answer = _normalize_brain_answer(answer)
+    if spark_context.get("accept_any_nonempty"):
+        return bool(raw_answer)
+
+    normalized_answers = []
+    for accepted in spark_context.get("answers") or []:
+        _, compact = _normalize_brain_answer(str(accepted))
+        if compact:
+            normalized_answers.append(compact)
+    return bool(compact_answer and compact_answer in normalized_answers)
+
+
 def build_profile_nudge_context(profile: UserProfile | None, *, local_today: date):
     if profile is None:
         return None
@@ -2307,6 +2729,7 @@ def build_home_coach_overview(
     weekly: dict,
     goals: dict,
     profile_nudge: dict | None,
+    scoreboard: dict | None = None,
 ):
     start, end = day_bounds(local_today)
     today_meals = Meal.query.filter(
@@ -2347,6 +2770,15 @@ def build_home_coach_overview(
             summary_bits.append(
                 f"top goal progress is {top_goal.get('progress_pct', 0):.1f}%"
             )
+    if scoreboard and scoreboard.get("cards"):
+        top_score_item = max(
+            scoreboard["cards"],
+            key=lambda item: (item.get("streak_days", 0), item.get("week_hits", 0)),
+        )
+        if top_score_item.get("streak_days", 0) > 0:
+            summary_bits.append(
+                f"best streak is {top_score_item['label']} ({top_score_item['streak_days']} days)"
+            )
     summary = "Right now, " + "; ".join(summary_bits) + "."
 
     missing_links = []
@@ -2375,6 +2807,8 @@ def build_home_coach_overview(
     primary_goal = normalize_text(profile.primary_goal) if profile else None
     if primary_goal and "energy" in primary_goal.lower():
         suggestions.append("Prioritize meal timing and hydration by early afternoon to stabilize run energy.")
+    if scoreboard and scoreboard.get("next_action"):
+        suggestions.append(scoreboard["next_action"])
     if not suggestions:
         suggestions.append("Keep current consistency. The next win is to complete every required check-in segment today.")
 
@@ -2649,6 +3083,7 @@ def index():
     profile = get_or_create_profile(g.user)
     local_today = get_user_local_today(g.user)
     weekly = build_home_weekly_context(g.user, profile)
+    scoreboard = build_home_scoreboard_context(g.user, local_today=local_today)
     profile_nudge = build_profile_nudge_context(profile, local_today=local_today)
     goals = build_home_goal_context(g.user, local_today=local_today)
     coach_overview = build_home_coach_overview(
@@ -2658,6 +3093,7 @@ def index():
         weekly=weekly,
         goals=goals,
         profile_nudge=profile_nudge,
+        scoreboard=scoreboard,
     )
     return render_template(
         "index.html",
@@ -2667,6 +3103,7 @@ def index():
         weekly=weekly,
         profile_nudge=profile_nudge,
         goals=goals,
+        scoreboard=scoreboard,
         coach_overview=coach_overview,
         public_content=public_content,
     )
@@ -3954,6 +4391,17 @@ def checkin_form():
             local_hour=local_now.hour,
         )
     )
+    day_manager_tip = build_day_manager_tip_context(
+        manager_view=manager_view,
+        selected_day=selected_day,
+        selected_segments=selected_segments,
+        day_food_entries=day_food_entries,
+        day_drink_entries=day_drink_entries,
+        day_substance_entries=day_substance_entries,
+        day_activity_entries=day_activity_entries,
+        day_medication_entries=day_medication_entries,
+    )
+    brain_spark = build_brain_spark_context(selected_day=selected_day, manager_view=manager_view)
 
     prev_day = selected_day - timedelta(days=1)
     next_day = selected_day + timedelta(days=1)
@@ -3971,6 +4419,8 @@ def checkin_form():
         selected_day_checked_in=checkin_has_any_data(record),
         selected_segments=selected_segments,
         checkin_default_tab=checkin_default_tab,
+        day_manager_tip=day_manager_tip,
+        brain_spark=brain_spark,
         history_rows=history_rows,
         prev_day=prev_day.isoformat(),
         next_day=next_day.isoformat(),
@@ -4098,6 +4548,39 @@ def checkin_save():
     db.session.commit()
     flash(f"Check-in saved for {selected_day.isoformat()}.", "success")
     return redirect(url_for("main.checkin_form", day=selected_day.isoformat()))
+
+
+@bp.post("/checkin/brain-spark")
+@login_required
+@profile_required
+def checkin_brain_spark_submit():
+    local_today = get_user_local_today(g.user)
+    selected_day_raw = request.form.get("day", local_today.isoformat())
+    manager_view = (request.form.get("view") or "checkin").strip().lower()
+    if manager_view not in DAY_MANAGER_VIEWS:
+        manager_view = "checkin"
+
+    try:
+        selected_day = date.fromisoformat(selected_day_raw)
+    except ValueError:
+        selected_day = local_today
+    if selected_day > local_today:
+        selected_day = local_today
+
+    spark_context = build_brain_spark_context(selected_day=selected_day, manager_view=manager_view)
+    answer = request.form.get("brain_answer")
+    if brain_spark_answer_is_correct(spark_context=spark_context, answer=answer):
+        done_map = session.get(BRAIN_SPARK_SESSION_KEY)
+        if not isinstance(done_map, dict):
+            done_map = {}
+        done_map[spark_context["spark_id"]] = True
+        session[BRAIN_SPARK_SESSION_KEY] = done_map
+        session.modified = True
+        flash("Brain Spark complete. Nice mental rep.", "success")
+    else:
+        flash("Not quite. Try again.", "error")
+
+    return redirect(url_for("main.checkin_form", day=selected_day.isoformat(), view=manager_view))
 
 
 @bp.post("/checkin/meal-quick")

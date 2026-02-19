@@ -178,6 +178,35 @@
       margin-bottom: 6px;
       font-size: 1rem;
     }
+    .scoreboard-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 10px;
+      margin-top: 8px;
+    }
+    .score-card {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px;
+      background: #fff;
+    }
+    .score-card.strong {
+      border-color: #9ad7cb;
+      background: #f4fcfa;
+    }
+    .score-value {
+      font-size: 1.6rem;
+      font-weight: 800;
+      line-height: 1.05;
+      margin: 2px 0 4px;
+      color: var(--accent);
+    }
+    .score-value span {
+      font-size: 0.92rem;
+      font-weight: 600;
+      color: var(--muted);
+      margin-left: 4px;
+    }
   </style>
 
   {% if is_authenticated %}
@@ -240,6 +269,29 @@
             <button class="small-btn" type="submit">Do Not Ask Again</button>
           </form>
         </div>
+      {% endif %}
+    </div>
+
+    <div class="card">
+      <h2>Momentum Scoreboard</h2>
+      <p class="muted">{{ scoreboard.summary }}</p>
+      <div class="scoreboard-grid">
+        {% for item in scoreboard.cards %}
+          <div class="score-card {{ item.status }}">
+            <div class="muted">{{ item.label }}</div>
+            <div class="score-value">{{ item.streak_days }}<span>days</span></div>
+            <div class="muted">{{ item.goal_line }}</div>
+            <div class="muted" style="margin-top: 6px;">
+              {{ item.week_hits }} / 7 this week
+              {% if item.today_ok %}
+                • today done
+              {% endif %}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+      {% if scoreboard.next_action %}
+        <p class="muted" style="margin: 10px 0 0;">{{ scoreboard.next_action }}</p>
       {% endif %}
     </div>
 

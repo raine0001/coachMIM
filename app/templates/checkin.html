@@ -324,6 +324,44 @@
       font-size: 0.9rem;
       line-height: 1.35;
     }
+    .manager-coach-grid {
+      display: grid;
+      grid-template-columns: 1.25fr 1fr;
+      gap: 12px;
+      align-items: start;
+    }
+    .manager-coach-card h2 {
+      margin-bottom: 8px;
+    }
+    .brain-spark-box {
+      border: 1px solid #d7dee7;
+      border-radius: 10px;
+      padding: 10px;
+      background: #fff;
+    }
+    .brain-spark-box h3 {
+      margin: 0 0 6px;
+      font-size: 1rem;
+    }
+    .brain-spark-box p {
+      margin: 0 0 8px;
+      font-size: 0.94rem;
+      line-height: 1.35;
+    }
+    .brain-spark-form {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .brain-spark-form input {
+      flex: 1 1 160px;
+      min-width: 0;
+    }
+    .brain-spark-complete {
+      color: #067647;
+      font-weight: 600;
+    }
     .loading-row {
       display: flex;
       align-items: center;
@@ -400,6 +438,9 @@
         flex-direction: column;
         align-items: stretch;
       }
+      .manager-coach-grid {
+        grid-template-columns: 1fr;
+      }
       .mim-icon-btn {
         min-width: 44px;
       }
@@ -463,6 +504,36 @@
       {{ selected_day_activity_count }} activit{{ "y" if selected_day_activity_count == 1 else "ies" }},
       {{ selected_day_medication_count }} med/supp entr{{ "y" if selected_day_medication_count == 1 else "ies" }}.
     </p>
+  </div>
+
+  <div class="card manager-coach-card">
+    <div class="manager-coach-grid">
+      <div>
+        <h2>{{ day_manager_tip.title }}</h2>
+        <p>{{ day_manager_tip.tip_text }}</p>
+        <p class="muted">{{ day_manager_tip.micro_action }}</p>
+        <a class="secondary-link-btn" href="{{ day_manager_tip.cta_url }}">{{ day_manager_tip.cta_label }}</a>
+      </div>
+      <div class="brain-spark-box">
+        <h3>Brain Spark</h3>
+        <p>{{ brain_spark.question }}</p>
+        {% if brain_spark.is_done %}
+          <p class="brain-spark-complete">Completed for this day/view.</p>
+        {% endif %}
+        <form class="brain-spark-form" method="post" action="{{ url_for('main.checkin_brain_spark_submit') }}">
+          <input type="hidden" name="day" value="{{ selected_day }}" />
+          <input type="hidden" name="view" value="{{ manager_view }}" />
+          <input
+            type="text"
+            name="brain_answer"
+            placeholder="Your answer"
+            autocomplete="off"
+            {% if brain_spark.is_done %}value="done"{% endif %}
+          />
+          <button type="submit">Check</button>
+        </form>
+      </div>
+    </div>
   </div>
 
   {% if manager_view == "checkin" %}

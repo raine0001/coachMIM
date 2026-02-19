@@ -20,18 +20,38 @@
       border: 1px solid var(--line);
       border-radius: 14px;
       overflow: hidden;
-      background: #fff;
+      background: #eef3f8;
       margin: 12px 0 14px;
       display: flex;
       justify-content: center;
       align-items: center;
-      min-height: 220px;
+      min-height: 260px;
     }
     .landing-image-box img {
       width: 100%;
-      max-width: 360px;
-      height: auto;
+      max-width: 380px;
+      aspect-ratio: 2 / 3;
+      object-fit: cover;
       display: block;
+      opacity: 1;
+      transition: opacity 420ms ease;
+    }
+    .landing-image-dots {
+      margin-top: 8px;
+      display: flex;
+      justify-content: center;
+      gap: 6px;
+    }
+    .landing-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 999px;
+      border: 1px solid #9db4cb;
+      background: #d9e5f0;
+    }
+    .landing-dot.active {
+      background: #0f766e;
+      border-color: #0f766e;
     }
     .landing-actions {
       display: grid;
@@ -197,7 +217,14 @@
       <h2 class="landing-title">Coach MIM</h2>
       <p class="landing-sub">{{ public_content.home_intro }}</p>
       <div class="landing-image-box">
-        <img src="{{ url_for('static', filename='mim-logo.png') }}" alt="Coach MIM" />
+        <img id="landing-hero-image" src="{{ url_for('static', filename='mim workout 1.png') }}" alt="Coach MIM" />
+      </div>
+      <div class="landing-image-dots" aria-hidden="true">
+        <span class="landing-dot active" data-dot-index="0"></span>
+        <span class="landing-dot" data-dot-index="1"></span>
+        <span class="landing-dot" data-dot-index="2"></span>
+        <span class="landing-dot" data-dot-index="3"></span>
+        <span class="landing-dot" data-dot-index="4"></span>
       </div>
       <div class="landing-actions">
         <a class="landing-btn primary" href="{{ url_for('main.login') }}">Login</a>
@@ -223,5 +250,50 @@
         <a class="home-quick-link" href="{{ url_for('main.terms_page') }}">Terms</a>
       </div>
     </div>
+  {% endif %}
+
+  {% if not is_authenticated %}
+    <script>
+      (function () {
+        const hero = document.getElementById("landing-hero-image");
+        if (!hero) return;
+
+        const images = [
+          "{{ url_for('static', filename='mim workout 1.png') }}",
+          "{{ url_for('static', filename='mim workout 2.png') }}",
+          "{{ url_for('static', filename='mim workout 3.png') }}",
+          "{{ url_for('static', filename='mim workout 4.png') }}",
+          "{{ url_for('static', filename='mim workout 5.png') }}"
+        ];
+        const dots = Array.from(document.querySelectorAll(".landing-dot"));
+
+        let index = 0;
+        const preload = (i) => {
+          const img = new Image();
+          img.src = images[i];
+        };
+        const setDot = (activeIndex) => {
+          dots.forEach((dot, dotIndex) => {
+            if (dotIndex === activeIndex) {
+              dot.classList.add("active");
+            } else {
+              dot.classList.remove("active");
+            }
+          });
+        };
+
+        preload(1);
+        setInterval(() => {
+          index = (index + 1) % images.length;
+          hero.style.opacity = "0";
+          setTimeout(() => {
+            hero.src = images[index];
+            hero.style.opacity = "1";
+            setDot(index);
+            preload((index + 1) % images.length);
+          }, 220);
+        }, 7000);
+      })();
+    </script>
   {% endif %}
 {% endblock %}

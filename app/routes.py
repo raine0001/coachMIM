@@ -2370,6 +2370,11 @@ def terms_page():
     return render_template("terms.html", summary=summary, contact_email=contact_email)
 
 
+@bp.get("/about")
+def about_page():
+    return render_template("about.html")
+
+
 @bp.route("/profile", methods=["GET", "POST"])
 @login_required
 def profile():

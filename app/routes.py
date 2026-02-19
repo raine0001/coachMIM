@@ -1515,7 +1515,8 @@ def build_home_weekly_context(user: User, profile: UserProfile):
         hydrate_meal_secure_fields(user, meal)
 
     days_with_checkins = {entry.day for entry in checkins}
-    coverage_pct = round((len(days_with_checkins) / 7) * 100, 1)
+    logged_days = len(days_with_checkins)
+    coverage_pct = round((logged_days / 7) * 100, 1)
 
     workout_sessions = 0
     workout_minutes = 0
@@ -1568,12 +1569,41 @@ def build_home_weekly_context(user: User, profile: UserProfile):
     mim_notes = []
     primary_goal = normalize_text(profile.primary_goal) or "Consistency"
 
-    if coverage_pct < 60:
-        mim_notes.append("Data coverage is low this week. More daily check-ins will improve model quality.")
+    if logged_days <= 2:
+        mim_notes.append(
+            "Early data capture phase. Log a few more check-ins this week to strengthen your signal."
+        )
+    elif logged_days <= 4:
+        mim_notes.append(
+            f"Good start: {logged_days}/7 days logged. Add 1-2 more check-ins for cleaner trend detection."
+        )
+    elif logged_days < 7:
+        mim_notes.append(
+            f"Solid consistency so far ({logged_days}/7 days). Keep the streak through week-end."
+        )
+    else:
+        mim_notes.append("Excellent weekly coverage: 7/7 days logged.")
+
     if workout_sessions == 0:
-        mim_notes.append("No workouts logged this week. Add workout timing/intensity to improve performance signal.")
-    elif workout_minutes > 0 and workout_minutes < 90:
-        mim_notes.append("Workout time is light this week. Add one more session to strengthen signal quality.")
+        mim_notes.append("No workouts logged this week yet. Add one session to improve performance signal quality.")
+    elif workout_sessions == 1:
+        if workout_minutes > 0:
+            mim_notes.append(
+                f"Workout signal started ({workout_minutes} min so far). Add one more session for better pattern confidence."
+            )
+        else:
+            mim_notes.append("Workout signal started (1 session logged). Add one more session this week.")
+    elif workout_sessions < 3:
+        if workout_minutes > 0:
+            mim_notes.append(
+                f"Good momentum: {workout_sessions} workouts ({workout_minutes} min). One more session will strengthen insights."
+            )
+        else:
+            mim_notes.append(f"Good momentum: {workout_sessions} workouts logged this week.")
+    elif workout_minutes >= 90:
+        mim_notes.append(
+            f"Training consistency is strong this week ({workout_sessions} sessions, {workout_minutes} min)."
+        )
 
     goal_text = primary_goal.lower()
     if "sleep" in goal_text:

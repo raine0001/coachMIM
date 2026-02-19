@@ -1513,6 +1513,16 @@ def build_home_weekly_context(user: User, profile: UserProfile):
     )
     for meal in meals:
         hydrate_meal_secure_fields(user, meal)
+    substances = (
+        Substance.query.filter(
+            Substance.user_id == user.id,
+            Substance.taken_at >= datetime.combine(week_start, datetime.min.time()),
+            Substance.taken_at < datetime.combine(local_today + timedelta(days=1), datetime.min.time()),
+        )
+        .all()
+    )
+    for entry in substances:
+        hydrate_substance_secure_fields(user, entry)
 
     days_with_checkins = {entry.day for entry in checkins}
     logged_days = len(days_with_checkins)
@@ -1637,6 +1647,7 @@ def build_home_weekly_context(user: User, profile: UserProfile):
         "avg_calories_per_logged_day": avg_calories_per_logged_day,
         "total_calories_week": total_calories_week,
         "meals_logged_week": len(meals),
+        "substances_logged_week": len(substances),
         "checkins_logged_week": len(checkins),
         "avg_sleep": avg_sleep,
         "avg_energy": avg_energy,
@@ -2423,9 +2434,6 @@ def index():
 
     profile = get_or_create_profile(g.user)
     local_today = get_user_local_today(g.user)
-    checkin_count = DailyCheckIn.query.filter_by(user_id=g.user.id).count()
-    meal_count = Meal.query.filter_by(user_id=g.user.id).count()
-    substance_count = Substance.query.filter_by(user_id=g.user.id).count()
     weekly = build_home_weekly_context(g.user, profile)
     profile_nudge = build_profile_nudge_context(profile, local_today=local_today)
     goals = build_home_goal_context(g.user, local_today=local_today)
@@ -2433,9 +2441,6 @@ def index():
         "index.html",
         is_authenticated=True,
         local_today=local_today,
-        checkin_count=checkin_count,
-        meal_count=meal_count,
-        substance_count=substance_count,
         missing_required=profile.missing_required_fields(),
         weekly=weekly,
         profile_nudge=profile_nudge,

@@ -608,11 +608,33 @@ def allowed_file(filename: str) -> bool:
 
 
 def parse_int(value):
-    return int(value) if value not in (None, "") else None
+    if value in (None, ""):
+        return None
+    text_value = str(value).strip()
+    if not text_value:
+        return None
+    try:
+        return int(text_value)
+    except ValueError:
+        try:
+            float_value = float(text_value)
+        except ValueError:
+            return None
+        if float_value.is_integer():
+            return int(float_value)
+        return None
 
 
 def parse_float(value):
-    return float(value) if value not in (None, "") else None
+    if value in (None, ""):
+        return None
+    text_value = str(value).strip()
+    if not text_value:
+        return None
+    try:
+        return float(text_value)
+    except ValueError:
+        return None
 
 
 def parse_bool(value):
@@ -2568,6 +2590,18 @@ def checkin_form():
     selected_day_substance_count = len(day_substance_entries)
     selected_day_activity_count = len(day_activity_entries)
     selected_day_medication_count = len(day_medication_entries)
+    edit_drink_entry = None
+    if manager_view == "drink":
+        edit_drink_id = parse_int(request.args.get("edit_drink_id"))
+        if edit_drink_id is not None:
+            candidate = Meal.query.filter_by(id=edit_drink_id, user_id=g.user.id, is_beverage=True).first()
+            if candidate is None:
+                flash("Drink entry not found for edit.", "error")
+            elif not (start <= candidate.eaten_at < end):
+                flash("Drink entry is outside the selected day.", "error")
+            else:
+                hydrate_meal_secure_fields(g.user, candidate)
+                edit_drink_entry = candidate
     local_now = datetime.now(get_user_zoneinfo(g.user))
     default_entry_time = local_now.strftime("%H:%M")
     default_entry_datetime = f"{selected_day.isoformat()}T{default_entry_time}"
@@ -2613,6 +2647,7 @@ def checkin_form():
         day_substance_entries=day_substance_entries,
         day_activity_entries=day_activity_entries,
         day_medication_entries=day_medication_entries,
+        edit_drink_entry=edit_drink_entry,
         default_entry_datetime=default_entry_datetime,
         meal_quick_favorites=quick_favorites["meal"],
         drink_quick_favorites=quick_favorites["drink"],
@@ -2742,6 +2777,21 @@ def checkin_meal_quick_save():
         if not is_usable_favorite:
             selected_favorite = None
 
+    edit_meal_id = parse_int(request.form.get("edit_meal_id"))
+    meal = None
+    if edit_meal_id is not None:
+        meal = Meal.query.filter_by(id=edit_meal_id, user_id=g.user.id).first()
+        if meal is None:
+            flash("Entry not found for edit.", "error")
+            return redirect(url_for("main.checkin_form", day=selected_day.isoformat(), view=manager_view))
+        hydrate_meal_secure_fields(g.user, meal)
+        if manager_view == "drink" and not meal.is_beverage:
+            flash("Selected entry is not a drink.", "error")
+            return redirect(url_for("main.checkin_form", day=selected_day.isoformat(), view=manager_view))
+        if manager_view == "meal" and meal.is_beverage:
+            flash("Selected entry is a drink. Open the drink view to edit it.", "error")
+            return redirect(url_for("main.checkin_form", day=selected_day.isoformat(), view="drink"))
+
     eaten_at_raw = request.form.get("eaten_at")
     if not eaten_at_raw:
         fallback_time = datetime.now(get_user_zoneinfo(g.user)).strftime("%H:%M")
@@ -2785,41 +2835,88 @@ def checkin_meal_quick_save():
     if selected_favorite:
         if calories_value is None:
             calories_value = selected_favorite.calories
+            if calories_value is None and selected_favorite.food_item is not None:
+                calories_value = selected_favorite.food_item.calories
         if protein_value is None:
             protein_value = selected_favorite.protein_g
+            if protein_value is None and selected_favorite.food_item is not None:
+                protein_value = selected_favorite.food_item.protein_g
         if carbs_value is None:
             carbs_value = selected_favorite.carbs_g
+            if carbs_value is None and selected_favorite.food_item is not None:
+                carbs_value = selected_favorite.food_item.carbs_g
         if fat_value is None:
             fat_value = selected_favorite.fat_g
+            if fat_value is None and selected_favorite.food_item is not None:
+                fat_value = selected_favorite.food_item.fat_g
         if sugar_value is None:
             sugar_value = selected_favorite.sugar_g
+            if sugar_value is None and selected_favorite.food_item is not None:
+                sugar_value = selected_favorite.food_item.sugar_g
         if sodium_value is None:
             sodium_value = selected_favorite.sodium_mg
+            if sodium_value is None and selected_favorite.food_item is not None:
+                sodium_value = selected_favorite.food_item.sodium_mg
         if caffeine_value is None:
             caffeine_value = selected_favorite.caffeine_mg
+            if caffeine_value is None and selected_favorite.food_item is not None:
+                caffeine_value = selected_favorite.food_item.caffeine_mg
 
-    meal = Meal(
-        user_id=g.user.id,
-        eaten_at=eaten_at_dt,
-        label=label_value,
-        description=description,
-        portion_notes=portion_notes,
-        tags=tags_value,
-        calories=calories_value,
-        protein_g=protein_value,
-        carbs_g=carbs_value,
-        fat_g=fat_value,
-        sugar_g=sugar_value,
-        sodium_mg=sodium_value,
-        caffeine_mg=caffeine_value,
-        is_beverage=is_beverage,
-    )
+    is_edit_mode = meal is not None
+    if meal is None:
+        meal = Meal(user_id=g.user.id)
+    meal.eaten_at = eaten_at_dt
+    meal.label = label_value
+    meal.description = description
+    meal.portion_notes = portion_notes
+    meal.tags = tags_value
+    meal.calories = calories_value
+    meal.protein_g = protein_value
+    meal.carbs_g = carbs_value
+    meal.fat_g = fat_value
+    meal.sugar_g = sugar_value
+    meal.sodium_mg = sodium_value
+    meal.caffeine_mg = caffeine_value
+    meal.is_beverage = is_beverage
+    if selected_favorite and meal.food_item_id is None and selected_favorite.food_item_id is not None:
+        meal.food_item_id = selected_favorite.food_item_id
 
     _save_day_manager_meal_favorite(meal, view=manager_view)
     persist_meal_secure_fields(g.user, meal)
     db.session.add(meal)
     db.session.commit()
-    flash("Entry logged.", "success")
+    flash("Entry updated." if is_edit_mode else "Entry logged.", "success")
+    return redirect(url_for("main.checkin_form", day=selected_day.isoformat(), view=manager_view))
+
+
+@bp.post("/checkin/meal-quick/<int:meal_id>/delete")
+@login_required
+@profile_required
+def checkin_meal_quick_delete(meal_id: int):
+    local_today = get_user_local_today(g.user)
+    selected_day_raw = request.form.get("day", local_today.isoformat())
+    manager_view = (request.form.get("view") or "meal").strip().lower()
+    if manager_view not in DAY_MANAGER_VIEWS:
+        manager_view = "meal"
+
+    try:
+        selected_day = date.fromisoformat(selected_day_raw)
+    except ValueError:
+        selected_day = local_today
+
+    meal = Meal.query.filter_by(id=meal_id, user_id=g.user.id).first_or_404()
+    hydrate_meal_secure_fields(g.user, meal)
+    if manager_view == "drink" and not meal.is_beverage:
+        flash("Selected entry is not a drink.", "error")
+        return redirect(url_for("main.checkin_form", day=selected_day.isoformat(), view=manager_view))
+
+    if manager_view == "meal" and meal.is_beverage:
+        flash("Selected entry is a drink. Open the drink view to remove it.", "error")
+        return redirect(url_for("main.checkin_form", day=selected_day.isoformat(), view="drink"))
+
+    db.session.delete(meal)
+    db.session.commit()
+    flash("Entry deleted.", "success")
     return redirect(url_for("main.checkin_form", day=selected_day.isoformat(), view=manager_view))
 
 

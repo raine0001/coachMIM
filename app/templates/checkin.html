@@ -154,6 +154,48 @@
     .table-compact td.align-right {
       text-align: right;
     }
+    .table-actions {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+    }
+    .table-actions form {
+      margin: 0;
+    }
+    .table-actions a {
+      color: #175cd3;
+      text-decoration: underline;
+      font-size: 0.92rem;
+    }
+    .table-actions .delete-link-btn {
+      border: none;
+      background: transparent;
+      color: #b42318;
+      text-decoration: underline;
+      font-size: 0.92rem;
+      padding: 0;
+      cursor: pointer;
+    }
+    .secondary-link-btn {
+      display: inline-block;
+      padding: 9px 13px;
+      background: #fff;
+      border: 1px solid #d7dee7;
+      border-radius: 8px;
+      color: #17212b;
+      text-decoration: none;
+      font-size: 0.95rem;
+    }
+    .edit-mode-banner {
+      margin: 8px 0 10px;
+      padding: 8px 10px;
+      border: 1px solid #cfe3ff;
+      border-radius: 8px;
+      background: #f9fcff;
+      font-size: 0.93rem;
+    }
     .inline-list {
       margin: 0;
       padding-left: 18px;
@@ -699,11 +741,19 @@
   <div class="card">
     <h2>Drinks For {{ selected_day }}</h2>
     <p class="muted">Quick-log drinks separately to make caffeine/hydration timing easier to track.</p>
+    {% if edit_drink_entry %}
+      <div class="edit-mode-banner">
+        Editing drink entry from {{ edit_drink_entry.eaten_at.strftime("%H:%M") }}. Update values, then press Update Drink Entry.
+      </div>
+    {% endif %}
     <form method="post" action="{{ url_for('main.checkin_meal_quick_save') }}">
       <input type="hidden" name="day" value="{{ selected_day }}" />
       <input type="hidden" name="view" value="drink" />
       <input type="hidden" name="is_beverage" value="1" />
       <input type="hidden" name="label" value="Drink" />
+      {% if edit_drink_entry %}
+        <input type="hidden" name="edit_meal_id" value="{{ edit_drink_entry.id }}" />
+      {% endif %}
       <div class="grid">
         <div>
           <label for="drink_favorite_id">Quick Favorite</label>
@@ -723,12 +773,24 @@
         </div>
         <div>
           <label for="drink_eaten_at">Time</label>
-          <input id="drink_eaten_at" name="eaten_at" type="datetime-local" value="{{ default_entry_datetime }}" required />
+          <input
+            id="drink_eaten_at"
+            name="eaten_at"
+            type="datetime-local"
+            value="{{ edit_drink_entry.eaten_at.strftime('%Y-%m-%dT%H:%M') if edit_drink_entry else default_entry_datetime }}"
+            required
+          />
         </div>
         <div>
           <label for="drink_description">Drink Name</label>
           <div class="mim-field-row">
-            <input id="drink_description" name="description" placeholder="e.g., Iced coffee, Diet soda" required />
+            <input
+              id="drink_description"
+              name="description"
+              value="{{ edit_drink_entry.description if edit_drink_entry else '' }}"
+              placeholder="e.g., Iced coffee, Diet soda"
+              required
+            />
             <button id="drink_mim_toggle" class="mim-icon-btn" type="button" title="Ask MIM for help">
               <img class="mim-icon-img" src="{{ mim_logo_url }}" alt="MIM" />
             </button>
@@ -747,19 +809,44 @@
         </div>
         <div>
           <label for="drink_portion_notes">Volume / Portion</label>
-          <input id="drink_portion_notes" name="portion_notes" placeholder="12 oz, 1 can, 500 ml..." />
+          <input
+            id="drink_portion_notes"
+            name="portion_notes"
+            value="{{ edit_drink_entry.portion_notes if edit_drink_entry else '' }}"
+            placeholder="12 oz, 1 can, 500 ml..."
+          />
         </div>
         <div>
           <label for="drink_caffeine_mg">Caffeine (mg)</label>
-          <input id="drink_caffeine_mg" name="caffeine_mg" type="number" min="0" step="0.1" />
+          <input
+            id="drink_caffeine_mg"
+            name="caffeine_mg"
+            type="number"
+            min="0"
+            step="0.1"
+            value="{{ edit_drink_entry.caffeine_mg if edit_drink_entry and edit_drink_entry.caffeine_mg is not none else '' }}"
+          />
         </div>
         <div>
           <label for="drink_calories">Calories</label>
-          <input id="drink_calories" name="calories" type="number" min="0" />
+          <input
+            id="drink_calories"
+            name="calories"
+            type="number"
+            min="0"
+            value="{{ edit_drink_entry.calories if edit_drink_entry and edit_drink_entry.calories is not none else '' }}"
+          />
         </div>
         <div>
           <label for="drink_sugar_g">Sugar (g)</label>
-          <input id="drink_sugar_g" name="sugar_g" type="number" min="0" step="0.1" />
+          <input
+            id="drink_sugar_g"
+            name="sugar_g"
+            type="number"
+            min="0"
+            step="0.1"
+            value="{{ edit_drink_entry.sugar_g if edit_drink_entry and edit_drink_entry.sugar_g is not none else '' }}"
+          />
         </div>
       </div>
       <div class="grid" style="margin-top: 8px;">
@@ -776,7 +863,10 @@
         </div>
       </div>
       <div class="checkin-form-actions">
-        <button type="submit">Save Drink Entry</button>
+        <button type="submit">{{ "Update Drink Entry" if edit_drink_entry else "Save Drink Entry" }}</button>
+        {% if edit_drink_entry %}
+          <a class="secondary-link-btn" href="{{ url_for('main.checkin_form', day=selected_day, view='drink') }}">Cancel Edit</a>
+        {% endif %}
       </div>
     </form>
   </div>
@@ -793,6 +883,7 @@
               <th>Portion</th>
               <th class="align-right">Caffeine</th>
               <th class="align-right">Calories</th>
+              <th class="align-right">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -803,6 +894,20 @@
                 <td>{{ meal.portion_notes or "n/a" }}</td>
                 <td class="align-right">{{ meal.caffeine_mg if meal.caffeine_mg is not none else "-" }}</td>
                 <td class="align-right">{{ meal.calories if meal.calories is not none else "-" }}</td>
+                <td class="align-right">
+                  <div class="table-actions">
+                    <a href="{{ url_for('main.checkin_form', day=selected_day, view='drink', edit_drink_id=meal.id) }}">Edit</a>
+                    <form
+                      method="post"
+                      action="{{ url_for('main.checkin_meal_quick_delete', meal_id=meal.id) }}"
+                      onsubmit="return confirm('Delete this drink entry?');"
+                    >
+                      <input type="hidden" name="day" value="{{ selected_day }}" />
+                      <input type="hidden" name="view" value="drink" />
+                      <button class="delete-link-btn" type="submit">Delete</button>
+                    </form>
+                  </div>
+                </td>
               </tr>
             {% endfor %}
           </tbody>

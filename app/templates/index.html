@@ -146,49 +146,86 @@
       padding: 8px 11px;
       font-size: 0.92rem;
     }
+    .home-headline {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 10px 18px;
+    }
+    .today-date-large {
+      font-size: clamp(1.8rem, 4.4vw, 2.2rem);
+      font-weight: 800;
+      line-height: 1.1;
+      margin: 0;
+    }
+    .checkin-percent-block {
+      text-align: right;
+    }
+    .checkin-percent-value {
+      font-size: clamp(1.9rem, 5vw, 2.4rem);
+      font-weight: 800;
+      line-height: 1;
+      color: var(--accent);
+    }
+    .coach-overview-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+      gap: 12px;
+      margin-top: 10px;
+    }
+    .coach-overview-grid h3 {
+      margin-bottom: 6px;
+      font-size: 1rem;
+    }
   </style>
 
   {% if is_authenticated %}
     <div class="card">
-      <h1>Coach MIM</h1>
-      <p>{{ public_content.home_intro }}</p>
-      <p class="muted">Today is {{ local_today.strftime("%A, %B %d, %Y") }}. Day one is always now.</p>
+      <div class="home-headline">
+        <h1 class="today-date-large">{{ local_today.strftime("%A, %B %d, %Y") }}</h1>
+        <div class="checkin-percent-block">
+          <div class="muted">Check-In Today</div>
+          <div class="checkin-percent-value">{{ weekly.today_completion_pct }}%</div>
+          <div class="muted">{{ weekly.today_completed_segments }} / {{ weekly.today_required_segments }} required segments</div>
+        </div>
+      </div>
     </div>
 
     <div class="card">
-      <h2>Today At A Glance</h2>
-      <div class="grid">
+      <h2>Coach MIM</h2>
+      <p>{{ coach_overview.summary }}</p>
+      <p class="muted">{{ coach_overview.progress_statement }}</p>
+      <div class="coach-overview-grid">
         <div>
-          <div class="muted">Check-In Days This Week</div>
-          <div class="metric">{{ weekly.checkins_logged_week }}</div>
+          <h3>What Needs Attention</h3>
+          {% if coach_overview.missing_links %}
+            <ul style="margin: 0;">
+              {% for item in coach_overview.missing_links %}
+                <li><a href="{{ item.url }}">{{ item.label }}</a></li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            <p class="muted" style="margin: 0;">No critical gaps right now. Keep current cadence.</p>
+          {% endif %}
         </div>
         <div>
-          <div class="muted">Meals This Week</div>
-          <div class="metric">{{ weekly.meals_logged_week }}</div>
-        </div>
-        <div>
-          <div class="muted">Substance Entries This Week</div>
-          <div class="metric">{{ weekly.substances_logged_week }}</div>
-        </div>
-        <div>
-          <div class="muted">Active Goals</div>
-          <div class="metric">{{ goals.active_count }}</div>
+          <h3>Suggestions Right Now</h3>
+          <ul style="margin: 0;">
+            {% for suggestion in coach_overview.suggestions %}
+              <li>{{ suggestion }}</li>
+            {% endfor %}
+          </ul>
         </div>
       </div>
       <div class="goal-action-row">
-        <a class="home-quick-link" href="{{ url_for('main.checkin_form') }}">Open Daily Check-In</a>
-        <a class="home-quick-link" href="{{ url_for('main.goals_page') }}">Open My Goals</a>
+        <a class="home-quick-link" href="{{ url_for('main.checkin_form', day=local_today.isoformat(), view='checkin') }}">Open Daily Check-In</a>
+        <a class="home-quick-link" href="{{ url_for('main.checkin_form', day=local_today.isoformat(), view='meal') }}">Log Meal</a>
+        <a class="home-quick-link" href="{{ url_for('main.checkin_form', day=local_today.isoformat(), view='drink') }}">Log Drink</a>
       </div>
-    </div>
-
-    {% if profile_nudge %}
-      <div class="card">
-        <h2>MIM Profile Prompt</h2>
-        <p>
-          {{ profile_nudge.prompt }}
-        </p>
+      {% if profile_nudge %}
         <p class="muted">
-          {{ profile_nudge.remaining_count }} required profile field{{ "" if profile_nudge.remaining_count == 1 else "s" }} remaining.
+          {{ profile_nudge.prompt }}
         </p>
         <div class="goal-action-row">
           <a class="home-quick-link" href="{{ url_for('main.profile') }}">Open Profile</a>
@@ -203,24 +240,8 @@
             <button class="small-btn" type="submit">Do Not Ask Again</button>
           </form>
         </div>
-      </div>
-    {% elif missing_required %}
-      <div class="card">
-        <h2>Profile Baseline</h2>
-        <p class="muted">
-          Core profile fields still missing:
-          {{ missing_required | join(", ") }}.
-        </p>
-        <div class="goal-action-row">
-          <a class="home-quick-link" href="{{ url_for('main.profile') }}">Complete Profile</a>
-          <form class="inline-form" method="post" action="{{ url_for('main.profile_nudge_settings') }}">
-            <input type="hidden" name="action" value="resume" />
-            <input type="hidden" name="next" value="{{ url_for('main.index') }}" />
-            <button class="small-btn" type="submit">Re-Enable Prompts</button>
-          </form>
-        </div>
-      </div>
-    {% endif %}
+      {% endif %}
+    </div>
 
     <div class="card">
       <h2>MIM Goal Pulse</h2>
@@ -339,7 +360,6 @@
       <div class="home-quick-links">
         <a class="home-quick-link" href="{{ url_for('main.timeline') }}">Timeline</a>
         <a class="home-quick-link" href="{{ url_for('main.insights') }}">Weekly Insights</a>
-        <a class="home-quick-link" href="{{ url_for('main.goals_page') }}">My Goals</a>
       </div>
     </div>
   {% else %}
@@ -365,21 +385,6 @@
         <a href="{{ url_for('main.about_page') }}">About</a>
         <a href="{{ url_for('main.privacy_page') }}">Privacy</a>
         <a href="{{ url_for('main.terms_page') }}">Terms</a>
-      </div>
-    </div>
-  {% endif %}
-
-  {% if is_authenticated %}
-    <div class="card">
-      <h2>Support & Policies</h2>
-      <p class="muted">
-        Contact for help:
-        <a href="mailto:{{ public_content.contact_email }}">{{ public_content.contact_email }}</a>
-      </p>
-      <div class="home-quick-links">
-        <a class="home-quick-link" href="{{ url_for('main.about_page') }}">About</a>
-        <a class="home-quick-link" href="{{ url_for('main.privacy_page') }}">Privacy Policy</a>
-        <a class="home-quick-link" href="{{ url_for('main.terms_page') }}">Terms</a>
       </div>
     </div>
   {% endif %}

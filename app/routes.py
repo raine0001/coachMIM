@@ -51,6 +51,7 @@ from app.models import (
     Meal,
     SiteSetting,
     Substance,
+    SupportMessage,
     User,
     UserGoal,
     UserGoalAction,
@@ -61,6 +62,19 @@ from app.security import encrypt_model_fields, hydrate_model_fields
 bp = Blueprint("main", __name__)
 
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "webp", "heic"}
+SUPPORT_ALLOWED_EXTENSIONS = {
+    "png",
+    "jpg",
+    "jpeg",
+    "webp",
+    "heic",
+    "pdf",
+    "txt",
+    "csv",
+    "doc",
+    "docx",
+}
+SUPPORT_STATUS_OPTIONS = {"new", "resolved", "spam"}
 
 PREFERRED_TIMEZONES = [
     "America/New_York",
@@ -630,6 +644,10 @@ def _save_day_manager_nonmeal_favorite(scope: str, *, label: str, description: s
 
 def allowed_file(filename: str) -> bool:
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
+
+
+def support_allowed_file(filename: str) -> bool:
+    return "." in filename and filename.rsplit(".", 1)[1].lower() in SUPPORT_ALLOWED_EXTENSIONS
 
 
 def parse_int(value):
@@ -1487,6 +1505,44 @@ def checkin_metric_value(record: DailyCheckIn, overall_field: str, segment_field
     return average_or_none([float(v) for v in segment_values if v is not None], digits=2)
 
 
+CHECKIN_SEGMENT_ORDER = ["sleep", "morning", "midday", "evening", "overall"]
+CHECKIN_SEGMENT_LABELS = {
+    "sleep": "Sleep",
+    "morning": "Morning",
+    "midday": "Midday",
+    "evening": "Evening",
+    "overall": "Overall",
+}
+
+
+def expected_checkin_segments_for_day(day_value: date, *, local_today: date, local_hour: int):
+    if day_value < local_today:
+        return CHECKIN_SEGMENT_ORDER[:]
+
+    expected = ["sleep"]
+    if local_hour >= 11:
+        expected.append("morning")
+    if local_hour >= 15:
+        expected.append("midday")
+    if local_hour >= 20:
+        expected.append("evening")
+    if local_hour >= 22:
+        expected.append("overall")
+    return expected
+
+
+def compute_expected_segment_completion(record: DailyCheckIn | None, expected_segments: list[str]):
+    statuses = checkin_segment_status(record)
+    completed = 0
+    missing_segments = []
+    for segment in expected_segments:
+        if statuses.get(segment):
+            completed += 1
+        else:
+            missing_segments.append(segment)
+    return completed, missing_segments
+
+
 def build_home_weekly_context(user: User, profile: UserProfile):
     local_today = get_user_local_today(user)
     week_start = local_today - timedelta(days=local_today.weekday())
@@ -1528,28 +1584,6 @@ def build_home_weekly_context(user: User, profile: UserProfile):
         hydrate_substance_secure_fields(user, entry)
 
     checkin_by_day = {entry.day: entry for entry in checkins}
-    segment_order = ["sleep", "morning", "midday", "evening", "overall"]
-    segment_labels = {
-        "sleep": "Sleep",
-        "morning": "Morning",
-        "midday": "Midday",
-        "evening": "Evening",
-        "overall": "Overall",
-    }
-
-    def expected_segments_for_day(day_value: date):
-        if day_value < local_today:
-            return segment_order[:]
-        expected = ["sleep"]
-        if local_now.hour >= 11:
-            expected.append("morning")
-        if local_now.hour >= 15:
-            expected.append("midday")
-        if local_now.hour >= 20:
-            expected.append("evening")
-        if local_now.hour >= 22:
-            expected.append("overall")
-        return expected
 
     required_segments_total = 0
     required_segments_completed = 0
@@ -1561,23 +1595,44 @@ def build_home_weekly_context(user: User, profile: UserProfile):
         record = checkin_by_day.get(day_value)
         if checkin_has_any_data(record):
             days_with_any_data += 1
-        statuses = checkin_segment_status(record)
-        expected_segments = expected_segments_for_day(day_value)
+        expected_segments = expected_checkin_segments_for_day(
+            day_value,
+            local_today=local_today,
+            local_hour=local_now.hour,
+        )
+        completed_segments, missing_segments = compute_expected_segment_completion(record, expected_segments)
         required_segments_total += len(expected_segments)
-        for segment in expected_segments:
-            if statuses.get(segment):
-                required_segments_completed += 1
-            else:
-                coverage_missing_items.append(
-                    {
-                        "day": day_value,
-                        "segment": segment,
-                        "label": f"{day_value.strftime('%a %b %d')} - {segment_labels[segment]}",
-                        "url": f"/checkin?day={day_value.isoformat()}&view=checkin&segment={segment}",
-                    }
-                )
+        required_segments_completed += completed_segments
+        for segment in missing_segments:
+            coverage_missing_items.append(
+                {
+                    "day": day_value,
+                    "segment": segment,
+                    "label": f"{day_value.strftime('%a %b %d')} - {CHECKIN_SEGMENT_LABELS[segment]}",
+                    "url": f"/checkin?day={day_value.isoformat()}&view=checkin&segment={segment}",
+                }
+            )
 
     coverage_pct = round((required_segments_completed / max(required_segments_total, 1)) * 100, 1)
+    today_record = checkin_by_day.get(local_today)
+    today_expected_segments = expected_checkin_segments_for_day(
+        local_today,
+        local_today=local_today,
+        local_hour=local_now.hour,
+    )
+    today_completed_segments, today_missing_segments = compute_expected_segment_completion(
+        today_record,
+        today_expected_segments,
+    )
+    today_completion_pct = round((today_completed_segments / max(len(today_expected_segments), 1)) * 100, 1)
+    today_missing_items = [
+        {
+            "segment": segment,
+            "label": CHECKIN_SEGMENT_LABELS[segment],
+            "url": f"/checkin?day={local_today.isoformat()}&view=checkin&segment={segment}",
+        }
+        for segment in today_missing_segments
+    ]
 
     workout_sessions = 0
     workout_minutes = 0
@@ -1702,6 +1757,11 @@ def build_home_weekly_context(user: User, profile: UserProfile):
         "coverage_missing_count": len(coverage_missing_items),
         "coverage_missing_items": coverage_missing_items[:8],
         "days_with_any_data": days_with_any_data,
+        "today_completion_pct": today_completion_pct,
+        "today_required_segments": len(today_expected_segments),
+        "today_completed_segments": today_completed_segments,
+        "today_missing_count": len(today_missing_items),
+        "today_missing_items": today_missing_items,
         "workout_sessions": workout_sessions,
         "workout_minutes": workout_minutes,
         "avg_calories_per_logged_day": avg_calories_per_logged_day,
@@ -2239,6 +2299,99 @@ def build_home_goal_context(user: User, *, local_today: date):
     }
 
 
+def build_home_coach_overview(
+    user: User,
+    profile: UserProfile | None,
+    *,
+    local_today: date,
+    weekly: dict,
+    goals: dict,
+    profile_nudge: dict | None,
+):
+    start, end = day_bounds(local_today)
+    today_meals = Meal.query.filter(
+        Meal.user_id == user.id,
+        Meal.eaten_at >= start,
+        Meal.eaten_at < end,
+        Meal.is_beverage.is_(False),
+    ).count()
+    today_drinks = Meal.query.filter(
+        Meal.user_id == user.id,
+        Meal.eaten_at >= start,
+        Meal.eaten_at < end,
+        Meal.is_beverage.is_(True),
+    ).count()
+    today_substances = Substance.query.filter(
+        Substance.user_id == user.id,
+        Substance.kind.in_(["alcohol", "caffeine", "nicotine", "other"]),
+        Substance.taken_at >= start,
+        Substance.taken_at < end,
+    ).count()
+
+    summary_bits = []
+    if weekly.get("today_completion_pct", 0) >= 99.9:
+        summary_bits.append("today's required check-in segments are fully complete")
+    else:
+        summary_bits.append(
+            f"today's check-in is {weekly.get('today_completion_pct', 0):.1f}% complete"
+        )
+    summary_bits.append(
+        f"{weekly.get('completed_required_segments', 0)}/{weekly.get('required_segments', 0)} required segments complete this week"
+    )
+    summary_bits.append(
+        f"{today_meals} meal{'' if today_meals == 1 else 's'} and {today_drinks} drink{'' if today_drinks == 1 else 's'} logged today"
+    )
+    if goals.get("active_count", 0) > 0:
+        top_goal = goals.get("top_goal")
+        if top_goal:
+            summary_bits.append(
+                f"top goal progress is {top_goal.get('progress_pct', 0):.1f}%"
+            )
+    summary = "Right now, " + "; ".join(summary_bits) + "."
+
+    missing_links = []
+    for item in weekly.get("today_missing_items", [])[:5]:
+        missing_links.append({"label": f"Complete {item['label']} check-in", "url": item["url"]})
+    if today_meals == 0:
+        missing_links.append(
+            {"label": "Log your first meal for today", "url": url_for("main.checkin_form", day=local_today.isoformat(), view="meal")}
+        )
+    if today_drinks == 0:
+        missing_links.append(
+            {"label": "Log your first drink for today", "url": url_for("main.checkin_form", day=local_today.isoformat(), view="drink")}
+        )
+    if profile_nudge:
+        missing_links.append({"label": "Complete the next profile baseline question", "url": url_for("main.profile")})
+
+    suggestions = []
+    top_goal = goals.get("top_goal")
+    if top_goal and top_goal.get("goal") and normalize_text(top_goal["goal"].today_action):
+        suggestions.append(top_goal["goal"].today_action)
+    if weekly.get("workout_sessions", 0) == 0:
+        suggestions.append("Add one movement block today, even if it is only 20 minutes.")
+    elif weekly.get("workout_sessions", 0) < 3:
+        suggestions.append("One more workout this week will improve signal quality for performance trends.")
+
+    primary_goal = normalize_text(profile.primary_goal) if profile else None
+    if primary_goal and "energy" in primary_goal.lower():
+        suggestions.append("Prioritize meal timing and hydration by early afternoon to stabilize run energy.")
+    if not suggestions:
+        suggestions.append("Keep current consistency. The next win is to complete every required check-in segment today.")
+
+    progress_statement = (
+        f"Check-in to-date: {weekly.get('coverage_to_date_pct', 0):.1f}% | "
+        f"Today: {weekly.get('today_completed_segments', 0)}/{weekly.get('today_required_segments', 0)} segments | "
+        f"Substances today: {today_substances}"
+    )
+
+    return {
+        "summary": summary,
+        "progress_statement": progress_statement,
+        "missing_links": missing_links,
+        "suggestions": suggestions,
+    }
+
+
 def serialize_goal_draft_for_session(draft: dict):
     if not isinstance(draft, dict):
         return {}
@@ -2367,6 +2520,7 @@ def hard_delete_user_account(user_id: int):
     CommunityComment.query.filter_by(user_id=user_id).delete(synchronize_session=False)
     CommunityPost.query.filter_by(user_id=user_id).delete(synchronize_session=False)
     MIMChatMessage.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    SupportMessage.query.filter_by(user_id=user_id).delete(synchronize_session=False)
     FavoriteMeal.query.filter_by(user_id=user_id).delete(synchronize_session=False)
     Meal.query.filter_by(user_id=user_id).delete(synchronize_session=False)
     Substance.query.filter_by(user_id=user_id).delete(synchronize_session=False)
@@ -2497,6 +2651,14 @@ def index():
     weekly = build_home_weekly_context(g.user, profile)
     profile_nudge = build_profile_nudge_context(profile, local_today=local_today)
     goals = build_home_goal_context(g.user, local_today=local_today)
+    coach_overview = build_home_coach_overview(
+        g.user,
+        profile,
+        local_today=local_today,
+        weekly=weekly,
+        goals=goals,
+        profile_nudge=profile_nudge,
+    )
     return render_template(
         "index.html",
         is_authenticated=True,
@@ -2505,6 +2667,7 @@ def index():
         weekly=weekly,
         profile_nudge=profile_nudge,
         goals=goals,
+        coach_overview=coach_overview,
         public_content=public_content,
     )
 
@@ -2607,6 +2770,61 @@ def lost_password():
     return render_template("lost_password.html")
 
 
+@bp.post("/contact-support")
+def contact_support():
+    sender_name = normalize_text(request.form.get("sender_name"))
+    sender_email = normalize_email(request.form.get("sender_email"))
+    subject = normalize_text(request.form.get("subject"))
+    message_text = normalize_text(request.form.get("message"))
+    next_url = request.form.get("next") or request.referrer or url_for("main.index")
+
+    if g.user:
+        sender_name = sender_name or normalize_text(g.user.full_name) or "CoachMIM User"
+        sender_email = sender_email or normalize_email(g.user.email)
+
+    if not sender_name:
+        flash("Name is required for contact requests.", "error")
+        return redirect(next_url if str(next_url).startswith("/") else url_for("main.index"))
+    if not sender_email:
+        flash("Email is required for contact requests.", "error")
+        return redirect(next_url if str(next_url).startswith("/") else url_for("main.index"))
+    if not subject or len(subject) < 3:
+        flash("Subject must be at least 3 characters.", "error")
+        return redirect(next_url if str(next_url).startswith("/") else url_for("main.index"))
+    if not message_text or len(message_text) < 10:
+        flash("Message must be at least 10 characters.", "error")
+        return redirect(next_url if str(next_url).startswith("/") else url_for("main.index"))
+
+    attachment_path = None
+    attachment = request.files.get("attachment")
+    if attachment and attachment.filename:
+        if not support_allowed_file(attachment.filename):
+            flash("Unsupported attachment type. Use image, PDF, text, CSV, DOC, or DOCX.", "error")
+            return redirect(next_url if str(next_url).startswith("/") else url_for("main.index"))
+        safe_name = secure_filename(attachment.filename)
+        upload_name = f"{uuid4().hex}_{safe_name}"
+        base_upload_dir = current_app.config["UPLOAD_FOLDER"]
+        support_dir = os.path.join(base_upload_dir, "support")
+        os.makedirs(support_dir, exist_ok=True)
+        local_path = os.path.join(support_dir, upload_name)
+        attachment.save(local_path)
+        attachment_path = f"uploads/support/{upload_name}"
+
+    support_message = SupportMessage(
+        user_id=g.user.id if g.user else None,
+        sender_name=sender_name[:255],
+        sender_email=sender_email[:255],
+        subject=subject[:180],
+        message=message_text,
+        attachment_path=attachment_path,
+        status="new",
+    )
+    db.session.add(support_message)
+    db.session.commit()
+    flash("Message sent to support. We will follow up soon.", "success")
+    return redirect(next_url if str(next_url).startswith("/") else url_for("main.index"))
+
+
 @bp.post("/logout")
 @login_required
 def logout():
@@ -2671,6 +2889,11 @@ def admin_dashboard():
     community_post_count = CommunityPost.query.count()
     flagged_posts_count = CommunityPost.query.filter_by(is_flagged=True).count()
     flagged_comments_count = CommunityComment.query.filter_by(is_flagged=True).count()
+    support_total_count = SupportMessage.query.count()
+    support_new_count = SupportMessage.query.filter_by(status="new").count()
+    latest_support_messages = (
+        SupportMessage.query.order_by(SupportMessage.created_at.desc(), SupportMessage.id.desc()).limit(8).all()
+    )
 
     signups_last_7d = User.query.filter(
         ~User.email.in_(SYSTEM_USER_EMAILS),
@@ -2687,6 +2910,9 @@ def admin_dashboard():
         community_post_count=community_post_count,
         flagged_posts_count=flagged_posts_count,
         flagged_comments_count=flagged_comments_count,
+        support_total_count=support_total_count,
+        support_new_count=support_new_count,
+        latest_support_messages=latest_support_messages,
     )
 
 
@@ -2721,6 +2947,62 @@ def admin_users():
         )
 
     return render_template("admin_users.html", rows=rows)
+
+
+@bp.get("/dontcrash/support")
+@admin_login_required
+def admin_support():
+    status_filter = (request.args.get("status") or "all").strip().lower()
+    if status_filter not in {"all", "new", "resolved", "spam"}:
+        status_filter = "all"
+
+    query = SupportMessage.query.order_by(SupportMessage.created_at.desc(), SupportMessage.id.desc())
+    if status_filter != "all":
+        query = query.filter_by(status=status_filter)
+    messages = query.limit(300).all()
+
+    counts = dict(
+        db.session.query(SupportMessage.status, func.count(SupportMessage.id))
+        .group_by(SupportMessage.status)
+        .all()
+    )
+
+    return render_template(
+        "admin_support.html",
+        messages=messages,
+        status_filter=status_filter,
+        counts={
+            "all": int(sum(counts.values())),
+            "new": int(counts.get("new", 0)),
+            "resolved": int(counts.get("resolved", 0)),
+            "spam": int(counts.get("spam", 0)),
+        },
+    )
+
+
+@bp.post("/dontcrash/support/<int:message_id>/status")
+@admin_login_required
+def admin_support_status(message_id: int):
+    message = db.session.get(SupportMessage, message_id)
+    if not message:
+        flash("Support message not found.", "error")
+        return redirect(url_for("main.admin_support"))
+
+    next_status = (request.form.get("status") or "").strip().lower()
+    if next_status not in SUPPORT_STATUS_OPTIONS:
+        flash("Invalid support status.", "error")
+        return redirect(url_for("main.admin_support"))
+
+    admin_note = normalize_text(request.form.get("admin_note"))
+    message.status = next_status
+    if admin_note is not None:
+        message.admin_note = admin_note
+    message.resolved_at = datetime.utcnow() if next_status == "resolved" else None
+    db.session.add(message)
+    db.session.commit()
+    flash("Support message updated.", "success")
+    status_filter = (request.form.get("return_status") or "all").strip().lower()
+    return redirect(url_for("main.admin_support", status=status_filter))
 
 
 @bp.post("/dontcrash/users/<int:user_id>/action")

@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block content %}
+  <div class="card">
+    <h1>Support Inbox</h1>
+    <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px;">
+      <a href="{{ url_for('main.admin_dashboard') }}">Dashboard</a>
+      <a href="{{ url_for('main.admin_users') }}">User Accounts</a>
+      <a href="{{ url_for('main.admin_community') }}">Community Content</a>
+      <a href="{{ url_for('main.admin_support') }}">Support Inbox</a>
+      <a href="{{ url_for('main.admin_frontpage') }}">Front Page</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+      <a href="{{ url_for('main.admin_support', status='all') }}">All ({{ counts["all"] }})</a>
+      <a href="{{ url_for('main.admin_support', status='new') }}">New ({{ counts["new"] }})</a>
+      <a href="{{ url_for('main.admin_support', status='resolved') }}">Resolved ({{ counts["resolved"] }})</a>
+      <a href="{{ url_for('main.admin_support', status='spam') }}">Spam ({{ counts["spam"] }})</a>
+    </div>
+  </div>
+
+  <div class="card">
+    {% if messages %}
+      {% for item in messages %}
+        <div id="support-{{ item.id }}" style="border: 1px solid #d7dee7; border-radius: 10px; padding: 12px; margin-bottom: 10px;">
+          <div class="muted">
+            #{{ item.id }} | {{ item.created_at.strftime("%Y-%m-%d %H:%M") }} |
+            {{ item.sender_name }} ({{ item.sender_email }}) |
+            status={{ item.status }}
+            {% if item.user_id %}| user #{{ item.user_id }}{% endif %}
+          </div>
+          <h3 style="margin: 8px 0 6px;">{{ item.subject }}</h3>
+          <p style="white-space: pre-wrap; margin-top: 0;">{{ item.message }}</p>
+          {% if item.attachment_path %}
+            <p style="margin-top: 6px;">
+              Attachment:
+              <a href="{{ url_for('static', filename=item.attachment_path) }}" target="_blank" rel="noopener">open file</a>
+            </p>
+          {% endif %}
+          <form method="post" action="{{ url_for('main.admin_support_status', message_id=item.id) }}">
+            <input type="hidden" name="return_status" value="{{ status_filter }}" />
+            <div class="grid">
+              <div>
+                <label for="support_status_{{ item.id }}">Status</label>
+                <select id="support_status_{{ item.id }}" name="status">
+                  <option value="new" {% if item.status == "new" %}selected{% endif %}>New</option>
+                  <option value="resolved" {% if item.status == "resolved" %}selected{% endif %}>Resolved</option>
+                  <option value="spam" {% if item.status == "spam" %}selected{% endif %}>Spam</option>
+                </select>
+              </div>
+              <div>
+                <label for="support_note_{{ item.id }}">Admin Note</label>
+                <input id="support_note_{{ item.id }}" name="admin_note" value="{{ item.admin_note or '' }}" />
+              </div>
+            </div>
+            <div style="margin-top: 8px;">
+              <button type="submit">Update</button>
+            </div>
+          </form>
+        </div>
+      {% endfor %}
+    {% else %}
+      <p class="muted">No support messages found for this filter.</p>
+    {% endif %}
+  </div>
+{% endblock %}

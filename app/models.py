@@ -25,6 +25,7 @@ class User(db.Model):
     community_posts = db.relationship("CommunityPost", backref="user", lazy=True)
     community_comments = db.relationship("CommunityComment", backref="user", lazy=True)
     community_likes = db.relationship("CommunityLike", backref="user", lazy=True)
+    support_messages = db.relationship("SupportMessage", backref="user", lazy=True)
     goals = db.relationship("UserGoal", backref="user", lazy=True)
     goal_actions = db.relationship("UserGoalAction", backref="user", lazy=True)
 
@@ -450,3 +451,19 @@ class SiteSetting(db.Model):
         onupdate=datetime.utcnow,
         nullable=False,
     )
+
+
+class SupportMessage(db.Model):
+    __tablename__ = "support_messages"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True, index=True)
+    sender_name = db.Column(db.String(255), nullable=False)
+    sender_email = db.Column(db.String(255), nullable=False, index=True)
+    subject = db.Column(db.String(180), nullable=False)
+    message = db.Column(db.Text, nullable=False)
+    attachment_path = db.Column(db.String(500), nullable=True)
+    status = db.Column(db.String(20), nullable=False, default="new", index=True)
+    admin_note = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+    resolved_at = db.Column(db.DateTime, nullable=True, index=True)

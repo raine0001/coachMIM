@@ -176,6 +176,71 @@
         border-top: 1px solid var(--line);
         padding-top: 12px;
       }
+      .footer-links {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 12px;
+        margin-bottom: 8px;
+      }
+      .footer-links a,
+      .footer-links button {
+        border: none;
+        background: transparent;
+        color: var(--muted);
+        font: inherit;
+        text-decoration: underline;
+        padding: 0;
+        cursor: pointer;
+      }
+      .modal-backdrop {
+        position: fixed;
+        inset: 0;
+        background: rgba(18, 32, 45, 0.55);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 1100;
+        padding: 16px;
+      }
+      .modal-backdrop.open {
+        display: flex;
+      }
+      .modal-card {
+        width: min(560px, 100%);
+        max-height: 90vh;
+        overflow-y: auto;
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 14px;
+      }
+      .modal-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        margin-bottom: 8px;
+      }
+      .close-btn {
+        border: 1px solid var(--line);
+        background: #fff;
+        color: var(--text);
+        border-radius: 8px;
+        padding: 6px 10px;
+        cursor: pointer;
+      }
+      .modal-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        margin-top: 10px;
+      }
+      .modal-actions .secondary {
+        border: 1px solid var(--line);
+        background: #fff;
+        color: var(--text);
+      }
     </style>
   </head>
   <body>
@@ -285,9 +350,101 @@
       {% endwith %}
 
       {% block content %}{% endblock %}
+
+      <div id="contact-support-modal" class="modal-backdrop" aria-hidden="true">
+        <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="contact-support-title">
+          <div class="modal-head">
+            <h2 id="contact-support-title" style="margin: 0;">Contact Us</h2>
+            <button type="button" class="close-btn" data-contact-close>Close</button>
+          </div>
+          <p class="muted">Send a support message directly to the CoachMIM admin inbox.</p>
+          <form method="post" action="{{ url_for('main.contact_support') }}" enctype="multipart/form-data">
+            <input type="hidden" name="next" value="{{ request.full_path.rstrip('?') if request else '/' }}" />
+            <div class="grid">
+              <div>
+                <label for="contact_sender_name">Name</label>
+                <input
+                  id="contact_sender_name"
+                  name="sender_name"
+                  value="{{ current_user.full_name if current_user else '' }}"
+                  {% if current_user and current_user.full_name %}readonly{% endif %}
+                  required
+                />
+              </div>
+              <div>
+                <label for="contact_sender_email">Email</label>
+                <input
+                  id="contact_sender_email"
+                  name="sender_email"
+                  type="email"
+                  value="{{ current_user.email if current_user else '' }}"
+                  {% if current_user and current_user.email %}readonly{% endif %}
+                  required
+                />
+              </div>
+            </div>
+            <div>
+              <label for="contact_subject">Subject</label>
+              <input id="contact_subject" name="subject" maxlength="180" required />
+            </div>
+            <div>
+              <label for="contact_message">Message</label>
+              <textarea id="contact_message" name="message" maxlength="6000" required></textarea>
+            </div>
+            <div>
+              <label for="contact_attachment">Attachment (optional)</label>
+              <input id="contact_attachment" name="attachment" type="file" />
+              <div class="muted">Supported: image, PDF, text, CSV, DOC, DOCX.</div>
+            </div>
+            <div class="modal-actions">
+              <button type="button" class="secondary" data-contact-close>Cancel</button>
+              <button type="submit">Send</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
       <footer class="site-footer">
-        <div class="site-footer-inner">MIM Robots LLC</div>
+        <div class="site-footer-inner">
+          <div class="footer-links">
+            <a href="{{ url_for('main.about_page') }}">About</a>
+            <a href="{{ url_for('main.privacy_page') }}">Privacy Policy</a>
+            <a href="{{ url_for('main.terms_page') }}">Terms</a>
+            <button type="button" id="contact-support-open">Contact Us</button>
+          </div>
+          <div>MIM Robots LLC</div>
+        </div>
       </footer>
     </div>
+    <script>
+      (function () {
+        const openBtn = document.getElementById("contact-support-open");
+        const modal = document.getElementById("contact-support-modal");
+        if (!openBtn || !modal) return;
+
+        const closeButtons = modal.querySelectorAll("[data-contact-close]");
+        const openModal = () => {
+          modal.classList.add("open");
+          modal.setAttribute("aria-hidden", "false");
+        };
+        const closeModal = () => {
+          modal.classList.remove("open");
+          modal.setAttribute("aria-hidden", "true");
+        };
+
+        openBtn.addEventListener("click", openModal);
+        closeButtons.forEach((btn) => btn.addEventListener("click", closeModal));
+        modal.addEventListener("click", (event) => {
+          if (event.target === modal) {
+            closeModal();
+          }
+        });
+        document.addEventListener("keydown", (event) => {
+          if (event.key === "Escape" && modal.classList.contains("open")) {
+            closeModal();
+          }
+        });
+      })();
+    </script>
   </body>
 </html>

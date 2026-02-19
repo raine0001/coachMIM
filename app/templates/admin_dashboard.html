@@ -11,6 +11,7 @@
       <a href="{{ url_for('main.admin_dashboard') }}">Dashboard</a>
       <a href="{{ url_for('main.admin_users') }}">User Accounts</a>
       <a href="{{ url_for('main.admin_community') }}">Community Content</a>
+      <a href="{{ url_for('main.admin_support') }}">Support Inbox</a>
       <a href="{{ url_for('main.admin_frontpage') }}">Front Page</a>
     </div>
   </div>
@@ -41,6 +42,11 @@
       <div class="metric">{{ flagged_posts_count + flagged_comments_count }}</div>
       <div class="muted">Posts: {{ flagged_posts_count }} | Comments: {{ flagged_comments_count }}</div>
     </div>
+    <div class="card">
+      <h3>Support Inbox</h3>
+      <div class="metric">{{ support_new_count }}</div>
+      <div class="muted">new of {{ support_total_count }} total</div>
+    </div>
   </div>
 
   <div class="card">
@@ -49,7 +55,40 @@
       <li>New users (last 7 days): {{ signups_last_7d }}</li>
       <li><a href="{{ url_for('main.admin_users') }}">Review account actions</a></li>
       <li><a href="{{ url_for('main.admin_community') }}">Review flagged community content</a></li>
+      <li><a href="{{ url_for('main.admin_support') }}">Review support requests</a></li>
       <li><a href="{{ url_for('main.admin_frontpage') }}">Edit contact/privacy/terms content</a></li>
     </ul>
+  </div>
+
+  <div class="card">
+    <h2>Recent Support Messages</h2>
+    {% if latest_support_messages %}
+      <div style="overflow-x: auto;">
+        <table style="width: 100%; border-collapse: collapse;">
+          <thead>
+            <tr>
+              <th style="text-align: left; border-bottom: 1px solid #d7dee7; padding: 8px;">Time</th>
+              <th style="text-align: left; border-bottom: 1px solid #d7dee7; padding: 8px;">From</th>
+              <th style="text-align: left; border-bottom: 1px solid #d7dee7; padding: 8px;">Subject</th>
+              <th style="text-align: left; border-bottom: 1px solid #d7dee7; padding: 8px;">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in latest_support_messages %}
+              <tr>
+                <td style="padding: 8px; border-bottom: 1px solid #eef3f8;">{{ item.created_at.strftime("%Y-%m-%d %H:%M") }}</td>
+                <td style="padding: 8px; border-bottom: 1px solid #eef3f8;">{{ item.sender_name }} ({{ item.sender_email }})</td>
+                <td style="padding: 8px; border-bottom: 1px solid #eef3f8;">
+                  <a href="{{ url_for('main.admin_support') }}#support-{{ item.id }}">{{ item.subject }}</a>
+                </td>
+                <td style="padding: 8px; border-bottom: 1px solid #eef3f8;">{{ item.status|capitalize }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p class="muted">No support messages yet.</p>
+    {% endif %}
   </div>
 {% endblock %}

@@ -637,6 +637,43 @@ def parse_float(value):
         return None
 
 
+def parse_activity_amount_details(amount_value: str | None):
+    amount_text = normalize_text(amount_value)
+    if not amount_text:
+        return (None, None, None)
+
+    activity_type = None
+    duration_min = None
+    intensity = None
+    parts = [part.strip() for part in amount_text.split("|") if part.strip()]
+    if parts:
+        activity_type = parts[0]
+    else:
+        activity_type = amount_text
+
+    for part in parts:
+        if duration_min is None:
+            duration_match = re.search(r"(\d+)\s*min\b", part, flags=re.IGNORECASE)
+            if duration_match:
+                duration_min = parse_int(duration_match.group(1))
+        if intensity is None:
+            intensity_match = re.search(r"intensity\s*(\d{1,2})\s*/\s*10", part, flags=re.IGNORECASE)
+            if intensity_match:
+                intensity = parse_int(intensity_match.group(1))
+
+    return (activity_type, duration_min, intensity)
+
+
+def parse_medication_amount_details(amount_value: str | None):
+    amount_text = normalize_text(amount_value)
+    if not amount_text:
+        return (None, None)
+    if " - " in amount_text:
+        med_name_raw, dose_raw = amount_text.split(" - ", 1)
+        return (normalize_text(med_name_raw), normalize_text(dose_raw))
+    return (amount_text, None)
+
+
 def parse_bool(value):
     return str(value).lower() in {"1", "true", "yes", "on"}
 
@@ -2590,8 +2627,29 @@ def checkin_form():
     selected_day_substance_count = len(day_substance_entries)
     selected_day_activity_count = len(day_activity_entries)
     selected_day_medication_count = len(day_medication_entries)
+    edit_meal_entry = None
     edit_drink_entry = None
-    if manager_view == "drink":
+    edit_substance_entry = None
+    edit_substance_kind_value = None
+    edit_substance_amount_value = None
+    edit_activity_type_value = None
+    edit_activity_duration_value = None
+    edit_activity_intensity_value = None
+    edit_med_kind_value = None
+    edit_med_name_value = None
+    edit_med_dose_value = None
+    if manager_view == "meal":
+        edit_meal_id = parse_int(request.args.get("edit_meal_id"))
+        if edit_meal_id is not None:
+            candidate = Meal.query.filter_by(id=edit_meal_id, user_id=g.user.id, is_beverage=False).first()
+            if candidate is None:
+                flash("Meal entry not found for edit.", "error")
+            elif not (start <= candidate.eaten_at < end):
+                flash("Meal entry is outside the selected day.", "error")
+            else:
+                hydrate_meal_secure_fields(g.user, candidate)
+                edit_meal_entry = candidate
+    elif manager_view == "drink":
         edit_drink_id = parse_int(request.args.get("edit_drink_id"))
         if edit_drink_id is not None:
             candidate = Meal.query.filter_by(id=edit_drink_id, user_id=g.user.id, is_beverage=True).first()
@@ -2602,6 +2660,37 @@ def checkin_form():
             else:
                 hydrate_meal_secure_fields(g.user, candidate)
                 edit_drink_entry = candidate
+    elif manager_view in {"substance", "activity", "medications"}:
+        edit_entry_id = parse_int(request.args.get("edit_entry_id"))
+        if edit_entry_id is not None:
+            candidate_entry = Substance.query.filter_by(id=edit_entry_id, user_id=g.user.id).first()
+            if candidate_entry is None:
+                flash("Entry not found for edit.", "error")
+            elif not (start <= candidate_entry.taken_at < end):
+                flash("Entry is outside the selected day.", "error")
+            else:
+                hydrate_substance_secure_fields(g.user, candidate_entry)
+                if manager_view == "substance" and candidate_entry.kind not in {"alcohol", "caffeine", "nicotine", "other"}:
+                    flash("Selected entry is not a substance entry.", "error")
+                elif manager_view == "activity" and candidate_entry.kind != "activity":
+                    flash("Selected entry is not an activity entry.", "error")
+                elif manager_view == "medications" and candidate_entry.kind not in {"medication", "supplement"}:
+                    flash("Selected entry is not a medication/supplement entry.", "error")
+                else:
+                    edit_substance_entry = candidate_entry
+                    if manager_view == "substance":
+                        edit_substance_kind_value = candidate_entry.kind
+                        edit_substance_amount_value = candidate_entry.amount
+                    elif manager_view == "activity":
+                        (
+                            edit_activity_type_value,
+                            edit_activity_duration_value,
+                            edit_activity_intensity_value,
+                        ) = parse_activity_amount_details(candidate_entry.amount)
+                    elif manager_view == "medications":
+                        edit_med_kind_value = candidate_entry.kind
+                        edit_med_name_value, edit_med_dose_value = parse_medication_amount_details(candidate_entry.amount)
+
     local_now = datetime.now(get_user_zoneinfo(g.user))
     default_entry_time = local_now.strftime("%H:%M")
     default_entry_datetime = f"{selected_day.isoformat()}T{default_entry_time}"
@@ -2647,7 +2736,17 @@ def checkin_form():
         day_substance_entries=day_substance_entries,
         day_activity_entries=day_activity_entries,
         day_medication_entries=day_medication_entries,
+        edit_meal_entry=edit_meal_entry,
         edit_drink_entry=edit_drink_entry,
+        edit_substance_entry=edit_substance_entry,
+        edit_substance_kind_value=edit_substance_kind_value,
+        edit_substance_amount_value=edit_substance_amount_value,
+        edit_activity_type_value=edit_activity_type_value,
+        edit_activity_duration_value=edit_activity_duration_value,
+        edit_activity_intensity_value=edit_activity_intensity_value,
+        edit_med_kind_value=edit_med_kind_value,
+        edit_med_name_value=edit_med_name_value,
+        edit_med_dose_value=edit_med_dose_value,
         default_entry_datetime=default_entry_datetime,
         meal_quick_favorites=quick_favorites["meal"],
         drink_quick_favorites=quick_favorites["drink"],
@@ -2950,6 +3049,14 @@ def checkin_substance_quick_save():
         selected_favorite = None
 
     favorite_payload = selected_favorite.ingredients if selected_favorite and isinstance(selected_favorite.ingredients, dict) else {}
+    edit_entry_id = parse_int(request.form.get("edit_entry_id"))
+    entry = None
+    if edit_entry_id is not None:
+        entry = Substance.query.filter_by(id=edit_entry_id, user_id=g.user.id).first()
+        if entry is None:
+            flash("Entry not found for edit.", "error")
+            return redirect(url_for("main.checkin_form", day=selected_day.isoformat(), view=manager_view))
+        hydrate_substance_secure_fields(g.user, entry)
 
     taken_at_raw = request.form.get("taken_at")
     if not taken_at_raw:
@@ -2973,6 +3080,15 @@ def checkin_substance_quick_save():
     allowed_kinds = {"alcohol", "caffeine", "nicotine", "other", "activity", "medication", "supplement"}
     if kind not in allowed_kinds:
         flash("Select a valid type for this entry.", "error")
+        return redirect(url_for("main.checkin_form", day=selected_day.isoformat(), view=manager_view))
+    if manager_view == "substance" and kind not in {"alcohol", "caffeine", "nicotine", "other"}:
+        flash("Substance view only supports alcohol/caffeine/nicotine/other.", "error")
+        return redirect(url_for("main.checkin_form", day=selected_day.isoformat(), view=manager_view))
+    if manager_view == "activity" and kind != "activity":
+        flash("Activity view only supports activity entries.", "error")
+        return redirect(url_for("main.checkin_form", day=selected_day.isoformat(), view=manager_view))
+    if manager_view == "medications" and kind not in {"medication", "supplement"}:
+        flash("Meds/Supps view only supports medication or supplement entries.", "error")
         return redirect(url_for("main.checkin_form", day=selected_day.isoformat(), view=manager_view))
 
     amount = normalize_text(request.form.get("amount"))
@@ -3058,17 +3174,50 @@ def checkin_substance_quick_save():
             },
         )
 
-    entry = Substance(
-        user_id=g.user.id,
-        taken_at=taken_at_dt,
-        kind=kind,
-        amount=amount,
-        notes=notes,
-    )
+    is_edit_mode = entry is not None
+    if entry is None:
+        entry = Substance(user_id=g.user.id)
+    entry.taken_at = taken_at_dt
+    entry.kind = kind
+    entry.amount = amount
+    entry.notes = notes
     persist_substance_secure_fields(g.user, entry)
     db.session.add(entry)
     db.session.commit()
-    flash("Entry logged.", "success")
+    flash("Entry updated." if is_edit_mode else "Entry logged.", "success")
+    return redirect(url_for("main.checkin_form", day=selected_day.isoformat(), view=manager_view))
+
+
+@bp.post("/checkin/substance-quick/<int:entry_id>/delete")
+@login_required
+@profile_required
+def checkin_substance_quick_delete(entry_id: int):
+    local_today = get_user_local_today(g.user)
+    selected_day_raw = request.form.get("day", local_today.isoformat())
+    manager_view = (request.form.get("view") or "substance").strip().lower()
+    if manager_view not in DAY_MANAGER_VIEWS:
+        manager_view = "substance"
+
+    try:
+        selected_day = date.fromisoformat(selected_day_raw)
+    except ValueError:
+        selected_day = local_today
+
+    entry = Substance.query.filter_by(id=entry_id, user_id=g.user.id).first_or_404()
+    hydrate_substance_secure_fields(g.user, entry)
+    if manager_view == "substance" and entry.kind not in {"alcohol", "caffeine", "nicotine", "other"}:
+        flash("Selected entry is not a substance entry.", "error")
+        return redirect(url_for("main.checkin_form", day=selected_day.isoformat(), view=manager_view))
+    if manager_view == "activity" and entry.kind != "activity":
+        flash("Selected entry is not an activity entry.", "error")
+        return redirect(url_for("main.checkin_form", day=selected_day.isoformat(), view=manager_view))
+    if manager_view == "medications" and entry.kind not in {"medication", "supplement"}:
+        flash("Selected entry is not a medication/supplement entry.", "error")
+        return redirect(url_for("main.checkin_form", day=selected_day.isoformat(), view=manager_view))
+
+    db.session.delete(entry)
+    db.session.commit()
+    flash("Entry deleted.", "success")
     return redirect(url_for("main.checkin_form", day=selected_day.isoformat(), view=manager_view))
 
 

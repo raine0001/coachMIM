@@ -610,6 +610,11 @@
   <div class="card">
     <h2>Meals For {{ selected_day }}</h2>
     <p class="muted">Quick-log a meal for this day, or open full meal tools for builder/search/photos.</p>
+    {% if edit_meal_entry %}
+      <div class="edit-mode-banner">
+        Editing meal entry from {{ edit_meal_entry.eaten_at.strftime("%H:%M") }}. Update values, then press Update Meal Entry.
+      </div>
+    {% endif %}
     <div class="quick-open-link">
       <a href="{{ url_for('main.meal_form', day=selected_day) }}">Open Full Meal Logger</a>
     </div>
@@ -617,6 +622,9 @@
       <input type="hidden" name="day" value="{{ selected_day }}" />
       <input type="hidden" name="view" value="meal" />
       <input type="hidden" name="is_beverage" value="0" />
+      {% if edit_meal_entry %}
+        <input type="hidden" name="edit_meal_id" value="{{ edit_meal_entry.id }}" />
+      {% endif %}
       <div class="grid">
         <div>
           <label for="meal_favorite_id">Quick Favorite</label>
@@ -638,16 +646,33 @@
         </div>
         <div>
           <label for="meal_eaten_at">Time</label>
-          <input id="meal_eaten_at" name="eaten_at" type="datetime-local" value="{{ default_entry_datetime }}" required />
+          <input
+            id="meal_eaten_at"
+            name="eaten_at"
+            type="datetime-local"
+            value="{{ edit_meal_entry.eaten_at.strftime('%Y-%m-%dT%H:%M') if edit_meal_entry else default_entry_datetime }}"
+            required
+          />
         </div>
         <div>
           <label for="meal_label">Label</label>
-          <input id="meal_label" name="label" placeholder="Breakfast / Lunch / Dinner / Snack" />
+          <input
+            id="meal_label"
+            name="label"
+            value="{{ edit_meal_entry.label if edit_meal_entry else '' }}"
+            placeholder="Breakfast / Lunch / Dinner / Snack"
+          />
         </div>
         <div>
           <label for="meal_description">Meal Name</label>
           <div class="mim-field-row">
-            <input id="meal_description" name="description" placeholder="e.g., Turkey sandwich" required />
+            <input
+              id="meal_description"
+              name="description"
+              value="{{ edit_meal_entry.description if edit_meal_entry else '' }}"
+              placeholder="e.g., Turkey sandwich"
+              required
+            />
             <button id="meal_mim_toggle" class="mim-icon-btn" type="button" title="Ask MIM for help">
               <img class="mim-icon-img" src="{{ mim_logo_url }}" alt="MIM" />
             </button>
@@ -666,23 +691,55 @@
         </div>
         <div>
           <label for="meal_portion_notes">Portion Notes</label>
-          <input id="meal_portion_notes" name="portion_notes" placeholder="1 bowl, 2 slices..." />
+          <input
+            id="meal_portion_notes"
+            name="portion_notes"
+            value="{{ edit_meal_entry.portion_notes if edit_meal_entry else '' }}"
+            placeholder="1 bowl, 2 slices..."
+          />
         </div>
         <div>
           <label for="meal_calories">Calories</label>
-          <input id="meal_calories" name="calories" type="number" min="0" />
+          <input
+            id="meal_calories"
+            name="calories"
+            type="number"
+            min="0"
+            value="{{ edit_meal_entry.calories if edit_meal_entry and edit_meal_entry.calories is not none else '' }}"
+          />
         </div>
         <div>
           <label for="meal_protein_g">Protein (g)</label>
-          <input id="meal_protein_g" name="protein_g" type="number" min="0" step="0.1" />
+          <input
+            id="meal_protein_g"
+            name="protein_g"
+            type="number"
+            min="0"
+            step="0.1"
+            value="{{ edit_meal_entry.protein_g if edit_meal_entry and edit_meal_entry.protein_g is not none else '' }}"
+          />
         </div>
         <div>
           <label for="meal_carbs_g">Carbs (g)</label>
-          <input id="meal_carbs_g" name="carbs_g" type="number" min="0" step="0.1" />
+          <input
+            id="meal_carbs_g"
+            name="carbs_g"
+            type="number"
+            min="0"
+            step="0.1"
+            value="{{ edit_meal_entry.carbs_g if edit_meal_entry and edit_meal_entry.carbs_g is not none else '' }}"
+          />
         </div>
         <div>
           <label for="meal_fat_g">Fat (g)</label>
-          <input id="meal_fat_g" name="fat_g" type="number" min="0" step="0.1" />
+          <input
+            id="meal_fat_g"
+            name="fat_g"
+            type="number"
+            min="0"
+            step="0.1"
+            value="{{ edit_meal_entry.fat_g if edit_meal_entry and edit_meal_entry.fat_g is not none else '' }}"
+          />
         </div>
       </div>
       <div class="grid" style="margin-top: 8px;">
@@ -699,7 +756,10 @@
         </div>
       </div>
       <div class="checkin-form-actions">
-        <button type="submit">Save Meal Entry</button>
+        <button type="submit">{{ "Update Meal Entry" if edit_meal_entry else "Save Meal Entry" }}</button>
+        {% if edit_meal_entry %}
+          <a class="secondary-link-btn" href="{{ url_for('main.checkin_form', day=selected_day, view='meal') }}">Cancel Edit</a>
+        {% endif %}
       </div>
     </form>
   </div>
@@ -716,6 +776,7 @@
               <th>Portion</th>
               <th class="align-right">Calories</th>
               <th class="align-right">P/C/F</th>
+              <th class="align-right">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -727,6 +788,20 @@
                 <td class="align-right">{{ meal.calories if meal.calories is not none else "-" }}</td>
                 <td class="align-right">
                   {{ meal.protein_g if meal.protein_g is not none else "-" }}/{{ meal.carbs_g if meal.carbs_g is not none else "-" }}/{{ meal.fat_g if meal.fat_g is not none else "-" }}
+                </td>
+                <td class="align-right">
+                  <div class="table-actions">
+                    <a href="{{ url_for('main.checkin_form', day=selected_day, view='meal', edit_meal_id=meal.id) }}">Edit</a>
+                    <form
+                      method="post"
+                      action="{{ url_for('main.checkin_meal_quick_delete', meal_id=meal.id) }}"
+                      onsubmit="return confirm('Delete this meal entry?');"
+                    >
+                      <input type="hidden" name="day" value="{{ selected_day }}" />
+                      <input type="hidden" name="view" value="meal" />
+                      <button class="delete-link-btn" type="submit">Delete</button>
+                    </form>
+                  </div>
                 </td>
               </tr>
             {% endfor %}
@@ -920,9 +995,17 @@
   {% elif manager_view == "substance" %}
   <div class="card">
     <h2>Substances For {{ selected_day }}</h2>
+    {% if edit_substance_entry %}
+      <div class="edit-mode-banner">
+        Editing substance entry from {{ edit_substance_entry.taken_at.strftime("%H:%M") }}. Update values, then press Update Substance Entry.
+      </div>
+    {% endif %}
     <form method="post" action="{{ url_for('main.checkin_substance_quick_save') }}">
       <input type="hidden" name="day" value="{{ selected_day }}" />
       <input type="hidden" name="view" value="substance" />
+      {% if edit_substance_entry %}
+        <input type="hidden" name="edit_entry_id" value="{{ edit_substance_entry.id }}" />
+      {% endif %}
       <div class="grid">
         <div>
           <label for="sub_favorite_id">Quick Favorite</label>
@@ -940,22 +1023,34 @@
         </div>
         <div>
           <label for="sub_taken_at">Time</label>
-          <input id="sub_taken_at" name="taken_at" type="datetime-local" value="{{ default_entry_datetime }}" required />
+          <input
+            id="sub_taken_at"
+            name="taken_at"
+            type="datetime-local"
+            value="{{ edit_substance_entry.taken_at.strftime('%Y-%m-%dT%H:%M') if edit_substance_entry else default_entry_datetime }}"
+            required
+          />
         </div>
         <div>
           <label for="sub_kind">Type</label>
           <select id="sub_kind" name="kind" required>
-            <option value="">Choose one</option>
-            <option value="alcohol">Alcohol</option>
-            <option value="caffeine">Caffeine</option>
-            <option value="nicotine">Nicotine</option>
-            <option value="other">Other</option>
+            <option value="" {% if not edit_substance_kind_value %}selected{% endif %}>Choose one</option>
+            <option value="alcohol" {% if edit_substance_kind_value == "alcohol" %}selected{% endif %}>Alcohol</option>
+            <option value="caffeine" {% if edit_substance_kind_value == "caffeine" %}selected{% endif %}>Caffeine</option>
+            <option value="nicotine" {% if edit_substance_kind_value == "nicotine" %}selected{% endif %}>Nicotine</option>
+            <option value="other" {% if edit_substance_kind_value == "other" %}selected{% endif %}>Other</option>
           </select>
         </div>
         <div>
           <label for="sub_amount">Amount</label>
           <div class="mim-field-row">
-            <input id="sub_amount" name="amount" placeholder="2 beers, 200mg..." required />
+            <input
+              id="sub_amount"
+              name="amount"
+              value="{{ edit_substance_amount_value if edit_substance_entry else '' }}"
+              placeholder="2 beers, 200mg..."
+              required
+            />
             <button id="sub_mim_toggle" class="mim-icon-btn" type="button" title="Ask MIM for help">
               <img class="mim-icon-img" src="{{ mim_logo_url }}" alt="MIM" />
             </button>
@@ -975,7 +1070,7 @@
       </div>
       <div class="checkin-form-block">
         <label for="sub_notes">Notes</label>
-        <textarea id="sub_notes" name="notes"></textarea>
+        <textarea id="sub_notes" name="notes">{{ edit_substance_entry.notes if edit_substance_entry else '' }}</textarea>
       </div>
       <div class="grid" style="margin-top: 8px;">
         <div>
@@ -991,7 +1086,10 @@
         </div>
       </div>
       <div class="checkin-form-actions">
-        <button type="submit">Save Substance Entry</button>
+        <button type="submit">{{ "Update Substance Entry" if edit_substance_entry else "Save Substance Entry" }}</button>
+        {% if edit_substance_entry %}
+          <a class="secondary-link-btn" href="{{ url_for('main.checkin_form', day=selected_day, view='substance') }}">Cancel Edit</a>
+        {% endif %}
       </div>
     </form>
   </div>
@@ -999,13 +1097,43 @@
   <div class="card">
     <h2>Substance Entries</h2>
     {% if day_substance_entries %}
-      <ul class="inline-list">
-        {% for entry in day_substance_entries %}
-          <li>
-            <strong>{{ entry.taken_at.strftime("%H:%M") }}</strong> - {{ entry.kind }} - {{ entry.amount }}{% if entry.notes %} ({{ entry.notes }}){% endif %}
-          </li>
-        {% endfor %}
-      </ul>
+      <div class="table-wrap">
+        <table class="table-compact">
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Type</th>
+              <th>Amount</th>
+              <th>Notes</th>
+              <th class="align-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for entry in day_substance_entries %}
+              <tr>
+                <td>{{ entry.taken_at.strftime("%H:%M") }}</td>
+                <td>{{ entry.kind }}</td>
+                <td>{{ entry.amount or "n/a" }}</td>
+                <td>{{ entry.notes or "-" }}</td>
+                <td class="align-right">
+                  <div class="table-actions">
+                    <a href="{{ url_for('main.checkin_form', day=selected_day, view='substance', edit_entry_id=entry.id) }}">Edit</a>
+                    <form
+                      method="post"
+                      action="{{ url_for('main.checkin_substance_quick_delete', entry_id=entry.id) }}"
+                      onsubmit="return confirm('Delete this substance entry?');"
+                    >
+                      <input type="hidden" name="day" value="{{ selected_day }}" />
+                      <input type="hidden" name="view" value="substance" />
+                      <button class="delete-link-btn" type="submit">Delete</button>
+                    </form>
+                  </div>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
     {% else %}
       <p class="muted">No substance entries for this day yet.</p>
     {% endif %}
@@ -1013,10 +1141,18 @@
   {% elif manager_view == "activity" %}
   <div class="card">
     <h2>Activity For {{ selected_day }}</h2>
+    {% if edit_substance_entry %}
+      <div class="edit-mode-banner">
+        Editing activity entry from {{ edit_substance_entry.taken_at.strftime("%H:%M") }}. Update values, then press Update Activity Entry.
+      </div>
+    {% endif %}
     <form method="post" action="{{ url_for('main.checkin_substance_quick_save') }}">
       <input type="hidden" name="day" value="{{ selected_day }}" />
       <input type="hidden" name="view" value="activity" />
       <input type="hidden" name="kind" value="activity" />
+      {% if edit_substance_entry %}
+        <input type="hidden" name="edit_entry_id" value="{{ edit_substance_entry.id }}" />
+      {% endif %}
       <div class="grid">
         <div>
           <label for="act_favorite_id">Quick Favorite</label>
@@ -1035,12 +1171,24 @@
         </div>
         <div>
           <label for="act_taken_at">Time</label>
-          <input id="act_taken_at" name="taken_at" type="datetime-local" value="{{ default_entry_datetime }}" required />
+          <input
+            id="act_taken_at"
+            name="taken_at"
+            type="datetime-local"
+            value="{{ edit_substance_entry.taken_at.strftime('%Y-%m-%dT%H:%M') if edit_substance_entry else default_entry_datetime }}"
+            required
+          />
         </div>
         <div>
           <label for="activity_type">Activity</label>
           <div class="mim-field-row">
-            <input id="activity_type" name="activity_type" placeholder="Run, lift, walk, HIIT..." required />
+            <input
+              id="activity_type"
+              name="activity_type"
+              value="{{ edit_activity_type_value if edit_substance_entry else '' }}"
+              placeholder="Run, lift, walk, HIIT..."
+              required
+            />
             <button id="act_mim_toggle" class="mim-icon-btn" type="button" title="Ask MIM for help">
               <img class="mim-icon-img" src="{{ mim_logo_url }}" alt="MIM" />
             </button>
@@ -1048,11 +1196,25 @@
         </div>
         <div>
           <label for="duration_min">Duration (min)</label>
-          <input id="duration_min" name="duration_min" type="number" min="1" required />
+          <input
+            id="duration_min"
+            name="duration_min"
+            type="number"
+            min="1"
+            value="{{ edit_activity_duration_value if edit_substance_entry and edit_activity_duration_value is not none else '' }}"
+            required
+          />
         </div>
         <div>
           <label for="intensity">Intensity (1-10)</label>
-          <input id="intensity" name="intensity" type="number" min="1" max="10" />
+          <input
+            id="intensity"
+            name="intensity"
+            type="number"
+            min="1"
+            max="10"
+            value="{{ edit_activity_intensity_value if edit_substance_entry and edit_activity_intensity_value is not none else '' }}"
+          />
         </div>
       </div>
       <div id="act_mim_panel" class="mim-assist-panel" style="display: none;">
@@ -1068,7 +1230,7 @@
       </div>
       <div class="checkin-form-block">
         <label for="act_notes">Notes</label>
-        <textarea id="act_notes" name="notes"></textarea>
+        <textarea id="act_notes" name="notes">{{ edit_substance_entry.notes if edit_substance_entry else '' }}</textarea>
       </div>
       <div class="grid" style="margin-top: 8px;">
         <div>
@@ -1084,7 +1246,10 @@
         </div>
       </div>
       <div class="checkin-form-actions">
-        <button type="submit">Save Activity Entry</button>
+        <button type="submit">{{ "Update Activity Entry" if edit_substance_entry else "Save Activity Entry" }}</button>
+        {% if edit_substance_entry %}
+          <a class="secondary-link-btn" href="{{ url_for('main.checkin_form', day=selected_day, view='activity') }}">Cancel Edit</a>
+        {% endif %}
       </div>
     </form>
   </div>
@@ -1092,13 +1257,41 @@
   <div class="card">
     <h2>Activity Entries</h2>
     {% if day_activity_entries %}
-      <ul class="inline-list">
-        {% for entry in day_activity_entries %}
-          <li>
-            <strong>{{ entry.taken_at.strftime("%H:%M") }}</strong> - {{ entry.amount }}{% if entry.notes %} ({{ entry.notes }}){% endif %}
-          </li>
-        {% endfor %}
-      </ul>
+      <div class="table-wrap">
+        <table class="table-compact">
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Activity</th>
+              <th>Notes</th>
+              <th class="align-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for entry in day_activity_entries %}
+              <tr>
+                <td>{{ entry.taken_at.strftime("%H:%M") }}</td>
+                <td>{{ entry.amount or "n/a" }}</td>
+                <td>{{ entry.notes or "-" }}</td>
+                <td class="align-right">
+                  <div class="table-actions">
+                    <a href="{{ url_for('main.checkin_form', day=selected_day, view='activity', edit_entry_id=entry.id) }}">Edit</a>
+                    <form
+                      method="post"
+                      action="{{ url_for('main.checkin_substance_quick_delete', entry_id=entry.id) }}"
+                      onsubmit="return confirm('Delete this activity entry?');"
+                    >
+                      <input type="hidden" name="day" value="{{ selected_day }}" />
+                      <input type="hidden" name="view" value="activity" />
+                      <button class="delete-link-btn" type="submit">Delete</button>
+                    </form>
+                  </div>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
     {% else %}
       <p class="muted">No activity entries for this day yet.</p>
     {% endif %}
@@ -1106,9 +1299,17 @@
   {% elif manager_view == "medications" %}
   <div class="card">
     <h2>Medications / Supplements For {{ selected_day }}</h2>
+    {% if edit_substance_entry %}
+      <div class="edit-mode-banner">
+        Editing meds/supp entry from {{ edit_substance_entry.taken_at.strftime("%H:%M") }}. Update values, then press Update Med/Supp Entry.
+      </div>
+    {% endif %}
     <form method="post" action="{{ url_for('main.checkin_substance_quick_save') }}">
       <input type="hidden" name="day" value="{{ selected_day }}" />
       <input type="hidden" name="view" value="medications" />
+      {% if edit_substance_entry %}
+        <input type="hidden" name="edit_entry_id" value="{{ edit_substance_entry.id }}" />
+      {% endif %}
       <div class="grid">
         <div>
           <label for="med_favorite_id">Quick Favorite</label>
@@ -1127,19 +1328,31 @@
         </div>
         <div>
           <label for="med_taken_at">Time</label>
-          <input id="med_taken_at" name="taken_at" type="datetime-local" value="{{ default_entry_datetime }}" required />
+          <input
+            id="med_taken_at"
+            name="taken_at"
+            type="datetime-local"
+            value="{{ edit_substance_entry.taken_at.strftime('%Y-%m-%dT%H:%M') if edit_substance_entry else default_entry_datetime }}"
+            required
+          />
         </div>
         <div>
           <label for="med_kind">Type</label>
           <select id="med_kind" name="kind" required>
-            <option value="medication">Medication</option>
-            <option value="supplement">Supplement</option>
+            <option value="medication" {% if not edit_med_kind_value or edit_med_kind_value == "medication" %}selected{% endif %}>Medication</option>
+            <option value="supplement" {% if edit_med_kind_value == "supplement" %}selected{% endif %}>Supplement</option>
           </select>
         </div>
         <div>
           <label for="med_name">Name</label>
           <div class="mim-field-row">
-            <input id="med_name" name="med_name" placeholder="e.g., Magnesium glycinate" required />
+            <input
+              id="med_name"
+              name="med_name"
+              value="{{ edit_med_name_value if edit_substance_entry else '' }}"
+              placeholder="e.g., Magnesium glycinate"
+              required
+            />
             <button id="med_mim_toggle" class="mim-icon-btn" type="button" title="Ask MIM for help">
               <img class="mim-icon-img" src="{{ mim_logo_url }}" alt="MIM" />
             </button>
@@ -1147,7 +1360,7 @@
         </div>
         <div>
           <label for="dose">Dose</label>
-          <input id="dose" name="dose" placeholder="e.g., 200 mg" />
+          <input id="dose" name="dose" value="{{ edit_med_dose_value if edit_substance_entry else '' }}" placeholder="e.g., 200 mg" />
         </div>
       </div>
       <div id="med_mim_panel" class="mim-assist-panel" style="display: none;">
@@ -1163,7 +1376,7 @@
       </div>
       <div class="checkin-form-block">
         <label for="med_notes">Notes</label>
-        <textarea id="med_notes" name="notes"></textarea>
+        <textarea id="med_notes" name="notes">{{ edit_substance_entry.notes if edit_substance_entry else '' }}</textarea>
       </div>
       <div class="grid" style="margin-top: 8px;">
         <div>
@@ -1179,7 +1392,10 @@
         </div>
       </div>
       <div class="checkin-form-actions">
-        <button type="submit">Save Med/Supp Entry</button>
+        <button type="submit">{{ "Update Med/Supp Entry" if edit_substance_entry else "Save Med/Supp Entry" }}</button>
+        {% if edit_substance_entry %}
+          <a class="secondary-link-btn" href="{{ url_for('main.checkin_form', day=selected_day, view='medications') }}">Cancel Edit</a>
+        {% endif %}
       </div>
     </form>
   </div>
@@ -1187,13 +1403,43 @@
   <div class="card">
     <h2>Medication/Supplement Entries</h2>
     {% if day_medication_entries %}
-      <ul class="inline-list">
-        {% for entry in day_medication_entries %}
-          <li>
-            <strong>{{ entry.taken_at.strftime("%H:%M") }}</strong> - {{ entry.kind }} - {{ entry.amount }}{% if entry.notes %} ({{ entry.notes }}){% endif %}
-          </li>
-        {% endfor %}
-      </ul>
+      <div class="table-wrap">
+        <table class="table-compact">
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Type</th>
+              <th>Details</th>
+              <th>Notes</th>
+              <th class="align-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for entry in day_medication_entries %}
+              <tr>
+                <td>{{ entry.taken_at.strftime("%H:%M") }}</td>
+                <td>{{ entry.kind }}</td>
+                <td>{{ entry.amount or "n/a" }}</td>
+                <td>{{ entry.notes or "-" }}</td>
+                <td class="align-right">
+                  <div class="table-actions">
+                    <a href="{{ url_for('main.checkin_form', day=selected_day, view='medications', edit_entry_id=entry.id) }}">Edit</a>
+                    <form
+                      method="post"
+                      action="{{ url_for('main.checkin_substance_quick_delete', entry_id=entry.id) }}"
+                      onsubmit="return confirm('Delete this meds/supp entry?');"
+                    >
+                      <input type="hidden" name="day" value="{{ selected_day }}" />
+                      <input type="hidden" name="view" value="medications" />
+                      <button class="delete-link-btn" type="submit">Delete</button>
+                    </form>
+                  </div>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
     {% else %}
       <p class="muted">No medication/supplement entries for this day yet.</p>
     {% endif %}

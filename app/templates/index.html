@@ -267,11 +267,27 @@
           <div class="muted">{{ weekly.total_calories_week }} total this week</div>
         </div>
         <div>
-          <div class="muted">Check-In Coverage</div>
-          <div class="metric">{{ weekly.coverage_pct }}%</div>
-          <div class="muted">{{ weekly.checkins_logged_week }} of 7 days</div>
+          <div class="muted">Check-In Coverage To Date</div>
+          <div class="metric">{{ weekly.coverage_to_date_pct }}%</div>
+          <div class="muted">{{ weekly.completed_required_segments }} / {{ weekly.required_segments }} required segments</div>
+          <div class="muted">{{ weekly.days_with_any_data }} / {{ weekly.days_elapsed }} days with any check-in data</div>
         </div>
       </div>
+      {% if weekly.coverage_missing_count > 0 %}
+        <div style="margin-top: 10px;">
+          <div class="muted"><strong>Missing so far this week:</strong> tap to open the exact day/segment.</div>
+          <ul style="margin-bottom: 0;">
+            {% for item in weekly.coverage_missing_items %}
+              <li><a href="{{ item.url }}">{{ item.label }}</a></li>
+            {% endfor %}
+            {% if weekly.coverage_missing_count > (weekly.coverage_missing_items | length) %}
+              <li class="muted">+ {{ weekly.coverage_missing_count - (weekly.coverage_missing_items | length) }} more</li>
+            {% endif %}
+          </ul>
+        </div>
+      {% else %}
+        <p class="muted" style="margin-bottom: 0;">You are 100% complete for required check-in segments so far this week.</p>
+      {% endif %}
     </div>
 
     <div class="card">

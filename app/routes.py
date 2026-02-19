@@ -1489,7 +1489,9 @@ def checkin_metric_value(record: DailyCheckIn, overall_field: str, segment_field
 
 def build_home_weekly_context(user: User, profile: UserProfile):
     local_today = get_user_local_today(user)
-    week_start = local_today - timedelta(days=6)
+    week_start = local_today - timedelta(days=local_today.weekday())
+    local_now = datetime.now(get_user_zoneinfo(user))
+    days_elapsed = max(1, (local_today - week_start).days + 1)
 
     checkins = (
         DailyCheckIn.query.filter(
@@ -1516,6 +1518,7 @@ def build_home_weekly_context(user: User, profile: UserProfile):
     substances = (
         Substance.query.filter(
             Substance.user_id == user.id,
+            Substance.kind.in_(["alcohol", "caffeine", "nicotine", "other"]),
             Substance.taken_at >= datetime.combine(week_start, datetime.min.time()),
             Substance.taken_at < datetime.combine(local_today + timedelta(days=1), datetime.min.time()),
         )
@@ -1524,9 +1527,57 @@ def build_home_weekly_context(user: User, profile: UserProfile):
     for entry in substances:
         hydrate_substance_secure_fields(user, entry)
 
-    days_with_checkins = {entry.day for entry in checkins}
-    logged_days = len(days_with_checkins)
-    coverage_pct = round((logged_days / 7) * 100, 1)
+    checkin_by_day = {entry.day: entry for entry in checkins}
+    segment_order = ["sleep", "morning", "midday", "evening", "overall"]
+    segment_labels = {
+        "sleep": "Sleep",
+        "morning": "Morning",
+        "midday": "Midday",
+        "evening": "Evening",
+        "overall": "Overall",
+    }
+
+    def expected_segments_for_day(day_value: date):
+        if day_value < local_today:
+            return segment_order[:]
+        expected = ["sleep"]
+        if local_now.hour >= 11:
+            expected.append("morning")
+        if local_now.hour >= 15:
+            expected.append("midday")
+        if local_now.hour >= 20:
+            expected.append("evening")
+        if local_now.hour >= 22:
+            expected.append("overall")
+        return expected
+
+    required_segments_total = 0
+    required_segments_completed = 0
+    coverage_missing_items = []
+    days_with_any_data = 0
+
+    for day_offset in range(days_elapsed):
+        day_value = week_start + timedelta(days=day_offset)
+        record = checkin_by_day.get(day_value)
+        if checkin_has_any_data(record):
+            days_with_any_data += 1
+        statuses = checkin_segment_status(record)
+        expected_segments = expected_segments_for_day(day_value)
+        required_segments_total += len(expected_segments)
+        for segment in expected_segments:
+            if statuses.get(segment):
+                required_segments_completed += 1
+            else:
+                coverage_missing_items.append(
+                    {
+                        "day": day_value,
+                        "segment": segment,
+                        "label": f"{day_value.strftime('%a %b %d')} - {segment_labels[segment]}",
+                        "url": f"/checkin?day={day_value.isoformat()}&view=checkin&segment={segment}",
+                    }
+                )
+
+    coverage_pct = round((required_segments_completed / max(required_segments_total, 1)) * 100, 1)
 
     workout_sessions = 0
     workout_minutes = 0
@@ -1579,20 +1630,22 @@ def build_home_weekly_context(user: User, profile: UserProfile):
     mim_notes = []
     primary_goal = normalize_text(profile.primary_goal) or "Consistency"
 
-    if logged_days <= 2:
+    if coverage_pct >= 99.9:
+        mim_notes.append("You are at 100% for required check-in segments so far this week.")
+    elif days_with_any_data <= 2:
         mim_notes.append(
-            "Early data capture phase. Log a few more check-ins this week to strengthen your signal."
+            "Early data capture phase. Keep filling required check-in segments to strengthen your signal."
         )
-    elif logged_days <= 4:
+    elif days_with_any_data <= 4:
         mim_notes.append(
-            f"Good start: {logged_days}/7 days logged. Add 1-2 more check-ins for cleaner trend detection."
+            f"Good start: {days_with_any_data}/{days_elapsed} days have check-in data this week."
         )
-    elif logged_days < 7:
+    elif days_with_any_data < days_elapsed:
         mim_notes.append(
-            f"Solid consistency so far ({logged_days}/7 days). Keep the streak through week-end."
+            f"Solid consistency so far ({days_with_any_data}/{days_elapsed} days). Keep filling missing segments."
         )
     else:
-        mim_notes.append("Excellent weekly coverage: 7/7 days logged.")
+        mim_notes.append("Excellent weekly consistency so far. Keep the day-by-day streak alive.")
 
     if workout_sessions == 0:
         mim_notes.append("No workouts logged this week yet. Add one session to improve performance signal quality.")
@@ -1641,14 +1694,21 @@ def build_home_weekly_context(user: User, profile: UserProfile):
     return {
         "week_start": week_start,
         "week_end": local_today,
+        "days_elapsed": days_elapsed,
         "coverage_pct": coverage_pct,
+        "coverage_to_date_pct": coverage_pct,
+        "required_segments": required_segments_total,
+        "completed_required_segments": required_segments_completed,
+        "coverage_missing_count": len(coverage_missing_items),
+        "coverage_missing_items": coverage_missing_items[:8],
+        "days_with_any_data": days_with_any_data,
         "workout_sessions": workout_sessions,
         "workout_minutes": workout_minutes,
         "avg_calories_per_logged_day": avg_calories_per_logged_day,
         "total_calories_week": total_calories_week,
         "meals_logged_week": len(meals),
         "substances_logged_week": len(substances),
-        "checkins_logged_week": len(checkins),
+        "checkins_logged_week": days_with_any_data,
         "avg_sleep": avg_sleep,
         "avg_energy": avg_energy,
         "avg_focus": avg_focus,
@@ -3455,6 +3515,9 @@ def checkin_form():
     local_today = get_user_local_today(g.user)
     day_str = request.args.get("day")
     manager_view = (request.args.get("view") or "checkin").strip().lower()
+    requested_segment = (request.args.get("segment") or "").strip().lower()
+    if requested_segment not in {"sleep", "morning", "midday", "evening", "overall"}:
+        requested_segment = None
     if manager_view not in DAY_MANAGER_VIEWS:
         manager_view = "checkin"
     if day_str:
@@ -3601,10 +3664,13 @@ def checkin_form():
     default_entry_datetime = f"{selected_day.isoformat()}T{default_entry_time}"
     quick_favorites = _build_day_manager_favorites_for_user(g.user.id)
     selected_segments = checkin_segment_status(record)
-    checkin_default_tab = resolve_checkin_default_tab(
-        segments=selected_segments,
-        is_viewing_today=(selected_day == local_today),
-        local_hour=local_now.hour,
+    checkin_default_tab = (
+        requested_segment
+        or resolve_checkin_default_tab(
+            segments=selected_segments,
+            is_viewing_today=(selected_day == local_today),
+            local_hour=local_now.hour,
+        )
     )
 
     prev_day = selected_day - timedelta(days=1)

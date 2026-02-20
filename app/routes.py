@@ -4210,6 +4210,14 @@ def login_required(view):
     @wraps(view)
     def wrapped(*args, **kwargs):
         if g.user is None:
+            if request_wants_json_response():
+                return jsonify(
+                    {
+                        "ok": False,
+                        "error": "Your session expired. Please log in and try again.",
+                        "code": "auth_required",
+                    }
+                ), 401
             flash("Please log in first.", "error")
             return redirect(url_for("main.login", next=request.path))
         return view(*args, **kwargs)
@@ -4234,11 +4242,34 @@ def profile_required(view):
         profile = get_or_create_profile(g.user)
         missing = profile.missing_required_fields()
         if missing:
+            if request_wants_json_response():
+                return jsonify(
+                    {
+                        "ok": False,
+                        "error": "Complete your core profile before logging this data.",
+                        "code": "profile_incomplete",
+                        "missing": missing,
+                    }
+                ), 409
             flash("Complete your core profile fields before logging daily data.", "error")
             return redirect(url_for("main.profile"))
         return view(*args, **kwargs)
 
     return wrapped
+
+
+def request_wants_json_response() -> bool:
+    if request.path.startswith(("/ai/", "/nutrition/", "/foods/")):
+        return True
+    if request.path in {"/meal/parse-text", "/recipe-calculator/calculate"}:
+        return True
+    if request.is_json:
+        return True
+    accept = (request.headers.get("Accept") or "").lower()
+    if "application/json" in accept:
+        return True
+    requested_with = (request.headers.get("X-Requested-With") or "").lower()
+    return requested_with == "xmlhttprequest"
 
 
 @bp.before_app_request

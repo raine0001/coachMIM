@@ -612,6 +612,34 @@
         return String(value || "").replace(/\s+/g, " ").trim();
       }
 
+      async function parseJsonResponseSafe(response, fallbackMessage) {
+        const rawText = await response.text();
+        let data = null;
+        try {
+          data = rawText ? JSON.parse(rawText) : null;
+        } catch (error) {
+          data = null;
+        }
+
+        if (data && typeof data === "object") {
+          return data;
+        }
+
+        const redirectedToLogin = response.redirected && response.url && response.url.includes("/login");
+        if (redirectedToLogin || response.status === 401) {
+          throw new Error("Your session expired. Please log in again and retry.");
+        }
+        if (response.status === 409) {
+          throw new Error("Complete your core profile first, then retry this action.");
+        }
+        if (rawText && /<!doctype html/i.test(rawText)) {
+          throw new Error(
+            fallbackMessage || "Server returned an unexpected page. Refresh and try again."
+          );
+        }
+        throw new Error(fallbackMessage || `Request failed (${response.status}).`);
+      }
+
       function setRecipeMethod(mode) {
         const activeMode = mode === "manual" ? "manual" : "mim";
         recipeMethodMimButton?.classList.toggle("active", activeMode === "mim");
@@ -955,7 +983,7 @@
             method: "GET",
             headers: { Accept: "application/json" }
           });
-          const data = await response.json();
+          const data = await parseJsonResponseSafe(response, "Food search failed.");
           const results = Array.isArray(data.results) ? data.results : [];
           const options = results
             .filter((item) => item && item.id)
@@ -1082,7 +1110,7 @@
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ context, text: prompt })
           });
-          const data = await response.json();
+          const data = await parseJsonResponseSafe(response, "MIM estimate failed.");
           if (!response.ok || !data.ok) {
             throw new Error(data.error || "MIM estimate failed.");
           }
@@ -1134,7 +1162,7 @@
               ingredients
             })
           });
-          const data = await response.json();
+          const data = await parseJsonResponseSafe(response, "Recipe calculation failed.");
           if (!response.ok || !data.ok) {
             throw new Error(data.error || "Recipe calculation failed.");
           }

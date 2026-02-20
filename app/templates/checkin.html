@@ -1900,6 +1900,34 @@
       });
     }
 
+    async function parseJsonResponseSafe(response, fallbackMessage) {
+      const rawText = await response.text();
+      let data = null;
+      try {
+        data = rawText ? JSON.parse(rawText) : null;
+      } catch (error) {
+        data = null;
+      }
+
+      if (data && typeof data === "object") {
+        return data;
+      }
+
+      const redirectedToLogin = response.redirected && response.url && response.url.includes("/login");
+      if (redirectedToLogin || response.status === 401) {
+        throw new Error("Your session expired. Please log in again and retry.");
+      }
+      if (response.status === 409) {
+        throw new Error("Complete your core profile first, then retry.");
+      }
+      if (rawText && /<!doctype html/i.test(rawText)) {
+        throw new Error(
+          fallbackMessage || "Server returned an unexpected page. Refresh and try again."
+        );
+      }
+      throw new Error(fallbackMessage || `Request failed (${response.status}).`);
+    }
+
     function wireMimAssist(config) {
       const toggleButton = document.getElementById(config.toggleId);
       const panel = document.getElementById(config.panelId);
@@ -1932,7 +1960,7 @@
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ context: config.context, text: seedText })
           });
-          const data = await response.json();
+          const data = await parseJsonResponseSafe(response, "MIM assist failed.");
           if (!response.ok || !data.ok) {
             throw new Error(data.error || "MIM assist failed.");
           }

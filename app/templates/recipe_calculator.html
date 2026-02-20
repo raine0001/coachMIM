@@ -114,6 +114,54 @@
     .match-table .align-right {
       text-align: right;
     }
+    .match-table .align-center {
+      text-align: center;
+    }
+    .match-actions {
+      display: inline-flex;
+      gap: 6px;
+      justify-content: center;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .match-actions button {
+      border: 1px solid #d7dee7;
+      background: #fff;
+      color: #17212b;
+      padding: 4px 8px;
+      font-size: 0.82rem;
+    }
+    .match-editor-cell {
+      background: #f9fcff;
+      padding: 8px 10px;
+    }
+    .match-editor-grid {
+      display: grid;
+      grid-template-columns: 1.2fr auto;
+      gap: 8px;
+      align-items: end;
+      margin-bottom: 8px;
+    }
+    .match-editor-grid label {
+      margin: 0 0 4px;
+      font-size: 0.8rem;
+      font-weight: 600;
+    }
+    .match-editor-grid input,
+    .match-editor-grid select {
+      width: 100%;
+    }
+    .match-editor-results {
+      display: grid;
+      grid-template-columns: 1fr auto auto;
+      gap: 8px;
+      align-items: end;
+    }
+    .match-editor-msg {
+      margin-top: 6px;
+      font-size: 0.82rem;
+      color: var(--muted);
+    }
     .entry-table {
       width: 100%;
       border-collapse: collapse;
@@ -274,11 +322,12 @@
                   <th class="align-right">Cal</th>
                   <th class="align-right">P/C/F</th>
                   <th class="align-right">Sugar</th>
+                  <th class="align-center">Action</th>
                 </tr>
               </thead>
               <tbody id="recipe_match_rows">
                 <tr>
-                  <td colspan="5" class="muted">No calculation yet.</td>
+                  <td colspan="6" class="muted">No calculation yet.</td>
                 </tr>
               </tbody>
             </table>
@@ -400,6 +449,7 @@
       const ingredientsHidden = document.getElementById("recipe_ingredients_json");
       const entryTypeField = document.getElementById("recipe_entry_type");
       const favoriteSelect = document.getElementById("recipe_favorite_id");
+      let latestMatchRows = [];
 
       const fieldMap = {
         description: document.getElementById("recipe_description"),
@@ -478,11 +528,13 @@
 
       function renderMatchRows(rows) {
         if (!Array.isArray(rows) || rows.length === 0) {
-          matchRowsEl.innerHTML = '<tr><td colspan="5" class="muted">No calculation rows.</td></tr>';
+          latestMatchRows = [];
+          matchRowsEl.innerHTML = '<tr><td colspan="6" class="muted">No calculation rows.</td></tr>';
           return;
         }
+        latestMatchRows = rows.map((row) => ({ ...row }));
         matchRowsEl.innerHTML = rows
-          .map((row) => {
+          .map((row, index) => {
             const sourceName = normalizeText(row.matched_display_name || "");
             const matchedText = sourceName || "No confident match";
             const cal = row.calories !== null && row.calories !== undefined ? Number(row.calories).toFixed(0) : "-";
@@ -490,17 +542,287 @@
             const carbs = row.carbs_g !== null && row.carbs_g !== undefined ? Number(row.carbs_g).toFixed(1) : "-";
             const fat = row.fat_g !== null && row.fat_g !== undefined ? Number(row.fat_g).toFixed(1) : "-";
             const sugar = row.sugar_g !== null && row.sugar_g !== undefined ? Number(row.sugar_g).toFixed(1) : "-";
+            const safeIngredient = normalizeText(row.input_name || row.food_name || "-");
             return `
               <tr>
-                <td>${normalizeText(row.input_name || row.food_name || "-")}</td>
+                <td>${safeIngredient}</td>
                 <td>${matchedText}</td>
                 <td class="align-right">${cal}</td>
                 <td class="align-right">${protein}/${carbs}/${fat}</td>
                 <td class="align-right">${sugar}</td>
+                <td class="align-center">
+                  <div class="match-actions">
+                    <button type="button" class="match-edit-toggle" data-row-index="${index}">Find Better</button>
+                  </div>
+                </td>
+              </tr>
+              <tr class="match-editor-row" id="match_editor_${index}" style="display:none;">
+                <td colspan="6" class="match-editor-cell">
+                  <div class="match-editor-grid">
+                    <div>
+                      <label for="match_query_${index}">Search Match</label>
+                      <input id="match_query_${index}" type="text" value="${safeIngredient}" />
+                    </div>
+                    <button type="button" class="match-search-btn" data-row-index="${index}">Search</button>
+                  </div>
+                  <div class="match-editor-results">
+                    <select id="match_results_${index}">
+                      <option value="">Choose a replacement item</option>
+                    </select>
+                    <button type="button" class="match-apply-btn" data-row-index="${index}">Use Selected</button>
+                    <button type="button" class="match-cancel-btn" data-row-index="${index}">Close</button>
+                  </div>
+                  <div id="match_msg_${index}" class="match-editor-msg">Search local catalog, then choose a better item.</div>
+                </td>
               </tr>
             `;
           })
           .join("");
+      }
+
+      function numberOrNull(value) {
+        if (value === null || value === undefined || value === "") return null;
+        const parsed = Number(value);
+        return Number.isFinite(parsed) ? parsed : null;
+      }
+
+      function normalizeUnit(unit) {
+        const raw = normalizeText(unit).toLowerCase().replace(/\./g, "");
+        const map = {
+          serving: "serving",
+          servings: "serving",
+          portion: "serving",
+          portions: "serving",
+          g: "g",
+          gram: "g",
+          grams: "g",
+          oz: "oz",
+          ounce: "oz",
+          ounces: "oz",
+          lb: "lb",
+          lbs: "lb",
+          pound: "lb",
+          pounds: "lb",
+          ml: "ml",
+          milliliter: "ml",
+          milliliters: "ml",
+          cup: "cup",
+          cups: "cup",
+          tbsp: "tbsp",
+          tablespoon: "tbsp",
+          tablespoons: "tbsp",
+          tsp: "tsp",
+          teaspoon: "tsp",
+          teaspoons: "tsp",
+          item: "item",
+          items: "item",
+          slice: "item",
+          slices: "item",
+          piece: "item",
+          pieces: "item"
+        };
+        return map[raw] || "serving";
+      }
+
+      function unitToGrams(quantity, unit) {
+        const map = { g: 1, oz: 28.349523125, lb: 453.59237 };
+        const normalized = normalizeUnit(unit);
+        if (!Object.prototype.hasOwnProperty.call(map, normalized)) return null;
+        return Number(quantity) * map[normalized];
+      }
+
+      function unitToMl(quantity, unit) {
+        const map = { ml: 1, cup: 240, tbsp: 15, tsp: 5, oz: 29.5735 };
+        const normalized = normalizeUnit(unit);
+        if (!Object.prototype.hasOwnProperty.call(map, normalized)) return null;
+        return Number(quantity) * map[normalized];
+      }
+
+      function calculateFactor(quantity, unit, servingSize, servingUnit) {
+        const qty = Number(quantity);
+        let safeQty = Number.isFinite(qty) && qty > 0 ? qty : 1;
+        const chosenUnit = normalizeUnit(unit);
+        if (chosenUnit === "serving") return safeQty;
+
+        const baseSize = Number(servingSize);
+        const baseUnit = normalizeUnit(servingUnit);
+        if (!Number.isFinite(baseSize) || baseSize <= 0) {
+          return chosenUnit === "item" ? safeQty : 1;
+        }
+
+        if (chosenUnit === baseUnit) return safeQty / baseSize;
+
+        const qtyGrams = unitToGrams(safeQty, chosenUnit);
+        const servingGrams = unitToGrams(baseSize, baseUnit);
+        if (qtyGrams !== null && servingGrams !== null && servingGrams > 0) {
+          return qtyGrams / servingGrams;
+        }
+
+        const qtyMl = unitToMl(safeQty, chosenUnit);
+        const servingMl = unitToMl(baseSize, baseUnit);
+        if (qtyMl !== null && servingMl !== null && servingMl > 0) {
+          return qtyMl / servingMl;
+        }
+
+        if (chosenUnit === "item" && baseUnit === "item") return safeQty / baseSize;
+        if (chosenUnit === "item") return safeQty;
+        return 1;
+      }
+
+      function updateTotalsFromRows() {
+        const entryRows = collectRows();
+        const totals = {
+          calories: 0,
+          protein_g: 0,
+          carbs_g: 0,
+          fat_g: 0,
+          sugar_g: 0,
+          sodium_mg: 0,
+          caffeine_mg: 0
+        };
+
+        latestMatchRows = latestMatchRows.map((row, index) => {
+          const ingredientRow = entryRows[index] || {};
+          const quantity = ingredientRow.quantity ?? row.quantity ?? 1;
+          const unit = ingredientRow.unit || row.unit || "serving";
+          const factor = calculateFactor(quantity, unit, row.serving_size, row.serving_unit);
+
+          const calories = (numberOrNull(row.base_calories) ?? numberOrNull(row.calories) ?? 0) * factor;
+          const protein = (numberOrNull(row.base_protein_g) ?? numberOrNull(row.protein_g) ?? 0) * factor;
+          const carbs = (numberOrNull(row.base_carbs_g) ?? numberOrNull(row.carbs_g) ?? 0) * factor;
+          const fat = (numberOrNull(row.base_fat_g) ?? numberOrNull(row.fat_g) ?? 0) * factor;
+          const sugar = (numberOrNull(row.base_sugar_g) ?? numberOrNull(row.sugar_g) ?? 0) * factor;
+          const sodium = (numberOrNull(row.base_sodium_mg) ?? numberOrNull(row.sodium_mg) ?? 0) * factor;
+          const caffeine = (numberOrNull(row.base_caffeine_mg) ?? numberOrNull(row.caffeine_mg) ?? 0) * factor;
+
+          totals.calories += calories;
+          totals.protein_g += protein;
+          totals.carbs_g += carbs;
+          totals.fat_g += fat;
+          totals.sugar_g += sugar;
+          totals.sodium_mg += sodium;
+          totals.caffeine_mg += caffeine;
+
+          return {
+            ...row,
+            quantity,
+            unit,
+            calories: Math.round(calories * 10) / 10,
+            protein_g: Math.round(protein * 100) / 100,
+            carbs_g: Math.round(carbs * 100) / 100,
+            fat_g: Math.round(fat * 100) / 100,
+            sugar_g: Math.round(sugar * 100) / 100,
+            sodium_mg: Math.round(sodium * 100) / 100,
+            caffeine_mg: Math.round(caffeine * 100) / 100
+          };
+        });
+
+        applyTotals({
+          calories: totals.calories > 0 ? Math.round(totals.calories) : 0,
+          protein_g: Math.round(totals.protein_g * 10) / 10,
+          carbs_g: Math.round(totals.carbs_g * 10) / 10,
+          fat_g: Math.round(totals.fat_g * 10) / 10,
+          sugar_g: Math.round(totals.sugar_g * 10) / 10,
+          sodium_mg: Math.round(totals.sodium_mg * 10) / 10,
+          caffeine_mg: Math.round(totals.caffeine_mg * 10) / 10
+        });
+
+        renderMatchRows(latestMatchRows);
+        ingredientsHidden.value = JSON.stringify(latestMatchRows);
+      }
+
+      async function searchReplacementMatches(index) {
+        const queryEl = document.getElementById(`match_query_${index}`);
+        const selectEl = document.getElementById(`match_results_${index}`);
+        const msgEl = document.getElementById(`match_msg_${index}`);
+        const query = normalizeText(queryEl?.value);
+        if (!query) {
+          if (msgEl) msgEl.textContent = "Enter a search term first.";
+          return;
+        }
+        if (msgEl) msgEl.textContent = "Searching catalog...";
+
+        try {
+          const response = await fetch(`{{ url_for('main.food_search') }}?q=${encodeURIComponent(query)}`, {
+            method: "GET",
+            headers: { Accept: "application/json" }
+          });
+          const data = await response.json();
+          const results = Array.isArray(data.results) ? data.results : [];
+          const options = results
+            .filter((item) => item && item.id)
+            .map((item) => {
+              const nutrientDefined =
+                item.calories !== null ||
+                item.protein_g !== null ||
+                item.carbs_g !== null ||
+                item.fat_g !== null ||
+                item.sugar_g !== null ||
+                item.sodium_mg !== null ||
+                item.caffeine_mg !== null;
+              const label = `${item.display_name || item.name || "Food item"} | ${item.calories ?? "?"} kcal`;
+              return {
+                id: item.id,
+                label,
+                raw: item,
+                nutrientDefined
+              };
+            });
+
+          selectEl.innerHTML = '<option value="">Choose a replacement item</option>';
+          options.forEach((opt) => {
+            const option = document.createElement("option");
+            option.value = String(opt.id);
+            option.textContent = opt.nutrientDefined ? opt.label : `${opt.label} (nutrition missing)`;
+            option.dataset.payload = JSON.stringify(opt.raw);
+            selectEl.appendChild(option);
+          });
+
+          if (msgEl) msgEl.textContent = options.length ? `Found ${options.length} candidate matches.` : "No matches found. Try a broader term.";
+        } catch (error) {
+          if (msgEl) msgEl.textContent = "Search failed. Please try again.";
+        }
+      }
+
+      function applyReplacementMatch(index) {
+        const selectEl = document.getElementById(`match_results_${index}`);
+        const msgEl = document.getElementById(`match_msg_${index}`);
+        const selected = selectEl?.options?.[selectEl.selectedIndex];
+        if (!selected || !selected.value || !selected.dataset.payload) {
+          if (msgEl) msgEl.textContent = "Choose a replacement item first.";
+          return;
+        }
+
+        let payload;
+        try {
+          payload = JSON.parse(selected.dataset.payload);
+        } catch (error) {
+          if (msgEl) msgEl.textContent = "Invalid match payload.";
+          return;
+        }
+        if (!latestMatchRows[index]) return;
+
+        latestMatchRows[index] = {
+          ...latestMatchRows[index],
+          food_item_id: payload.id ?? null,
+          food_name: payload.display_name || payload.name || latestMatchRows[index].food_name,
+          matched_display_name: payload.display_name || payload.name || latestMatchRows[index].matched_display_name,
+          match_source: payload.source || "local",
+          serving_size: numberOrNull(payload.serving_size),
+          serving_unit: normalizeText(payload.serving_unit) || null,
+          base_calories: numberOrNull(payload.calories),
+          base_protein_g: numberOrNull(payload.protein_g),
+          base_carbs_g: numberOrNull(payload.carbs_g),
+          base_fat_g: numberOrNull(payload.fat_g),
+          base_sugar_g: numberOrNull(payload.sugar_g),
+          base_sodium_mg: numberOrNull(payload.sodium_mg),
+          base_caffeine_mg: numberOrNull(payload.caffeine_mg)
+        };
+
+        const editorRow = document.getElementById(`match_editor_${index}`);
+        if (editorRow) editorRow.style.display = "none";
+        updateTotalsFromRows();
+        setStatus(`Updated match for "${latestMatchRows[index].input_name || latestMatchRows[index].food_name}".`);
       }
 
       function applyTotals(totals) {
@@ -550,10 +872,21 @@
             throw new Error(data.error || "Recipe calculation failed.");
           }
 
-          renderMatchRows(data.ingredients || []);
           applyTotals(data.totals || {});
           applySuggestedFields(data.suggested_fields || {});
-          ingredientsHidden.value = JSON.stringify(Array.isArray(data.ingredients) ? data.ingredients : []);
+          const normalizedRows = (Array.isArray(data.ingredients) ? data.ingredients : []).map((row) => ({
+            ...row,
+            base_calories: numberOrNull(row.calories),
+            base_protein_g: numberOrNull(row.protein_g),
+            base_carbs_g: numberOrNull(row.carbs_g),
+            base_fat_g: numberOrNull(row.fat_g),
+            base_sugar_g: numberOrNull(row.sugar_g),
+            base_sodium_mg: numberOrNull(row.sodium_mg),
+            base_caffeine_mg: numberOrNull(row.caffeine_mg)
+          }));
+          latestMatchRows = normalizedRows;
+          renderMatchRows(normalizedRows);
+          ingredientsHidden.value = JSON.stringify(normalizedRows);
 
           const matched = Number(data.matched_count || 0);
           const total = Number(data.total_count || 0);
@@ -624,6 +957,46 @@
         if (row) row.remove();
         if (!rowsHost.querySelector(".recipe-row")) {
           createRow();
+        }
+      });
+
+      rowsHost.addEventListener("change", () => {
+        if (latestMatchRows.length) {
+          updateTotalsFromRows();
+        }
+      });
+
+      matchRowsEl.addEventListener("click", (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) return;
+        const indexValue = target.getAttribute("data-row-index");
+        const rowIndex = Number(indexValue);
+        if (!Number.isInteger(rowIndex)) return;
+
+        if (target.classList.contains("match-edit-toggle")) {
+          const editorRow = document.getElementById(`match_editor_${rowIndex}`);
+          if (!editorRow) return;
+          const isOpen = editorRow.style.display !== "none";
+          matchRowsEl.querySelectorAll(".match-editor-row").forEach((row) => {
+            row.style.display = "none";
+          });
+          editorRow.style.display = isOpen ? "none" : "";
+          return;
+        }
+
+        if (target.classList.contains("match-search-btn")) {
+          searchReplacementMatches(rowIndex);
+          return;
+        }
+
+        if (target.classList.contains("match-apply-btn")) {
+          applyReplacementMatch(rowIndex);
+          return;
+        }
+
+        if (target.classList.contains("match-cancel-btn")) {
+          const editorRow = document.getElementById(`match_editor_${rowIndex}`);
+          if (editorRow) editorRow.style.display = "none";
         }
       });
 

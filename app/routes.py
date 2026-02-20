@@ -287,6 +287,34 @@ AUTO_COMMUNITY_TOTAL_ITEMS_CAP = 32
 AUTO_COMMUNITY_SOURCE_MAX_BYTES = int(os.getenv("AUTO_COMMUNITY_SOURCE_MAX_BYTES", "1200000"))
 FOOD_MATCH_CANDIDATE_LIMIT = int(os.getenv("FOOD_MATCH_CANDIDATE_LIMIT", "120"))
 FOOD_FUZZY_CANDIDATE_LIMIT = int(os.getenv("FOOD_FUZZY_CANDIDATE_LIMIT", "140"))
+FOOD_NUTRIENT_FIELDS = (
+    "calories",
+    "protein_g",
+    "carbs_g",
+    "fat_g",
+    "sugar_g",
+    "sodium_mg",
+    "caffeine_mg",
+)
+FOOD_QUERY_PREFIX_STRIP_WORDS = {"sliced", "chopped", "diced", "minced"}
+FOOD_QUERY_ALIAS_PATTERNS = (
+    (re.compile(r"\bpeper\b"), "pepper"),
+    (re.compile(r"\bextra virgin olive oil\b"), "olive oil"),
+    (re.compile(r"\bvirgin olive oil\b"), "olive oil"),
+    (re.compile(r"\bbow[\s-]?tie(?:s)?\b"), "bow tie pasta"),
+    (re.compile(r"\bnoodles?\b"), "pasta"),
+)
+FOOD_QUERY_COLOR_WORDS = {"red", "green", "yellow", "white"}
+RECIPE_QUERY_FALLBACKS = (
+    (("olive", "oil"), "Olive oil"),
+    (("red", "onion"), "Onion, red"),
+    (("onion",), "Onion, red"),
+    (("green", "pepper"), "Bell pepper, green"),
+    (("bell", "pepper"), "Bell pepper, green"),
+    (("garlic",), "Garlic, minced"),
+    (("bow", "tie"), "Bow tie pasta, cooked"),
+    (("pasta",), "Pasta, cooked"),
+)
 LOGIN_BRAIN_FACTS = [
     {
         "title": "Did You Know?",
@@ -1262,6 +1290,21 @@ def normalize_search_text(value: str | None) -> str:
     raw = (value or "").lower()
     raw = re.sub(r"[^a-z0-9\s]", " ", raw)
     return re.sub(r"\s+", " ", raw).strip()
+
+
+def normalize_food_query_text(value: str | None) -> str:
+    normalized = normalize_search_text(value)
+    if not normalized:
+        return ""
+
+    tokens = normalized.split()
+    if tokens and tokens[0] in FOOD_QUERY_PREFIX_STRIP_WORDS:
+        tokens = tokens[1:]
+    normalized = " ".join(tokens)
+
+    for pattern, replacement in FOOD_QUERY_ALIAS_PATTERNS:
+        normalized = pattern.sub(replacement, normalized)
+    return re.sub(r"\s+", " ", normalized).strip()
 
 
 def tokenize_search_text(value: str | None) -> list[str]:
@@ -6571,7 +6614,7 @@ def meal_delete(meal_id: int):
 
 
 def score_food_match(query: str, tokens: list[str], item: FoodItem) -> float:
-    query_norm = normalize_search_text(query)
+    query_norm = normalize_food_query_text(query)
     name_norm = normalize_search_text(item.name)
     brand_norm = normalize_search_text(item.brand)
     merged = " ".join(part for part in [name_norm, brand_norm] if part)
@@ -6603,11 +6646,23 @@ def score_food_match(query: str, tokens: list[str], item: FoodItem) -> float:
     elif item.source == "community":
         score += 0.02
 
+    if _food_item_has_missing_nutrition(item):
+        score -= 0.2
+    else:
+        score += _food_item_nutrition_bonus(item)
+
+    query_colors = [word for word in FOOD_QUERY_COLOR_WORDS if word in tokens]
+    item_has_color = any(color in name_norm for color in FOOD_QUERY_COLOR_WORDS)
+    if query_colors and item_has_color:
+        missing_colors = [color for color in query_colors if color not in name_norm]
+        if missing_colors:
+            score -= 0.08
+
     return score
 
 
 def fuzzy_food_matches(query: str, existing_ids: set[int], limit: int = 8):
-    query_norm = normalize_search_text(query)
+    query_norm = normalize_food_query_text(query)
     tokens = tokenize_search_text(query_norm)
     if len(query_norm) < 3:
         return []
@@ -6719,8 +6774,42 @@ def _food_item_to_payload(item: FoodItem) -> dict:
     }
 
 
-def find_best_food_item_match(query: str) -> tuple[FoodItem | None, float]:
-    q = (query or "").strip()
+def _food_item_has_missing_nutrition(item: FoodItem | None) -> bool:
+    if item is None:
+        return True
+    return all(getattr(item, field_name) is None for field_name in FOOD_NUTRIENT_FIELDS)
+
+
+def _food_item_nutrition_bonus(item: FoodItem) -> float:
+    defined_count = 0
+    positive_count = 0
+    for field_name in FOOD_NUTRIENT_FIELDS:
+        value = getattr(item, field_name)
+        if value is None:
+            continue
+        defined_count += 1
+        try:
+            if float(value) > 0:
+                positive_count += 1
+        except (TypeError, ValueError):
+            continue
+
+    if defined_count == 0:
+        return 0.0
+    return min(0.1, (defined_count * 0.01) + (positive_count * 0.01))
+
+
+def _find_seed_fallback_for_query(query_norm: str) -> FoodItem | None:
+    for tokens, seed_name in RECIPE_QUERY_FALLBACKS:
+        if all(token in query_norm for token in tokens):
+            item = FoodItem.query.filter_by(name=seed_name, source="seed").first()
+            if item and not _food_item_has_missing_nutrition(item):
+                return item
+    return None
+
+
+def find_best_food_item_match(query: str, require_nutrition: bool = False) -> tuple[FoodItem | None, float]:
+    q = normalize_food_query_text(query)
     if len(q) < 2:
         return (None, 0.0)
 
@@ -6753,23 +6842,49 @@ def find_best_food_item_match(query: str) -> tuple[FoodItem | None, float]:
         .all()
     )
 
-    best_item: FoodItem | None = None
-    best_score = 0.0
+    scored_candidates: list[tuple[float, FoodItem]] = []
     for item in candidates:
         score = score_food_match(q, tokens, item)
-        if score > best_score:
-            best_score = score
-            best_item = item
+        scored_candidates.append((score, item))
+
+    scored_candidates.sort(key=lambda row: row[0], reverse=True)
+
+    best_item: FoodItem | None = None
+    best_score = 0.0
+    if scored_candidates:
+        best_score, best_item = scored_candidates[0]
+
+    if require_nutrition and scored_candidates:
+        viable = [(score, item) for score, item in scored_candidates if not _food_item_has_missing_nutrition(item)]
+        if viable:
+            viable_score, viable_item = viable[0]
+            # Prefer rows with real nutrition even if text match is slightly weaker.
+            if _food_item_has_missing_nutrition(best_item) or viable_score >= (best_score - 0.08):
+                best_score, best_item = viable_score, viable_item
+        elif _food_item_has_missing_nutrition(best_item):
+            best_item = None
+            best_score = 0.0
 
     if best_item and best_score >= 0.42:
         return (best_item, best_score)
 
-    fuzzy = fuzzy_food_matches(q, existing_ids=set(), limit=1)
+    fuzzy = fuzzy_food_matches(q, existing_ids=set(), limit=4)
     if fuzzy:
-        fuzzy_item = fuzzy[0]
-        fuzzy_score = score_food_match(q, tokens, fuzzy_item)
-        if fuzzy_score > best_score and fuzzy_score >= 0.42:
-            return (fuzzy_item, fuzzy_score)
+        fuzzy_scored = sorted(
+            ((score_food_match(q, tokens, item), item) for item in fuzzy),
+            key=lambda row: row[0],
+            reverse=True,
+        )
+        for fuzzy_score, fuzzy_item in fuzzy_scored:
+            if require_nutrition and _food_item_has_missing_nutrition(fuzzy_item):
+                continue
+            if fuzzy_score > best_score and fuzzy_score >= 0.42:
+                return (fuzzy_item, fuzzy_score)
+
+    if require_nutrition:
+        fallback_item = _find_seed_fallback_for_query(q)
+        if fallback_item is not None:
+            return (fallback_item, max(best_score, 0.45))
 
     return (None, best_score)
 
@@ -6912,7 +7027,7 @@ def _calculate_recipe_from_rows(ingredient_rows: list[dict]) -> dict:
         quantity = _safe_float(row.get("quantity"), fallback=1.0)
         unit = normalize_builder_unit(row.get("unit"))
 
-        matched_item, score = find_best_food_item_match(ingredient_name)
+        matched_item, score = find_best_food_item_match(ingredient_name, require_nutrition=True)
         row_payload = {
             "food_item_id": None,
             "food_name": ingredient_name,
@@ -7112,7 +7227,7 @@ def meal_parse_text():
             quantity = 1.0
 
         parsed_unit = normalize_builder_unit(item.get("unit"))
-        matched_item, score = find_best_food_item_match(ingredient_name)
+        matched_item, score = find_best_food_item_match(ingredient_name, require_nutrition=True)
 
         calories = parse_float(item.get("calories"))
         protein_g = parse_float(item.get("protein_g"))
@@ -7293,7 +7408,7 @@ def ai_day_manager_assist():
 
         quantity = _safe_float(ingredient.get("quantity"), fallback=1.0)
         unit = normalize_builder_unit(ingredient.get("unit"))
-        matched_item, score = find_best_food_item_match(ingredient_name)
+        matched_item, score = find_best_food_item_match(ingredient_name, require_nutrition=True)
         if not matched_item:
             unmatched_ingredients.append(ingredient_name)
             continue

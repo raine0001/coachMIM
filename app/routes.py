@@ -359,6 +359,22 @@ LOGIN_BRAIN_FACTS = [
         "challenge": "Today target: add one complete entry with timing + portions.",
     },
 ]
+ROBOTS_DISALLOWED_PATHS = [
+    "/auth/google/",
+    "/checkin",
+    "/community",
+    "/dontcrash",
+    "/goals",
+    "/insights",
+    "/internal/",
+    "/login/verify",
+    "/meal",
+    "/profile",
+    "/recipe-calculator",
+    "/substance",
+    "/timeline",
+    "/uploads/",
+]
 
 PROFILE_ENCRYPTED_FIELDS = [
     "phone",
@@ -4641,6 +4657,21 @@ def index():
 @bp.get("/healthz")
 def healthz():
     return jsonify({"ok": True, "ts": datetime.utcnow().isoformat()}), 200
+
+
+@bp.get("/robots.txt")
+def robots_txt():
+    lines = [
+        "User-agent: *",
+        "Allow: /",
+    ]
+    for path in ROBOTS_DISALLOWED_PATHS:
+        lines.append(f"Disallow: {path}")
+    lines.append("Disallow: /?*")
+    lines.append("")
+    response = make_response("\n".join(lines))
+    response.headers["Content-Type"] = "text/plain; charset=utf-8"
+    return response
 
 
 @bp.route("/register", methods=["GET", "POST"])

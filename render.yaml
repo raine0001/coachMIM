@@ -3,8 +3,9 @@ services:
     name: coachmim-web
     env: python
     plan: starter
+    healthCheckPath: /healthz
     buildCommand: .venv/bin/python -m pip install -r requirements.txt && .venv/bin/python -m flask --app wsgi.py db upgrade
-    startCommand: .venv/bin/python -m gunicorn -c gunicorn.conf.py wsgi:app
+    startCommand: .venv/bin/python -m gunicorn -c gunicorn.conf.py --bind 0.0.0.0:$PORT wsgi:app
     envVars:
       - key: FLASK_ENV
         value: production

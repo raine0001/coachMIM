@@ -4345,6 +4345,11 @@ def index():
     return _track_homepage_visit(response)
 
 
+@bp.get("/healthz")
+def healthz():
+    return jsonify({"ok": True, "ts": datetime.utcnow().isoformat()}), 200
+
+
 @bp.route("/register", methods=["GET", "POST"])
 def register():
     if g.user is not None:

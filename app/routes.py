@@ -3788,6 +3788,21 @@ def normalize_email(value: str | None):
     return value.strip().lower()
 
 
+def get_canonical_site_base_url():
+    configured = (os.getenv("SITE_CANONICAL_URL") or "").strip().rstrip("/")
+    if configured:
+        return configured
+
+    forwarded_proto = (request.headers.get("X-Forwarded-Proto") or "").split(",", 1)[0].strip().lower()
+    host = (request.headers.get("X-Forwarded-Host") or request.host or "").split(",", 1)[0].strip()
+    if ":" in host:
+        host = host.split(":", 1)[0]
+    scheme = forwarded_proto if forwarded_proto in {"http", "https"} else "https"
+    if not host:
+        return f"{scheme}://www.coachmim.com"
+    return f"{scheme}://{host}"
+
+
 def safe_next_path(value: str | None):
     candidate = (value or "").strip()
     if candidate.startswith("/") and not candidate.startswith("//"):
@@ -4667,7 +4682,7 @@ def healthz():
 
 @bp.get("/robots.txt")
 def robots_txt():
-    site_base_url = (os.getenv("SITE_CANONICAL_URL") or request.url_root).rstrip("/")
+    site_base_url = get_canonical_site_base_url()
     lines = [
         "User-agent: *",
         "Allow: /",
@@ -4678,12 +4693,13 @@ def robots_txt():
     lines.append("")
     response = make_response("\n".join(lines))
     response.headers["Content-Type"] = "text/plain; charset=utf-8"
+    response.headers["Cache-Control"] = "public, max-age=3600"
     return response
 
 
 @bp.get("/sitemap.xml")
 def sitemap_xml():
-    site_base_url = (os.getenv("SITE_CANONICAL_URL") or request.url_root).rstrip("/")
+    site_base_url = get_canonical_site_base_url()
     now_iso = datetime.utcnow().date().isoformat()
 
     urlset = ET.Element("urlset", attrib={"xmlns": "http://www.sitemaps.org/schemas/sitemap/0.9"})
@@ -4701,6 +4717,7 @@ def sitemap_xml():
     xml_bytes = ET.tostring(urlset, encoding="utf-8", xml_declaration=True)
     response = make_response(xml_bytes)
     response.headers["Content-Type"] = "application/xml; charset=utf-8"
+    response.headers["Cache-Control"] = "public, max-age=3600"
     return response
 
 

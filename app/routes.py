@@ -393,6 +393,8 @@ NOTIFICATION_KIND_LABELS = {
     "reminder_morning": "Morning reminder",
     "reminder_midday": "Midday reminder",
     "reminder_evening": "Evening reminder",
+    "escalation_checkin": "Check-in escalation",
+    "goal_activity_gap": "Goal activity nudge",
     "missing_data": "Missing data",
     "motivation": "MIM motivation",
     "reengagement": "We miss you",
@@ -4534,6 +4536,14 @@ def get_or_create_notification_preferences(user: User):
     return prefs
 
 
+def _get_active_goal(user: User):
+    return (
+        UserGoal.query.filter_by(user_id=user.id, status="active")
+        .order_by(UserGoal.updated_at.desc(), UserGoal.id.desc())
+        .first()
+    )
+
+
 def push_notifications_enabled():
     if webpush is None:
         return False
@@ -4645,11 +4655,7 @@ def push_notification_to_user_subscriptions(
 
 
 def _get_active_goal_title(user: User):
-    active_goal = (
-        UserGoal.query.filter_by(user_id=user.id, status="active")
-        .order_by(UserGoal.updated_at.desc(), UserGoal.id.desc())
-        .first()
-    )
+    active_goal = _get_active_goal(user)
     if active_goal and normalize_text(active_goal.title):
         return normalize_text(active_goal.title)
     profile = user.profile
@@ -4743,6 +4749,99 @@ def _create_segment_reminder_if_needed(
         if is_new:
             created_notifications.append(notification)
     return created_notifications
+
+
+def _goal_activity_recovery_tip(goal: UserGoal | None):
+    if goal is None:
+        return "Add a 20-minute walk or quick bodyweight session today."
+    goal_type = (goal.goal_type or "").strip().lower()
+    if goal_type == "weight_loss":
+        return "Add a brisk 20-minute walk today to protect fat-loss momentum."
+    if goal_type == "sleep":
+        return "Do a light mobility session before dinner to support better sleep tonight."
+    if goal_type == "alcohol":
+        return "Replace one evening drink window with a 15-minute walk and hydration."
+    if goal_type == "activity":
+        return "Log one movement block today, even 15-20 minutes."
+    if goal_type == "stress":
+        return "Use a 10-minute walk plus 2 minutes of slow breathing as your reset."
+    if goal_type == "focus":
+        return "Do a short movement break before your next deep-focus block."
+    return "Log one intentional activity block today to keep momentum alive."
+
+
+def _create_checkin_escalation_if_needed(
+    *,
+    user: User,
+    local_today: date,
+    local_hour: int,
+    today_checkin: DailyCheckIn | None,
+    prefs: UserNotificationPreference,
+):
+    if not (prefs.enable_morning_reminder or prefs.enable_missing_data_alert):
+        return []
+    if local_hour < 11 or local_hour > 14:
+        return []
+    if today_checkin and checkin_has_any_data(today_checkin):
+        return []
+
+    goal_title = _get_active_goal_title(user)
+    notification, is_new = create_user_notification(
+        user_id=user.id,
+        kind="escalation_checkin",
+        title="11am nudge: start your day signal now",
+        message=(
+            "No check-in is logged yet today. "
+            f"Give CoachMIM a 60-second morning update so {goal_title} stays on track."
+        ),
+        action_url=url_for("main.checkin_form", day=local_today.isoformat(), view="checkin", segment="morning"),
+        unique_key=f"escalation_checkin:{local_today.isoformat()}",
+    )
+    return [notification] if is_new else []
+
+
+def _create_goal_activity_gap_alert_if_needed(
+    *,
+    user: User,
+    local_today: date,
+    local_hour: int,
+    prefs: UserNotificationPreference,
+):
+    if not prefs.enable_motivation_alert:
+        return []
+    if local_hour < 12:
+        return []
+
+    last_activity_dt = (
+        db.session.query(func.max(Substance.taken_at))
+        .filter(
+            Substance.user_id == user.id,
+            Substance.kind == "activity",
+        )
+        .scalar()
+    )
+    if not last_activity_dt:
+        days_since_activity = 999
+    else:
+        days_since_activity = (local_today - last_activity_dt.date()).days
+    if days_since_activity < 2:
+        return []
+
+    active_goal = _get_active_goal(user)
+    goal_title = normalize_text(active_goal.title) if active_goal and normalize_text(active_goal.title) else _get_active_goal_title(user)
+    recovery_tip = _goal_activity_recovery_tip(active_goal)
+    notification, is_new = create_user_notification(
+        user_id=user.id,
+        kind="goal_activity_gap",
+        title="Goal nudge: activity has paused",
+        message=(
+            f"No activity log for {days_since_activity} days. "
+            f"For goal '{goal_title}', {recovery_tip}"
+        ),
+        action_url=url_for("main.checkin_form", day=local_today.isoformat(), view="activity"),
+        unique_key=f"goal_activity_gap:{local_today.isoformat()}",
+    )
+    return [notification] if is_new else []
 
 
 def _create_missing_data_alert_if_needed(
@@ -4904,6 +5003,15 @@ def maybe_generate_user_notifications(user: User, *, force: bool = False):
         )
     )
     created_notifications.extend(
+        _create_checkin_escalation_if_needed(
+            user=user,
+            local_today=local_today,
+            local_hour=local_hour,
+            today_checkin=today_checkin,
+            prefs=prefs,
+        )
+    )
+    created_notifications.extend(
         _create_missing_data_alert_if_needed(
             user=user,
             local_today=local_today,
@@ -4915,6 +5023,14 @@ def maybe_generate_user_notifications(user: User, *, force: bool = False):
     )
     created_notifications.extend(
         _create_motivation_alert_if_needed(
+            user=user,
+            local_today=local_today,
+            local_hour=local_hour,
+            prefs=prefs,
+        )
+    )
+    created_notifications.extend(
+        _create_goal_activity_gap_alert_if_needed(
             user=user,
             local_today=local_today,
             local_hour=local_hour,

@@ -19,6 +19,12 @@ services:
           property: connectionString
       - key: OPENAI_API_KEY
         sync: false
+      - key: PUSH_VAPID_PUBLIC_KEY
+        sync: false
+      - key: PUSH_VAPID_PRIVATE_KEY
+        sync: false
+      - key: PUSH_VAPID_CLAIMS_SUB
+        value: mailto:support@coachmim.com
       - key: ENCRYPTION_MASTER_KEY
         sync: false
       - key: ENCRYPTION_REQUIRED

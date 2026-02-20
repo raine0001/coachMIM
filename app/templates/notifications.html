@@ -136,6 +136,23 @@
       color: #5a6b7d;
       margin: 0;
     }
+    .push-tool-row {
+      margin-top: 10px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+    .push-status {
+      font-size: 0.86rem;
+      color: #5a6b7d;
+    }
+    .push-status.ok {
+      color: #067647;
+    }
+    .push-status.error {
+      color: #b42318;
+    }
   </style>
 
   <div class="card">
@@ -213,6 +230,18 @@
             min="{{ local_today.isoformat() }}"
             value="{{ prefs.pause_notifications_until.isoformat() if prefs.pause_notifications_until else '' }}"
           />
+          <div class="push-tool-row">
+            <button type="button" id="enable-push-btn" class="btn-secondary">Enable Browser Push</button>
+            <button type="button" id="test-push-btn" class="btn-secondary">Send Test Push</button>
+            <button type="button" id="disable-push-btn" class="btn-secondary">Disable Push</button>
+          </div>
+          <div id="push-status" class="push-status">
+            {% if push_enabled %}
+              Push service configured. Active browser subscriptions: {{ active_push_subscriptions }}.
+            {% else %}
+              Push service not configured on server. Add VAPID keys in env.
+            {% endif %}
+          </div>
         </div>
       </div>
       <div style="margin-top: 12px;">
@@ -310,4 +339,142 @@
       <p class="empty-note">No notifications in this view.</p>
     {% endif %}
   </div>
+  <script>
+    (function () {
+      const pushEnabled = {{ "true" if push_enabled else "false" }};
+      const vapidPublicKey = "{{ push_public_key or '' }}";
+      const statusEl = document.getElementById("push-status");
+      const enableBtn = document.getElementById("enable-push-btn");
+      const disableBtn = document.getElementById("disable-push-btn");
+      const testBtn = document.getElementById("test-push-btn");
+
+      const setStatus = (text, cssClass) => {
+        if (!statusEl) return;
+        statusEl.textContent = text;
+        statusEl.classList.remove("ok", "error");
+        if (cssClass) statusEl.classList.add(cssClass);
+      };
+
+      if (!pushEnabled || !("serviceWorker" in navigator) || !("PushManager" in window)) {
+        if (enableBtn) enableBtn.disabled = true;
+        if (disableBtn) disableBtn.disabled = true;
+        if (testBtn) testBtn.disabled = true;
+        if (!pushEnabled) {
+          setStatus("Push service is not configured on server yet.", "error");
+        }
+        return;
+      }
+
+      const toUint8Array = (base64String) => {
+        const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+        const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+        const rawData = atob(base64);
+        return Uint8Array.from([...rawData].map((char) => char.charCodeAt(0)));
+      };
+
+      const postJson = async (url, payload) => {
+        const response = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload || {}),
+        });
+        const text = await response.text();
+        let data = {};
+        try {
+          data = text ? JSON.parse(text) : {};
+        } catch (error) {
+          data = { ok: false, error: text || "Invalid server response." };
+        }
+        if (!response.ok || data.ok === false) {
+          throw new Error(data.error || "Request failed.");
+        }
+        return data;
+      };
+
+      const getRegistrationAndSubscription = async () => {
+        const registration = await navigator.serviceWorker.register("/sw.js");
+        await navigator.serviceWorker.ready;
+        const subscription = await registration.pushManager.getSubscription();
+        return { registration, subscription };
+      };
+
+      const enablePush = async () => {
+        if (!vapidPublicKey) {
+          throw new Error("Server VAPID public key is missing.");
+        }
+        const permission = await Notification.requestPermission();
+        if (permission !== "granted") {
+          throw new Error("Browser notification permission was not granted.");
+        }
+        const { registration, subscription: existingSubscription } = await getRegistrationAndSubscription();
+        let subscription = existingSubscription;
+        if (!subscription) {
+          subscription = await registration.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: toUint8Array(vapidPublicKey),
+          });
+        }
+        await postJson("{{ url_for('main.notifications_push_subscribe') }}", {
+          subscription: subscription.toJSON(),
+          deviceLabel: navigator.userAgent.includes("Mobile") ? "Mobile Browser" : "Desktop Browser",
+        });
+        setStatus("Push enabled on this browser/device.", "ok");
+      };
+
+      const disablePush = async () => {
+        const { subscription } = await getRegistrationAndSubscription();
+        if (!subscription) {
+          setStatus("No active push subscription on this browser.", "ok");
+          return;
+        }
+        await postJson("{{ url_for('main.notifications_push_unsubscribe') }}", {
+          endpoint: subscription.endpoint,
+          subscription: subscription.toJSON(),
+        });
+        await subscription.unsubscribe();
+        setStatus("Push disabled for this browser/device.", "ok");
+      };
+
+      const sendTestPush = async () => {
+        const data = await postJson("{{ url_for('main.notifications_push_test') }}", {});
+        const sent = Number(data.sent || 0);
+        if (sent > 0) {
+          setStatus(`Test push sent to ${sent} device(s).`, "ok");
+        } else {
+          setStatus("No active subscription found. Enable browser push first.", "error");
+        }
+      };
+
+      if (enableBtn) {
+        enableBtn.addEventListener("click", async () => {
+          setStatus("Enabling push...", null);
+          try {
+            await enablePush();
+          } catch (error) {
+            setStatus(error.message || "Could not enable push.", "error");
+          }
+        });
+      }
+      if (disableBtn) {
+        disableBtn.addEventListener("click", async () => {
+          setStatus("Disabling push...", null);
+          try {
+            await disablePush();
+          } catch (error) {
+            setStatus(error.message || "Could not disable push.", "error");
+          }
+        });
+      }
+      if (testBtn) {
+        testBtn.addEventListener("click", async () => {
+          setStatus("Sending test push...", null);
+          try {
+            await sendTestPush();
+          } catch (error) {
+            setStatus(error.message || "Could not send test push.", "error");
+          }
+        });
+      }
+    })();
+  </script>
 {% endblock %}

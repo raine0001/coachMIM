@@ -55,3 +55,6 @@ class Config:
         or os.getenv("google_oauth_secret")
     )
     GOOGLE_OAUTH_REDIRECT_URI = os.getenv("GOOGLE_OAUTH_REDIRECT_URI")
+    PUSH_VAPID_PUBLIC_KEY = os.getenv("PUSH_VAPID_PUBLIC_KEY")
+    PUSH_VAPID_PRIVATE_KEY = os.getenv("PUSH_VAPID_PRIVATE_KEY")
+    PUSH_VAPID_CLAIMS_SUB = os.getenv("PUSH_VAPID_CLAIMS_SUB", "mailto:support@coachmim.com")

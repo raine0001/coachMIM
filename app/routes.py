@@ -36,6 +36,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import aliased, selectinload
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
+try:
+    from pywebpush import WebPushException, webpush
+except Exception:  # pragma: no cover - optional dependency fallback during partial installs
+    WebPushException = Exception
+    webpush = None
 
 from app import db
 from app.ai import (
@@ -68,6 +73,7 @@ from app.models import (
     User,
     UserNotification,
     UserNotificationPreference,
+    UserPushSubscription,
     UserDailyCoachInsight,
     UserGoal,
     UserGoalAction,
@@ -391,6 +397,7 @@ NOTIFICATION_KIND_LABELS = {
     "motivation": "MIM motivation",
     "reengagement": "We miss you",
 }
+PUSH_SUBSCRIPTION_MAX_PER_USER = int(os.getenv("PUSH_SUBSCRIPTION_MAX_PER_USER", "8"))
 
 PROFILE_ENCRYPTED_FIELDS = [
     "phone",
@@ -4469,6 +4476,9 @@ def hard_delete_user_account(user_id: int):
     CommunityComment.query.filter_by(user_id=user_id).delete(synchronize_session=False)
     CommunityPost.query.filter_by(user_id=user_id).delete(synchronize_session=False)
     MIMChatMessage.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    UserNotification.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    UserNotificationPreference.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    UserPushSubscription.query.filter_by(user_id=user_id).delete(synchronize_session=False)
     UserDailyCoachInsight.query.filter_by(user_id=user_id).delete(synchronize_session=False)
     SupportMessage.query.filter_by(user_id=user_id).delete(synchronize_session=False)
     FavoriteMeal.query.filter_by(user_id=user_id).delete(synchronize_session=False)
@@ -4522,6 +4532,116 @@ def get_or_create_notification_preferences(user: User):
         db.session.add(prefs)
         db.session.flush()
     return prefs
+
+
+def push_notifications_enabled():
+    if webpush is None:
+        return False
+    return bool(
+        current_app.config.get("PUSH_VAPID_PUBLIC_KEY")
+        and current_app.config.get("PUSH_VAPID_PRIVATE_KEY")
+    )
+
+
+def _build_push_vapid_claims():
+    return {
+        "sub": (
+            current_app.config.get("PUSH_VAPID_CLAIMS_SUB")
+            or "mailto:support@coachmim.com"
+        )
+    }
+
+
+def _build_notification_push_payload(notification: UserNotification):
+    destination = safe_next_path(notification.action_url) or url_for("main.notifications_page")
+    destination_url = f"{get_canonical_site_base_url()}{destination}"
+    return json.dumps(
+        {
+            "title": notification.title or "CoachMIM Alert",
+            "body": (notification.message or "")[:240],
+            "url": destination_url,
+            "tag": f"coachmim-{notification.kind}-{notification.id}",
+            "icon": url_for("static", filename="mim-logo.png", _external=True),
+            "badge": url_for("static", filename="mim-logo.png", _external=True),
+            "notificationId": notification.id,
+        }
+    )
+
+
+def _disable_subscription_on_error(subscription: UserPushSubscription, error: Exception):
+    status_code = getattr(getattr(error, "response", None), "status_code", None)
+    error_text = str(error)[:1000] if error else "unknown error"
+    subscription.fail_count = int(subscription.fail_count or 0) + 1
+    subscription.last_error = error_text
+    subscription.last_error_at = datetime.utcnow()
+    if status_code in {404, 410}:
+        subscription.is_active = False
+    elif subscription.fail_count >= 8:
+        subscription.is_active = False
+    db.session.add(subscription)
+
+
+def push_notification_to_user_subscriptions(
+    *,
+    user: User,
+    notification: UserNotification,
+    prefs: UserNotificationPreference | None = None,
+):
+    if user is None or notification is None:
+        return 0
+    if not push_notifications_enabled():
+        return 0
+    if prefs is None:
+        prefs = get_or_create_notification_preferences(user)
+    if not (prefs.allow_browser_push or prefs.allow_device_push):
+        return 0
+
+    subscriptions = (
+        UserPushSubscription.query.filter(
+            UserPushSubscription.user_id == user.id,
+            UserPushSubscription.is_active.is_(True),
+        )
+        .order_by(UserPushSubscription.last_seen_at.desc(), UserPushSubscription.id.desc())
+        .all()
+    )
+    if not subscriptions:
+        return 0
+
+    payload = _build_notification_push_payload(notification)
+    vapid_private_key = current_app.config.get("PUSH_VAPID_PRIVATE_KEY")
+    vapid_claims = _build_push_vapid_claims()
+    sent_count = 0
+
+    for subscription in subscriptions:
+        try:
+            webpush(
+                subscription_info={
+                    "endpoint": subscription.endpoint,
+                    "keys": {
+                        "p256dh": subscription.p256dh,
+                        "auth": subscription.auth,
+                    },
+                },
+                data=payload,
+                vapid_private_key=vapid_private_key,
+                vapid_claims=vapid_claims,
+                ttl=60 * 60,
+            )
+            sent_count += 1
+            subscription.last_seen_at = datetime.utcnow()
+            subscription.last_sent_at = datetime.utcnow()
+            subscription.last_error = None
+            subscription.last_error_at = None
+            subscription.fail_count = 0
+            db.session.add(subscription)
+        except WebPushException as exc:
+            _disable_subscription_on_error(subscription, exc)
+        except Exception as exc:
+            _disable_subscription_on_error(subscription, exc)
+
+    if sent_count or subscriptions:
+        db.session.commit()
+    return sent_count
 
 
 def _get_active_goal_title(user: User):
@@ -4594,7 +4714,7 @@ def _create_segment_reminder_if_needed(
     segment_status: dict[str, bool],
     prefs: UserNotificationPreference,
 ):
-    created = 0
+    created_notifications: list[UserNotification] = []
     segment_windows = [
         ("morning", "reminder_morning", 6, 11, prefs.enable_morning_reminder),
         ("midday", "reminder_midday", 11, 17, prefs.enable_midday_reminder),
@@ -4609,7 +4729,7 @@ def _create_segment_reminder_if_needed(
             continue
         if segment_status.get(segment_name):
             continue
-        _, is_new = create_user_notification(
+        notification, is_new = create_user_notification(
             user_id=user.id,
             kind=kind,
             title=f"{CHECKIN_SEGMENT_LABELS[segment_name]} check-in ready",
@@ -4621,8 +4741,8 @@ def _create_segment_reminder_if_needed(
             unique_key=f"{kind}:{local_today.isoformat()}",
         )
         if is_new:
-            created += 1
-    return created
+            created_notifications.append(notification)
+    return created_notifications
 
 
 def _create_missing_data_alert_if_needed(
@@ -4635,13 +4755,13 @@ def _create_missing_data_alert_if_needed(
     prefs: UserNotificationPreference,
 ):
     if not prefs.enable_missing_data_alert or local_hour < 20:
-        return 0
+        return []
     missing = [segment for segment in expected_segments if not segment_status.get(segment)]
     if not missing:
-        return 0
+        return []
     labels = [CHECKIN_SEGMENT_LABELS.get(segment, segment).lower() for segment in missing[:2]]
     missing_text = " and ".join(labels) if labels else "today's missing segments"
-    _, is_new = create_user_notification(
+    notification, is_new = create_user_notification(
         user_id=user.id,
         kind="missing_data",
         title="A few logs are still missing",
@@ -4652,7 +4772,7 @@ def _create_missing_data_alert_if_needed(
         action_url=_notification_action_url_for_segment(local_today, missing[0]),
         unique_key=f"missing_data:{local_today.isoformat()}",
     )
-    return 1 if is_new else 0
+    return [notification] if is_new else []
 
 
 def _create_motivation_alert_if_needed(
@@ -4663,7 +4783,7 @@ def _create_motivation_alert_if_needed(
     prefs: UserNotificationPreference,
 ):
     if not prefs.enable_motivation_alert or local_hour < 9:
-        return 0
+        return []
 
     window_start = local_today - timedelta(days=6)
     recent_checkins = (
@@ -4697,7 +4817,7 @@ def _create_motivation_alert_if_needed(
     else:
         motivation_line = f"Day one is always now. One check-in today will move {goal_title} forward."
 
-    _, is_new = create_user_notification(
+    notification, is_new = create_user_notification(
         user_id=user.id,
         kind="motivation",
         title="MIM motivation",
@@ -4705,7 +4825,7 @@ def _create_motivation_alert_if_needed(
         action_url=url_for("main.goals_page"),
         unique_key=f"motivation:{local_today.isoformat()}",
     )
-    return 1 if is_new else 0
+    return [notification] if is_new else []
 
 
 def _create_reengagement_alert_if_needed(
@@ -4716,7 +4836,7 @@ def _create_reengagement_alert_if_needed(
     prefs: UserNotificationPreference,
 ):
     if not prefs.enable_reengagement_alert or local_hour < 10:
-        return 0
+        return []
 
     last_checkin_day = (
         db.session.query(func.max(DailyCheckIn.day))
@@ -4729,9 +4849,9 @@ def _create_reengagement_alert_if_needed(
         days_away = (local_today - last_checkin_day).days
 
     if days_away < 2:
-        return 0
+        return []
 
-    _, is_new = create_user_notification(
+    notification, is_new = create_user_notification(
         user_id=user.id,
         kind="reengagement",
         title="We miss you in CoachMIM",
@@ -4741,7 +4861,7 @@ def _create_reengagement_alert_if_needed(
         action_url=url_for("main.checkin_form", day=local_today.isoformat(), view="checkin"),
         unique_key=f"reengagement:{local_today.isoformat()}",
     )
-    return 1 if is_new else 0
+    return [notification] if is_new else []
 
 
 def maybe_generate_user_notifications(user: User):
@@ -4772,40 +4892,65 @@ def maybe_generate_user_notifications(user: User):
         local_hour=local_hour,
     )
 
-    created_count = 0
-    created_count += _create_segment_reminder_if_needed(
-        user=user,
-        local_today=local_today,
-        local_hour=local_hour,
-        expected_segments=expected_segments,
-        segment_status=segment_status,
-        prefs=prefs,
+    created_notifications: list[UserNotification] = []
+    created_notifications.extend(
+        _create_segment_reminder_if_needed(
+            user=user,
+            local_today=local_today,
+            local_hour=local_hour,
+            expected_segments=expected_segments,
+            segment_status=segment_status,
+            prefs=prefs,
+        )
     )
-    created_count += _create_missing_data_alert_if_needed(
-        user=user,
-        local_today=local_today,
-        local_hour=local_hour,
-        expected_segments=expected_segments,
-        segment_status=segment_status,
-        prefs=prefs,
+    created_notifications.extend(
+        _create_missing_data_alert_if_needed(
+            user=user,
+            local_today=local_today,
+            local_hour=local_hour,
+            expected_segments=expected_segments,
+            segment_status=segment_status,
+            prefs=prefs,
+        )
     )
-    created_count += _create_motivation_alert_if_needed(
-        user=user,
-        local_today=local_today,
-        local_hour=local_hour,
-        prefs=prefs,
+    created_notifications.extend(
+        _create_motivation_alert_if_needed(
+            user=user,
+            local_today=local_today,
+            local_hour=local_hour,
+            prefs=prefs,
+        )
     )
-    created_count += _create_reengagement_alert_if_needed(
-        user=user,
-        local_today=local_today,
-        local_hour=local_hour,
-        prefs=prefs,
+    created_notifications.extend(
+        _create_reengagement_alert_if_needed(
+            user=user,
+            local_today=local_today,
+            local_hour=local_hour,
+            prefs=prefs,
+        )
     )
 
     prefs.last_generated_at = now_utc
     db.session.add(prefs)
     db.session.commit()
-    return created_count
+
+    if created_notifications:
+        for notification in created_notifications:
+            try:
+                push_notification_to_user_subscriptions(
+                    user=user,
+                    notification=notification,
+                    prefs=prefs,
+                )
+            except Exception:
+                db.session.rollback()
+                current_app.logger.exception(
+                    "Failed sending push notification user_id=%s notification_id=%s",
+                    user.id,
+                    notification.id,
+                )
+
+    return len(created_notifications)
 
 
 def login_required(view):
@@ -4862,6 +5007,8 @@ def profile_required(view):
 
 def request_wants_json_response() -> bool:
     if request.path.startswith(("/ai/", "/nutrition/", "/foods/")):
+        return True
+    if request.path.startswith("/notifications/push/"):
         return True
     if request.path in {"/meal/parse-text", "/recipe-calculator/calculate"}:
         return True
@@ -5037,6 +5184,13 @@ def notifications_page():
             UserNotification.is_archived.is_(True),
         ).count()
     )
+    active_push_subscriptions = (
+        UserPushSubscription.query.filter(
+            UserPushSubscription.user_id == g.user.id,
+            UserPushSubscription.is_active.is_(True),
+        ).count()
+    )
+    push_public_key = (current_app.config.get("PUSH_VAPID_PUBLIC_KEY") or "").strip()
 
     local_today = get_user_local_today(g.user)
     return render_template(
@@ -5049,6 +5203,9 @@ def notifications_page():
         kind_labels=NOTIFICATION_KIND_LABELS,
         prefs=prefs,
         local_today=local_today,
+        push_enabled=push_notifications_enabled(),
+        push_public_key=push_public_key,
+        active_push_subscriptions=active_push_subscriptions,
     )
 
 
@@ -5118,6 +5275,149 @@ def notifications_action(notification_id: int):
     db.session.add(notification)
     db.session.commit()
     return redirect(redirect_url)
+
+
+def _coerce_push_subscription_payload(raw_payload: dict):
+    payload = raw_payload if isinstance(raw_payload, dict) else {}
+    subscription = payload.get("subscription")
+    if isinstance(subscription, dict):
+        payload = subscription
+
+    endpoint = normalize_text(payload.get("endpoint"))
+    keys = payload.get("keys") if isinstance(payload.get("keys"), dict) else {}
+    p256dh = normalize_text(keys.get("p256dh"))
+    auth = normalize_text(keys.get("auth"))
+    if not endpoint or not p256dh or not auth:
+        return None
+    return {
+        "endpoint": endpoint,
+        "p256dh": p256dh,
+        "auth": auth,
+    }
+
+
+def _clamp_push_subscription_count(user_id: int):
+    active_subscriptions = (
+        UserPushSubscription.query.filter(
+            UserPushSubscription.user_id == user_id,
+            UserPushSubscription.is_active.is_(True),
+        )
+        .order_by(UserPushSubscription.last_seen_at.desc(), UserPushSubscription.id.desc())
+        .all()
+    )
+    if len(active_subscriptions) <= PUSH_SUBSCRIPTION_MAX_PER_USER:
+        return
+    for stale in active_subscriptions[PUSH_SUBSCRIPTION_MAX_PER_USER:]:
+        stale.is_active = False
+        db.session.add(stale)
+
+
+@bp.get("/notifications/push/public-key")
+@login_required
+def notifications_push_public_key():
+    public_key = (current_app.config.get("PUSH_VAPID_PUBLIC_KEY") or "").strip()
+    return jsonify(
+        {
+            "ok": bool(public_key),
+            "enabled": push_notifications_enabled(),
+            "publicKey": public_key,
+        }
+    )
+
+
+@bp.post("/notifications/push/subscribe")
+@login_required
+def notifications_push_subscribe():
+    if not push_notifications_enabled():
+        return jsonify({"ok": False, "error": "Push notifications are not configured."}), 503
+
+    payload = request.get_json(silent=True) or {}
+    subscription_data = _coerce_push_subscription_payload(payload)
+    if not subscription_data:
+        return jsonify({"ok": False, "error": "Invalid subscription payload."}), 400
+
+    now_utc = datetime.utcnow()
+    user_agent = (request.headers.get("User-Agent") or "").strip()[:255] or None
+    device_label = normalize_text(payload.get("deviceLabel") or payload.get("device_label")) or None
+
+    subscription = UserPushSubscription.query.filter_by(endpoint=subscription_data["endpoint"]).first()
+    if not subscription:
+        subscription = UserPushSubscription(
+            user_id=g.user.id,
+            endpoint=subscription_data["endpoint"],
+        )
+    subscription.user_id = g.user.id
+    subscription.p256dh = subscription_data["p256dh"]
+    subscription.auth = subscription_data["auth"]
+    subscription.user_agent = user_agent
+    subscription.device_label = (device_label or "Browser")[:120]
+    subscription.is_active = True
+    subscription.last_seen_at = now_utc
+    subscription.last_error = None
+    subscription.last_error_at = None
+    subscription.fail_count = 0
+    db.session.add(subscription)
+
+    prefs = get_or_create_notification_preferences(g.user)
+    prefs.allow_browser_push = True
+    prefs.allow_device_push = True
+    db.session.add(prefs)
+    _clamp_push_subscription_count(g.user.id)
+    db.session.commit()
+    return jsonify({"ok": True})
+
+
+@bp.post("/notifications/push/unsubscribe")
+@login_required
+def notifications_push_unsubscribe():
+    payload = request.get_json(silent=True) or {}
+    subscription_data = _coerce_push_subscription_payload(payload)
+    endpoint = None
+    if subscription_data:
+        endpoint = subscription_data.get("endpoint")
+    if not endpoint:
+        endpoint = normalize_text(payload.get("endpoint"))
+    if not endpoint:
+        return jsonify({"ok": False, "error": "Endpoint is required."}), 400
+
+    subscription = UserPushSubscription.query.filter_by(
+        endpoint=endpoint,
+        user_id=g.user.id,
+    ).first()
+    if subscription:
+        subscription.is_active = False
+        subscription.last_seen_at = datetime.utcnow()
+        db.session.add(subscription)
+        db.session.commit()
+    return jsonify({"ok": True})
+
+
+@bp.post("/notifications/push/test")
+@login_required
+def notifications_push_test():
+    if not push_notifications_enabled():
+        return jsonify({"ok": False, "error": "Push notifications are not configured."}), 503
+    prefs = get_or_create_notification_preferences(g.user)
+    notification, _ = create_user_notification(
+        user_id=g.user.id,
+        kind="motivation",
+        title="CoachMIM test push",
+        message="Push is active. You will now get MIM reminders in this browser/device.",
+        action_url=url_for("main.notifications_page"),
+        unique_key=None,
+    )
+    db.session.add(notification)
+    db.session.commit()
+    sent_count = push_notification_to_user_subscriptions(user=g.user, notification=notification, prefs=prefs)
+    return jsonify({"ok": True, "sent": sent_count})
+
+
+@bp.get("/sw.js")
+def service_worker_js():
+    response = make_response(send_from_directory(current_app.static_folder, "sw.js"))
+    response.headers["Service-Worker-Allowed"] = "/"
+    response.headers["Cache-Control"] = "no-cache"
+    return response
 
 
 @bp.get("/robots.txt")

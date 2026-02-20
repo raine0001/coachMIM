@@ -43,6 +43,12 @@ class User(db.Model):
         lazy=True,
         cascade="all, delete-orphan",
     )
+    push_subscriptions = db.relationship(
+        "UserPushSubscription",
+        backref="user",
+        lazy=True,
+        cascade="all, delete-orphan",
+    )
 
 
 class UserProfile(db.Model):
@@ -582,6 +588,31 @@ class UserNotificationPreference(db.Model):
     allow_device_push = db.Column(db.Boolean, nullable=False, default=False)
 
     last_generated_at = db.Column(db.DateTime, nullable=True, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(
+        db.DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
+
+
+class UserPushSubscription(db.Model):
+    __tablename__ = "user_push_subscriptions"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
+    endpoint = db.Column(db.Text, nullable=False, unique=True)
+    p256dh = db.Column(db.String(255), nullable=False)
+    auth = db.Column(db.String(255), nullable=False)
+    is_active = db.Column(db.Boolean, nullable=False, default=True, index=True)
+    device_label = db.Column(db.String(120), nullable=True)
+    user_agent = db.Column(db.String(255), nullable=True)
+    fail_count = db.Column(db.Integer, nullable=False, default=0)
+    last_seen_at = db.Column(db.DateTime, nullable=True, index=True)
+    last_sent_at = db.Column(db.DateTime, nullable=True, index=True)
+    last_error = db.Column(db.Text, nullable=True)
+    last_error_at = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at = db.Column(
         db.DateTime,

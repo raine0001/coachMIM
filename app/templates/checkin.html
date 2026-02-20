@@ -661,6 +661,30 @@
             {{ rating_select("morning_stress", "morning_stress", record.morning_stress if record else none, stress_scale, "Select stress level") }}
           </div>
           <div>
+            <label for="morning_passive_screen_minutes">Passive Screen (min)</label>
+            <input
+              id="morning_passive_screen_minutes"
+              name="morning_passive_screen_minutes"
+              type="number"
+              min="0"
+              step="1"
+              value="{{ record.morning_passive_screen_minutes if record and record.morning_passive_screen_minutes is not none else '' }}"
+              placeholder="TV/scrolling/news"
+            />
+          </div>
+          <div>
+            <label for="morning_restorative_minutes">Restorative Time (min)</label>
+            <input
+              id="morning_restorative_minutes"
+              name="morning_restorative_minutes"
+              type="number"
+              min="0"
+              step="1"
+              value="{{ record.morning_restorative_minutes if record and record.morning_restorative_minutes is not none else '' }}"
+              placeholder="Walk/family/meditation"
+            />
+          </div>
+          <div>
             <label for="morning_weight">Morning Weight ({{ checkin_weight_unit }})</label>
             <input id="morning_weight" name="morning_weight" type="number" min="0" step="0.1" value="{{ morning_weight_display if morning_weight_display is not none else '' }}" />
           </div>
@@ -690,6 +714,30 @@
             <label for="midday_stress">Stress Level</label>
             {{ rating_select("midday_stress", "midday_stress", record.midday_stress if record else none, stress_scale, "Select stress level") }}
           </div>
+          <div>
+            <label for="midday_passive_screen_minutes">Passive Screen (min)</label>
+            <input
+              id="midday_passive_screen_minutes"
+              name="midday_passive_screen_minutes"
+              type="number"
+              min="0"
+              step="1"
+              value="{{ record.midday_passive_screen_minutes if record and record.midday_passive_screen_minutes is not none else '' }}"
+              placeholder="TV/scrolling/news"
+            />
+          </div>
+          <div>
+            <label for="midday_restorative_minutes">Restorative Time (min)</label>
+            <input
+              id="midday_restorative_minutes"
+              name="midday_restorative_minutes"
+              type="number"
+              min="0"
+              step="1"
+              value="{{ record.midday_restorative_minutes if record and record.midday_restorative_minutes is not none else '' }}"
+              placeholder="Walk/family/meditation"
+            />
+          </div>
         </div>
         <div class="checkin-form-block">
           <label for="midday_notes">Midday Notes</label>
@@ -715,6 +763,30 @@
           <div>
             <label for="evening_stress">Stress Level</label>
             {{ rating_select("evening_stress", "evening_stress", record.evening_stress if record else none, stress_scale, "Select stress level") }}
+          </div>
+          <div>
+            <label for="evening_passive_screen_minutes">Passive Screen (min)</label>
+            <input
+              id="evening_passive_screen_minutes"
+              name="evening_passive_screen_minutes"
+              type="number"
+              min="0"
+              step="1"
+              value="{{ record.evening_passive_screen_minutes if record and record.evening_passive_screen_minutes is not none else '' }}"
+              placeholder="TV/scrolling/news"
+            />
+          </div>
+          <div>
+            <label for="evening_restorative_minutes">Restorative Time (min)</label>
+            <input
+              id="evening_restorative_minutes"
+              name="evening_restorative_minutes"
+              type="number"
+              min="0"
+              step="1"
+              value="{{ record.evening_restorative_minutes if record and record.evening_restorative_minutes is not none else '' }}"
+              placeholder="Walk/family/meditation"
+            />
           </div>
         </div>
         <div class="checkin-form-block">
@@ -1399,19 +1471,35 @@
           />
         </div>
         <div>
-          <label for="activity_type">Activity</label>
+          <label for="activity_type">Activity Type</label>
           <div class="mim-field-row">
             <input
               id="activity_type"
               name="activity_type"
+              list="activity_type_suggestions"
               value="{{ edit_activity_type_value if edit_substance_entry else '' }}"
-              placeholder="Run, lift, walk, HIIT..."
+              placeholder="Walk, family time, meditation..."
               required
             />
             <button id="act_mim_toggle" class="mim-icon-btn" type="button" title="Ask MIM for help">
               <img class="mim-icon-img" src="{{ mim_logo_url }}" alt="MIM" />
             </button>
           </div>
+          <datalist id="activity_type_suggestions">
+            <option value="Exercise" />
+            <option value="Walking" />
+            <option value="Strength Training" />
+            <option value="Cardio" />
+            <option value="Stretching/Mobility" />
+            <option value="Meditation/Breathwork" />
+            <option value="Family Time" />
+            <option value="Social Time" />
+            <option value="Hobby/Creative Time" />
+            <option value="Reading/Learning" />
+            <option value="Outdoor Time" />
+            <option value="TV/Streaming" />
+            <option value="Social Media/News" />
+          </datalist>
         </div>
         <div>
           <label for="duration_min">Duration (min)</label>

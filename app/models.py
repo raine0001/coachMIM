@@ -132,6 +132,8 @@ class DailyCheckIn(db.Model):
     morning_focus = db.Column(db.Integer, nullable=True)  # 1-10
     morning_mood = db.Column(db.Integer, nullable=True)  # 1-10
     morning_stress = db.Column(db.Integer, nullable=True)  # 1-10
+    morning_passive_screen_minutes = db.Column(db.Integer, nullable=True)
+    morning_restorative_minutes = db.Column(db.Integer, nullable=True)
     morning_weight_kg = db.Column(db.Float, nullable=True)
     morning_notes = db.Column(db.Text, nullable=True)
 
@@ -139,12 +141,16 @@ class DailyCheckIn(db.Model):
     midday_focus = db.Column(db.Integer, nullable=True)  # 1-10
     midday_mood = db.Column(db.Integer, nullable=True)  # 1-10
     midday_stress = db.Column(db.Integer, nullable=True)  # 1-10
+    midday_passive_screen_minutes = db.Column(db.Integer, nullable=True)
+    midday_restorative_minutes = db.Column(db.Integer, nullable=True)
     midday_notes = db.Column(db.Text, nullable=True)
 
     evening_energy = db.Column(db.Integer, nullable=True)  # 1-10
     evening_focus = db.Column(db.Integer, nullable=True)  # 1-10
     evening_mood = db.Column(db.Integer, nullable=True)  # 1-10
     evening_stress = db.Column(db.Integer, nullable=True)  # 1-10
+    evening_passive_screen_minutes = db.Column(db.Integer, nullable=True)
+    evening_restorative_minutes = db.Column(db.Integer, nullable=True)
     evening_notes = db.Column(db.Text, nullable=True)
 
     energy = db.Column(db.Integer, nullable=True)  # 1-10

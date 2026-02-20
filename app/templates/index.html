@@ -421,6 +421,14 @@
           <div class="muted">Anxiety (1-10)</div>
           <div class="metric">{{ weekly.avg_anxiety if weekly.avg_anxiety is not none else "n/a" }}</div>
         </div>
+        <div>
+          <div class="muted">Passive Screen (min/day)</div>
+          <div class="metric">{{ weekly.avg_passive_screen_minutes if weekly.avg_passive_screen_minutes is not none else "n/a" }}</div>
+        </div>
+        <div>
+          <div class="muted">Restorative Time (min/day)</div>
+          <div class="metric">{{ weekly.avg_restorative_minutes if weekly.avg_restorative_minutes is not none else "n/a" }}</div>
+        </div>
       </div>
     </div>
 

@@ -375,17 +375,23 @@ CHECKIN_ENCRYPTED_FIELDS = [
     "morning_focus",
     "morning_mood",
     "morning_stress",
+    "morning_passive_screen_minutes",
+    "morning_restorative_minutes",
     "morning_weight_kg",
     "morning_notes",
     "midday_energy",
     "midday_focus",
     "midday_mood",
     "midday_stress",
+    "midday_passive_screen_minutes",
+    "midday_restorative_minutes",
     "midday_notes",
     "evening_energy",
     "evening_focus",
     "evening_mood",
     "evening_stress",
+    "evening_passive_screen_minutes",
+    "evening_restorative_minutes",
     "evening_notes",
     "energy",
     "focus",
@@ -1393,17 +1399,23 @@ def checkin_has_any_data(record: DailyCheckIn | None):
         "morning_focus",
         "morning_mood",
         "morning_stress",
+        "morning_passive_screen_minutes",
+        "morning_restorative_minutes",
         "morning_weight_kg",
         "morning_notes",
         "midday_energy",
         "midday_focus",
         "midday_mood",
         "midday_stress",
+        "midday_passive_screen_minutes",
+        "midday_restorative_minutes",
         "midday_notes",
         "evening_energy",
         "evening_focus",
         "evening_mood",
         "evening_stress",
+        "evening_passive_screen_minutes",
+        "evening_restorative_minutes",
         "evening_notes",
         "energy",
         "focus",
@@ -1443,15 +1455,33 @@ def checkin_segment_status(record: DailyCheckIn | None):
                 "morning_focus",
                 "morning_mood",
                 "morning_stress",
+                "morning_passive_screen_minutes",
+                "morning_restorative_minutes",
                 "morning_weight_kg",
                 "morning_notes",
             ]
         ),
         "midday": has_values(
-            ["midday_energy", "midday_focus", "midday_mood", "midday_stress", "midday_notes"]
+            [
+                "midday_energy",
+                "midday_focus",
+                "midday_mood",
+                "midday_stress",
+                "midday_passive_screen_minutes",
+                "midday_restorative_minutes",
+                "midday_notes",
+            ]
         ),
         "evening": has_values(
-            ["evening_energy", "evening_focus", "evening_mood", "evening_stress", "evening_notes"]
+            [
+                "evening_energy",
+                "evening_focus",
+                "evening_mood",
+                "evening_stress",
+                "evening_passive_screen_minutes",
+                "evening_restorative_minutes",
+                "evening_notes",
+            ]
         ),
         "overall": has_values(
             [
@@ -2030,6 +2060,18 @@ def checkin_metric_value(record: DailyCheckIn, overall_field: str, segment_field
     return average_or_none([float(v) for v in segment_values if v is not None], digits=2)
 
 
+def checkin_total_minutes(record: DailyCheckIn, segment_fields: list[str]):
+    total = 0.0
+    has_value = False
+    for field in segment_fields:
+        value = getattr(record, field, None)
+        if value is None:
+            continue
+        has_value = True
+        total += float(value)
+    return total if has_value else None
+
+
 CHECKIN_SEGMENT_ORDER = ["sleep", "morning", "midday", "evening", "overall"]
 CHECKIN_SEGMENT_LABELS = {
     "sleep": "Sleep",
@@ -2206,6 +2248,34 @@ def build_home_weekly_context(user: User, profile: UserProfile):
         [entry.productivity for entry in checkins if entry.productivity is not None], digits=1
     )
     avg_anxiety = average_or_none([entry.anxiety for entry in checkins if entry.anxiety is not None], digits=1)
+    avg_passive_screen_minutes = average_or_none(
+        [
+            checkin_total_minutes(
+                entry,
+                [
+                    "morning_passive_screen_minutes",
+                    "midday_passive_screen_minutes",
+                    "evening_passive_screen_minutes",
+                ],
+            )
+            for entry in checkins
+        ],
+        digits=0,
+    )
+    avg_restorative_minutes = average_or_none(
+        [
+            checkin_total_minutes(
+                entry,
+                [
+                    "morning_restorative_minutes",
+                    "midday_restorative_minutes",
+                    "evening_restorative_minutes",
+                ],
+            )
+            for entry in checkins
+        ],
+        digits=0,
+    )
 
     mim_notes = []
     primary_goal = normalize_text(profile.primary_goal) or "Consistency"
@@ -2268,6 +2338,24 @@ def build_home_weekly_context(user: User, profile: UserProfile):
         if avg_anxiety is not None and avg_anxiety > 5:
             mim_notes.append("Anxiety trend is elevated this week. Track alcohol, sleep quality, and caffeine more tightly.")
 
+    if avg_passive_screen_minutes is not None:
+        if avg_passive_screen_minutes >= 300:
+            mim_notes.append(
+                f"Passive screen time is high ({int(avg_passive_screen_minutes)} min/day). Replace 20-30 minutes with a restorative block."
+            )
+        elif avg_passive_screen_minutes <= 120:
+            mim_notes.append("Passive screen time is controlled this week. Nice discipline.")
+
+    if avg_restorative_minutes is not None:
+        if avg_restorative_minutes < 30:
+            mim_notes.append(
+                f"Restorative time is low ({int(avg_restorative_minutes)} min/day). Add one short walk, breath work, or family block daily."
+            )
+        elif avg_restorative_minutes >= 60:
+            mim_notes.append(
+                f"Restorative time is strong ({int(avg_restorative_minutes)} min/day). Keep protecting that recovery signal."
+            )
+
     if not mim_notes:
         mim_notes.append("Weekly trend looks stable. Keep logging meals and check-ins to strengthen pattern detection.")
 
@@ -2301,6 +2389,8 @@ def build_home_weekly_context(user: User, profile: UserProfile):
         "avg_stress": avg_stress,
         "avg_productivity": avg_productivity,
         "avg_anxiety": avg_anxiety,
+        "avg_passive_screen_minutes": avg_passive_screen_minutes,
+        "avg_restorative_minutes": avg_restorative_minutes,
         "primary_goal": primary_goal,
         "mim_notes": mim_notes,
     }
@@ -5865,14 +5955,20 @@ def checkin_save():
         "morning_focus",
         "morning_mood",
         "morning_stress",
+        "morning_passive_screen_minutes",
+        "morning_restorative_minutes",
         "midday_energy",
         "midday_focus",
         "midday_mood",
         "midday_stress",
+        "midday_passive_screen_minutes",
+        "midday_restorative_minutes",
         "evening_energy",
         "evening_focus",
         "evening_mood",
         "evening_stress",
+        "evening_passive_screen_minutes",
+        "evening_restorative_minutes",
         "energy",
         "focus",
         "mood",

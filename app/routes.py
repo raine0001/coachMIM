@@ -12,6 +12,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError, available_timezones
 
 from markupsafe import Markup, escape
 from flask import (
+    abort,
     Blueprint,
     current_app,
     flash,
@@ -20,6 +21,7 @@ from flask import (
     redirect,
     render_template,
     request,
+    send_from_directory,
     session,
     url_for,
 )
@@ -770,6 +772,24 @@ def community_media_allowed_file(filename: str) -> bool:
     return "." in filename and filename.rsplit(".", 1)[1].lower() in COMMUNITY_MEDIA_ALLOWED_EXTENSIONS
 
 
+def normalize_upload_path(value: str | None):
+    text = str(value or "").strip().replace("\\", "/").lstrip("/")
+    if not text:
+        return None
+    if ".." in text.split("/"):
+        return None
+    return text
+
+
+def uploaded_file_url(path: str | None):
+    normalized = normalize_upload_path(path)
+    if not normalized:
+        return ""
+    if normalized.startswith("uploads/"):
+        return url_for("main.uploaded_file", path=normalized[len("uploads/") :])
+    return url_for("static", filename=normalized)
+
+
 def _community_media_kind(filename: str, mime_type: str | None = None):
     extension = filename.rsplit(".", 1)[1].lower() if "." in filename else ""
     mime = (mime_type or "").lower()
@@ -813,26 +833,75 @@ def _save_community_media_upload(upload):
     return (relative_path, media_kind, None)
 
 
-def _delete_community_media_file(media_path: str | None):
-    if not media_path:
+def _delete_uploaded_path(path: str | None, required_prefix: str | None = None):
+    normalized = normalize_upload_path(path)
+    if not normalized:
         return
-    normalized = str(media_path).replace("\\", "/").lstrip("/")
-    if not normalized.startswith("uploads/community/"):
+    if not normalized.startswith("uploads/"):
         return
-
-    static_root = current_app.static_folder
-    if not static_root:
+    if required_prefix and not normalized.startswith(required_prefix):
         return
 
-    absolute_path = os.path.normpath(os.path.join(static_root, normalized))
-    static_root_norm = os.path.normpath(static_root)
+    relative = normalized[len("uploads/") :]
+    if not relative:
+        return
+
+    upload_root = os.path.normpath(current_app.config["UPLOAD_FOLDER"])
+    absolute_path = os.path.normpath(os.path.join(upload_root, relative))
     try:
-        if not absolute_path.startswith(static_root_norm):
+        if os.path.commonpath([absolute_path, upload_root]) != upload_root:
             return
         if os.path.exists(absolute_path):
             os.remove(absolute_path)
     except OSError:
-        current_app.logger.warning("Failed to delete community media file: %s", absolute_path)
+        current_app.logger.warning("Failed to delete uploaded file: %s", absolute_path)
+
+
+def _can_access_uploaded_path(path: str):
+    if g.get("admin_user") is not None:
+        return True
+    if g.get("user") is None:
+        return False
+
+    stored_path = f"uploads/{path}"
+    if path.startswith("support/"):
+        return False
+
+    if path.startswith("community/"):
+        post = CommunityPost.query.filter_by(media_path=stored_path, is_hidden=False).first()
+        if not post:
+            return False
+        author = db.session.get(User, post.user_id)
+        return bool(author and not author.is_blocked and not author.is_spam)
+
+    if Meal.query.filter_by(user_id=g.user.id, photo_path=stored_path).first():
+        return True
+    if MIMChatMessage.query.filter_by(user_id=g.user.id, image_path=stored_path).first():
+        return True
+    return False
+
+
+@bp.get("/uploads/<path:path>")
+def uploaded_file(path: str):
+    normalized = normalize_upload_path(path)
+    if not normalized:
+        abort(404)
+    if not _can_access_uploaded_path(normalized):
+        if g.get("user") is None and g.get("admin_user") is None:
+            flash("Please log in first.", "error")
+            return redirect(url_for("main.login", next=request.path))
+        abort(403)
+    upload_root = current_app.config["UPLOAD_FOLDER"]
+    local_candidate = os.path.join(upload_root, normalized)
+    if os.path.exists(local_candidate):
+        return send_from_directory(upload_root, normalized)
+
+    # Backward-compatible fallback for older local/dev files under static/uploads.
+    static_root = current_app.static_folder or ""
+    static_candidate = os.path.join(static_root, "uploads", normalized)
+    if os.path.exists(static_candidate):
+        return send_from_directory(os.path.join(static_root, "uploads"), normalized)
+    abort(404)
 
 
 def parse_int(value):
@@ -3955,6 +4024,7 @@ def inject_user():
         "current_user": current_user,
         "current_admin": current_admin,
         "profile_complete": profile_complete,
+        "uploaded_file_url": uploaded_file_url,
     }
 
 
@@ -7416,6 +7486,84 @@ def community_create_post():
     return redirect(url_for("main.community_page", category=category) + f"#post-{post.id}")
 
 
+@bp.get("/community/<int:post_id>/edit")
+@login_required
+def community_edit_post_form(post_id: int):
+    return_category = get_community_filter_or_all(request.args.get("category"))
+    post = CommunityPost.query.filter_by(id=post_id, user_id=g.user.id).first()
+    if post is None:
+        flash("You can only edit your own community posts.", "error")
+        return redirect(url_for("main.community_page", category=return_category))
+    return render_template(
+        "community_edit.html",
+        post=post,
+        return_category=return_category,
+        category_options=COMMUNITY_CATEGORY_OPTIONS,
+    )
+
+
+@bp.post("/community/<int:post_id>/edit")
+@login_required
+def community_edit_post(post_id: int):
+    return_category = get_community_filter_or_all(request.form.get("return_category"))
+    post = CommunityPost.query.filter_by(id=post_id, user_id=g.user.id).first()
+    if post is None:
+        flash("You can only edit your own community posts.", "error")
+        return redirect(url_for("main.community_page", category=return_category))
+
+    category = normalize_community_category(request.form.get("category"))
+    title = normalize_text(request.form.get("title"))
+    content = normalize_text(request.form.get("content"))
+    remove_media = parse_bool(request.form.get("remove_media"))
+    media_upload = request.files.get("media")
+
+    if not title or len(title) < 4:
+        flash("Post title must be at least 4 characters.", "error")
+        return redirect(url_for("main.community_edit_post_form", post_id=post.id, category=return_category))
+    if not content or len(content) < 12:
+        flash("Post content must be at least 12 characters.", "error")
+        return redirect(url_for("main.community_edit_post_form", post_id=post.id, category=return_category))
+    if len(content) > 4000:
+        flash("Post content is too long. Keep it under 4000 characters.", "error")
+        return redirect(url_for("main.community_edit_post_form", post_id=post.id, category=return_category))
+
+    blocked, reason = community_content_is_blocked(f"{title}\n{content}")
+    if blocked:
+        flash(reason or "This content was blocked by community safety rules.", "error")
+        return redirect(url_for("main.community_edit_post_form", post_id=post.id, category=return_category))
+
+    old_media_path = post.media_path
+    next_media_path = post.media_path
+    next_media_kind = post.media_kind
+
+    if remove_media:
+        next_media_path = None
+        next_media_kind = None
+
+    if media_upload and media_upload.filename:
+        media_path, media_kind, media_error = _save_community_media_upload(media_upload)
+        if media_error:
+            flash(media_error, "error")
+            return redirect(url_for("main.community_edit_post_form", post_id=post.id, category=return_category))
+        next_media_path = media_path
+        next_media_kind = media_kind
+
+    post.category = category
+    post.title = title[:180]
+    post.content = content
+    post.media_path = next_media_path
+    post.media_kind = next_media_kind
+    post.updated_at = datetime.utcnow()
+    db.session.add(post)
+    db.session.commit()
+
+    if old_media_path and old_media_path != post.media_path:
+        _delete_uploaded_path(old_media_path, required_prefix="uploads/community/")
+
+    flash("Community post updated.", "success")
+    return redirect(url_for("main.community_page", category=post.category) + f"#post-{post.id}")
+
+
 @bp.post("/community/<int:post_id>/comment")
 @login_required
 def community_add_comment(post_id: int):
@@ -7517,7 +7665,7 @@ def community_delete_post(post_id: int):
     media_path = post.media_path
     db.session.delete(post)
     db.session.commit()
-    _delete_community_media_file(media_path)
+    _delete_uploaded_path(media_path, required_prefix="uploads/community/")
     flash("Community post deleted.", "success")
     return redirect(url_for("main.community_page", category=return_category))
 

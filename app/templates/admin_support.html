@@ -35,7 +35,7 @@
           {% if item.attachment_path %}
             <p style="margin-top: 6px;">
               Attachment:
-              <a href="{{ url_for('static', filename=item.attachment_path) }}" target="_blank" rel="noopener">open file</a>
+              <a href="{{ uploaded_file_url(item.attachment_path) }}" target="_blank" rel="noopener">open file</a>
             </p>
           {% endif %}
           <form method="post" action="{{ url_for('main.admin_support_status', message_id=item.id) }}">

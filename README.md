@@ -129,7 +129,9 @@ flask run
     - `.\.venv\Scripts\python.exe scripts\import_usda_dump.py "C:\Users\dave\Desktop\FoodData_Central_csv_2025-12-18\FoodData_Central_csv_2025-12-18" --max-foods 100000 --batch-size 2000`
   - Start without `--include-branded` to keep results cleaner and import size manageable.
   - If you want more coverage, run additional passes with higher `--max-foods` or targeted `--keywords`.
-- Uploads are stored in `app/static/uploads` for local/dev. Production object storage can replace this later.
+- Uploads are stored from `UPLOAD_FOLDER`:
+  - local/dev default: `app/static/uploads`
+  - Render with disk mount: set `UPLOAD_FOLDER=/var/data/uploads`
 - For production cookie security, set `SESSION_COOKIE_SECURE=true`.
 - For production encryption enforcement, set `ENCRYPTION_REQUIRED=true` and provide `ENCRYPTION_MASTER_KEY`.
 - Community auto-post automation:

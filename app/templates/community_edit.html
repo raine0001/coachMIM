@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block content %}
+  <div class="card">
+    <h1>Edit Post</h1>
+    <p class="muted">Update your post text, category, or media.</p>
+  </div>
+
+  <div class="card">
+    <form method="post" action="{{ url_for('main.community_edit_post', post_id=post.id) }}" enctype="multipart/form-data">
+      <input type="hidden" name="return_category" value="{{ return_category }}" />
+      <div class="grid">
+        <div>
+          <label for="category">Category</label>
+          <select id="category" name="category" required>
+            {% for option in category_options %}
+              <option value="{{ option.key }}" {% if option.key == post.category %}selected{% endif %}>
+                {{ option.label }}
+              </option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label for="title">Title</label>
+          <input id="title" name="title" maxlength="180" value="{{ post.title }}" required />
+        </div>
+      </div>
+
+      <div style="margin-top: 10px;">
+        <label for="content">Post</label>
+        <textarea id="content" name="content" maxlength="4000" required>{{ post.content }}</textarea>
+      </div>
+
+      {% if post.media_path %}
+        <div style="margin-top: 10px;">
+          <label>Current Media</label>
+          <div style="border: 1px solid #d7dee7; border-radius: 10px; overflow: hidden; background: #f8fafc;">
+            {% if post.media_kind == "video" %}
+              <video controls preload="metadata" style="width: 100%; max-height: 420px; background: #0f172a;">
+                <source src="{{ uploaded_file_url(post.media_path) }}" />
+              </video>
+            {% else %}
+              <img
+                src="{{ uploaded_file_url(post.media_path) }}"
+                alt="Current post media"
+                style="display: block; width: 100%; max-height: 420px; object-fit: cover;"
+              />
+            {% endif %}
+          </div>
+        </div>
+      {% endif %}
+
+      <div class="grid" style="margin-top: 10px;">
+        <div>
+          <label for="media">Replace Media (optional)</label>
+          <input
+            id="media"
+            name="media"
+            type="file"
+            accept="image/png,image/jpeg,image/webp,image/heic,image/gif,video/mp4,video/webm,video/quicktime"
+          />
+        </div>
+        <div>
+          <label for="remove_media">Remove Current Media</label>
+          <label style="font-weight: 500;">
+            <input id="remove_media" name="remove_media" type="checkbox" value="1" />
+            Remove attached media
+          </label>
+        </div>
+      </div>
+
+      <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px;">
+        <button type="submit">Save Changes</button>
+        <a
+          href="{{ url_for('main.community_page', category=return_category) }}#post-{{ post.id }}"
+          style="padding: 9px 12px; border: 1px solid #d7dee7; border-radius: 8px; text-decoration: none; color: #17212b; background: #fff;"
+        >
+          Cancel
+        </a>
+      </div>
+    </form>
+  </div>
+{% endblock %}

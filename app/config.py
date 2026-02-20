@@ -16,7 +16,8 @@ class Config:
         os.getenv("DATABASE_URL", "sqlite:///dev.db")
     )
     SQLALCHEMY_TRACK_MODIFICATIONS = False
-    UPLOAD_FOLDER = os.getenv("UPLOAD_FOLDER", "app/static/uploads")
+    DEFAULT_UPLOAD_FOLDER = "/var/data/uploads" if os.path.isdir("/var/data") else "app/static/uploads"
+    UPLOAD_FOLDER = os.getenv("UPLOAD_FOLDER", DEFAULT_UPLOAD_FOLDER)
     MAX_CONTENT_LENGTH = int(os.getenv("MAX_CONTENT_LENGTH", 10 * 1024 * 1024))
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = os.getenv("SESSION_COOKIE_SAMESITE", "Lax")

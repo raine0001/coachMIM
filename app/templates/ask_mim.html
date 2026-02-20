@@ -123,7 +123,7 @@
             <div class="mim-bubble">
               {{ message.content or ("Image question" if message.image_path else "") }}
               {% if message.image_path %}
-                <img class="mim-image" src="{{ url_for('static', filename=message.image_path) }}" alt="Uploaded question image" />
+                <img class="mim-image" src="{{ uploaded_file_url(message.image_path) }}" alt="Uploaded question image" />
               {% endif %}
               <div class="mim-meta">
                 {{ "MIM" if message.role == "assistant" else "You" }} - {{ message.created_at.strftime("%Y-%m-%d %H:%M") }}
@@ -177,6 +177,14 @@
     const voiceStartBtn = document.getElementById("mimVoiceStart");
     const voiceStopBtn = document.getElementById("mimVoiceStop");
 
+    function fileUrlFromPath(path) {
+      if (!path) return "";
+      if (path.startsWith("uploads/")) {
+        return `/uploads/${path.slice(8)}`;
+      }
+      return `/static/${path}`;
+    }
+
     function scrollChatToBottom() {
       chatLog.scrollTop = chatLog.scrollHeight;
     }
@@ -205,7 +213,7 @@
         const image = document.createElement("img");
         image.className = "mim-image";
         image.alt = "Uploaded question image";
-        image.src = `/static/${imagePath}`;
+        image.src = fileUrlFromPath(imagePath);
         bubble.appendChild(image);
       }
 

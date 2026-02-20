@@ -1,3 +1,5 @@
+import os
+
 from flask import Flask
 from flask_migrate import Migrate
 from flask_sqlalchemy import SQLAlchemy
@@ -13,6 +15,7 @@ def create_app() -> Flask:
 
     app = Flask(__name__)
     app.config.from_object("app.config.Config")
+    os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 
     try:
         validate_encryption_configuration(

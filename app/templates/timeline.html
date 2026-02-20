@@ -50,7 +50,7 @@
             {% endif %}
             {% if meal.photo_path %}
               <div style="margin-top: 8px;">
-                <img src="{{ url_for('static', filename=meal.photo_path) }}" alt="meal photo" style="max-width: 220px; border-radius: 8px; border: 1px solid #d7dee7;" />
+                <img src="{{ uploaded_file_url(meal.photo_path) }}" alt="meal photo" style="max-width: 220px; border-radius: 8px; border: 1px solid #d7dee7;" />
               </div>
             {% endif %}
           </li>

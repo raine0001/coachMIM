@@ -135,11 +135,11 @@
             <div style="margin: 8px 0;">
               {% if post.media_kind == "video" %}
                 <video controls preload="metadata" style="max-width: 100%; border-radius: 8px; border: 1px solid #d7dee7;">
-                  <source src="{{ url_for('static', filename=post.media_path) }}" />
+                  <source src="{{ uploaded_file_url(post.media_path) }}" />
                 </video>
               {% else %}
                 <img
-                  src="{{ url_for('static', filename=post.media_path) }}"
+                  src="{{ uploaded_file_url(post.media_path) }}"
                   alt="Post media"
                   style="max-width: 100%; border-radius: 8px; border: 1px solid #d7dee7;"
                 />
@@ -242,11 +242,11 @@
             <div style="margin-top: 8px;">
               {% if post.media_kind == "video" %}
                 <video controls preload="metadata" style="max-width: 100%; border-radius: 8px; border: 1px solid #d7dee7;">
-                  <source src="{{ url_for('static', filename=post.media_path) }}" />
+                  <source src="{{ uploaded_file_url(post.media_path) }}" />
                 </video>
               {% else %}
                 <img
-                  src="{{ url_for('static', filename=post.media_path) }}"
+                  src="{{ uploaded_file_url(post.media_path) }}"
                   alt="Post media"
                   style="max-width: 100%; border-radius: 8px; border: 1px solid #d7dee7;"
                 />

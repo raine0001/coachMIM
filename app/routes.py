@@ -375,6 +375,12 @@ ROBOTS_DISALLOWED_PATHS = [
     "/timeline",
     "/uploads/",
 ]
+SITEMAP_PUBLIC_ENDPOINTS = [
+    ("main.index", "daily", "1.0"),
+    ("main.about_page", "monthly", "0.6"),
+    ("main.privacy_page", "monthly", "0.4"),
+    ("main.terms_page", "monthly", "0.4"),
+]
 
 PROFILE_ENCRYPTED_FIELDS = [
     "phone",
@@ -4661,16 +4667,40 @@ def healthz():
 
 @bp.get("/robots.txt")
 def robots_txt():
+    site_base_url = (os.getenv("SITE_CANONICAL_URL") or request.url_root).rstrip("/")
     lines = [
         "User-agent: *",
         "Allow: /",
     ]
     for path in ROBOTS_DISALLOWED_PATHS:
         lines.append(f"Disallow: {path}")
-    lines.append("Disallow: /?*")
+    lines.append(f"Sitemap: {site_base_url}/sitemap.xml")
     lines.append("")
     response = make_response("\n".join(lines))
     response.headers["Content-Type"] = "text/plain; charset=utf-8"
+    return response
+
+
+@bp.get("/sitemap.xml")
+def sitemap_xml():
+    site_base_url = (os.getenv("SITE_CANONICAL_URL") or request.url_root).rstrip("/")
+    now_iso = datetime.utcnow().date().isoformat()
+
+    urlset = ET.Element("urlset", attrib={"xmlns": "http://www.sitemaps.org/schemas/sitemap/0.9"})
+    for endpoint, changefreq, priority in SITEMAP_PUBLIC_ENDPOINTS:
+        url_node = ET.SubElement(urlset, "url")
+        loc = ET.SubElement(url_node, "loc")
+        loc.text = f"{site_base_url}{url_for(endpoint)}"
+        lastmod = ET.SubElement(url_node, "lastmod")
+        lastmod.text = now_iso
+        changefreq_node = ET.SubElement(url_node, "changefreq")
+        changefreq_node.text = changefreq
+        priority_node = ET.SubElement(url_node, "priority")
+        priority_node.text = priority
+
+    xml_bytes = ET.tostring(urlset, encoding="utf-8", xml_declaration=True)
+    response = make_response(xml_bytes)
+    response.headers["Content-Type"] = "application/xml; charset=utf-8"
     return response
 
 

@@ -1,6 +1,51 @@
 {% extends "base.html" %}
 {% block content %}
-  <div class="card" style="max-width: 520px; margin: 24px auto;">
+  <style>
+    .login-page-wrap {
+      max-width: 520px;
+      margin: 24px auto;
+    }
+    .login-fact-card {
+      border: 1px solid #cfe3ff;
+      background: linear-gradient(180deg, #f5faff 0%, #eef7ff 100%);
+      border-radius: 12px;
+      padding: 14px;
+      margin-bottom: 10px;
+    }
+    .login-fact-kicker {
+      color: #175cd3;
+      font-size: 0.82rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin: 0 0 4px;
+    }
+    .login-fact-title {
+      margin: 0 0 6px;
+      font-size: 1.08rem;
+      font-weight: 700;
+    }
+    .login-fact-text {
+      margin: 0 0 4px;
+      font-size: 0.94rem;
+      line-height: 1.4;
+    }
+    .login-fact-challenge {
+      margin: 0;
+      font-size: 0.9rem;
+      color: #364152;
+    }
+  </style>
+  <div class="login-page-wrap">
+  {% if login_fact %}
+    <div class="login-fact-card">
+      <p class="login-fact-kicker">MIM Brain + Health</p>
+      <h2 class="login-fact-title">{{ login_fact.title }}</h2>
+      <p class="login-fact-text">{{ login_fact.fact }}</p>
+      <p class="login-fact-challenge">{{ login_fact.challenge }}</p>
+    </div>
+  {% endif %}
+  <div class="card" style="max-width: 520px; margin: 0 auto;">
     <h1>Login</h1>
     <form method="post" action="{{ url_for('main.login') }}">
       <input type="hidden" name="next" value="{{ next or '' }}" />
@@ -31,5 +76,6 @@
       |
       <a href="{{ url_for('main.terms_page') }}">Terms</a>
     </p>
+  </div>
   </div>
 {% endblock %}

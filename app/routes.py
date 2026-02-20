@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import xml.etree.ElementTree as ET
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 from difflib import SequenceMatcher
@@ -21,6 +22,7 @@ from flask import (
     session,
     url_for,
 )
+import httpx
 from sqlalchemy import case, func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
@@ -187,6 +189,21 @@ SITE_SETTING_DEFAULTS = {
         "CoachMIM provides educational wellness guidance and is not medical diagnosis "
         "or treatment. In emergencies, contact local emergency services."
     ),
+    "community_auto_enabled": "0",
+    "community_auto_runs_per_day": "3",
+    "community_auto_post_as": "mim",
+    "community_auto_sources": (
+        "health | Google Health Trends | https://news.google.com/rss/search?q=health+fitness+wellness\n"
+        "fitness | Google Fitness Trends | https://news.google.com/rss/search?q=fitness+training+exercise\n"
+        "food | Google Nutrition Trends | https://news.google.com/rss/search?q=nutrition+healthy+food\n"
+        "lifestyle | Google Mental Health Trends | https://news.google.com/rss/search?q=mental+health+sleep+stress"
+    ),
+    "community_auto_last_run_at": "",
+    "community_auto_last_status": "",
+    "community_auto_last_post_id": "",
+    "community_auto_last_trigger": "",
+    "community_auto_run_day": "",
+    "community_auto_run_count": "0",
 }
 SYSTEM_USER_EMAILS = {"mim-bot@coachmim.local", "admin-team@coachmim.local"}
 MASS_UNIT_TO_GRAMS = {
@@ -231,6 +248,42 @@ BRAIN_SPARK_PROMPTS = [
     {
         "question": "Tiny math: 2.5 + 2.5 + 2.5 = ?",
         "answers": ["7.5", "7.50"],
+    },
+]
+AUTO_COMMUNITY_ALLOWED_RUNS = {1, 2, 3, 4}
+AUTO_COMMUNITY_MAX_SOURCES = 24
+AUTO_COMMUNITY_MAX_ITEMS_PER_SOURCE = 6
+AUTO_COMMUNITY_TOTAL_ITEMS_CAP = 32
+LOGIN_BRAIN_FACTS = [
+    {
+        "title": "Did You Know?",
+        "fact": "A short 10-minute walk after meals can reduce glucose spikes and improve next-block focus.",
+        "challenge": "Quick challenge: what is 12 + 18?",
+    },
+    {
+        "title": "Brain Fact",
+        "fact": "Hydration affects cognitive speed. Even mild dehydration can make simple tasks feel harder.",
+        "challenge": "Mini check: name one drink you logged yesterday.",
+    },
+    {
+        "title": "Performance Insight",
+        "fact": "Consistent sleep timing often improves energy more than occasional long sleep sessions.",
+        "challenge": "Focus drill: count backward from 30 by 3s.",
+    },
+    {
+        "title": "Nutrition Tip",
+        "fact": "Pairing carbs with protein can reduce energy crashes versus carbs alone.",
+        "challenge": "Recall: what protein source did you have last meal?",
+    },
+    {
+        "title": "Stress Reset",
+        "fact": "A 60-second slow-breath cycle can lower perceived stress before a task switch.",
+        "challenge": "Try 4-second inhale / 6-second exhale for 5 rounds.",
+    },
+    {
+        "title": "CoachMIM Hint",
+        "fact": "Tracking timing + amount beats rough memory. Better logs create better coaching signals.",
+        "challenge": "Today target: add one complete entry with timing + portions.",
     },
 ]
 
@@ -2467,6 +2520,13 @@ def build_brain_spark_context(*, selected_day: date, manager_view: str):
     }
 
 
+def build_login_brain_fact():
+    if not LOGIN_BRAIN_FACTS:
+        return None
+    fact_index = date.today().toordinal() % len(LOGIN_BRAIN_FACTS)
+    return LOGIN_BRAIN_FACTS[fact_index]
+
+
 def brain_spark_answer_is_correct(*, spark_context: dict, answer: str | None):
     raw_answer, compact_answer = _normalize_brain_answer(answer)
     if spark_context.get("accept_any_nonempty"):
@@ -3200,6 +3260,418 @@ def set_site_setting(key: str, value: str | None):
     return row
 
 
+def _clean_inline_text(value: str | None, max_len: int = 220):
+    if value is None:
+        return None
+    text = str(value)
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = text.replace("&nbsp;", " ")
+    text = re.sub(r"\s+", " ", text).strip()
+    if not text:
+        return None
+    return text[:max_len]
+
+
+def _safe_auto_source_url(candidate: str | None):
+    raw = (candidate or "").strip()
+    if not raw:
+        return None
+    try:
+        parsed = urlparse(raw)
+    except Exception:
+        return None
+    if parsed.scheme.lower() not in {"http", "https"}:
+        return None
+    if not parsed.netloc:
+        return None
+    return parsed.geturl()
+
+
+def _parse_community_auto_sources(sources_text: str | None):
+    rows = []
+    for line in (sources_text or "").splitlines():
+        raw = line.strip()
+        if not raw or raw.startswith("#"):
+            continue
+
+        parts = [part.strip() for part in raw.split("|")]
+        category = "general"
+        label = "Source"
+        url = None
+
+        if len(parts) >= 3:
+            category = normalize_community_category(parts[0])
+            label = parts[1] or label
+            url = parts[2]
+        elif len(parts) == 2:
+            category = normalize_community_category(parts[0])
+            label = parts[0].title()
+            url = parts[1]
+        else:
+            url = parts[0]
+
+        safe_url = _safe_auto_source_url(url)
+        if not safe_url:
+            continue
+
+        rows.append(
+            {
+                "category": category,
+                "label": label[:80] or "Source",
+                "url": safe_url,
+            }
+        )
+        if len(rows) >= AUTO_COMMUNITY_MAX_SOURCES:
+            break
+    return rows
+
+
+def _parse_rss_feed_items(xml_text: str, source_label: str, source_category: str):
+    items = []
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError:
+        return items
+
+    for item in root.findall(".//item"):
+        title = _clean_inline_text(item.findtext("title"), max_len=180)
+        link = _safe_auto_source_url(item.findtext("link"))
+        summary = _clean_inline_text(item.findtext("description"), max_len=260)
+        if not title:
+            continue
+        items.append(
+            {
+                "title": title,
+                "link": link,
+                "summary": summary,
+                "source_label": source_label,
+                "category": source_category,
+            }
+        )
+        if len(items) >= AUTO_COMMUNITY_MAX_ITEMS_PER_SOURCE:
+            break
+    return items
+
+
+def _parse_atom_feed_items(xml_text: str, source_label: str, source_category: str):
+    items = []
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError:
+        return items
+
+    for entry in root.findall(".//{*}entry"):
+        title = _clean_inline_text(entry.findtext("{*}title"), max_len=180)
+        link = None
+        link_node = entry.find("{*}link")
+        if link_node is not None:
+            link = _safe_auto_source_url(link_node.attrib.get("href"))
+        if link is None:
+            link = _safe_auto_source_url(entry.findtext("{*}id"))
+        summary = _clean_inline_text(
+            entry.findtext("{*}summary") or entry.findtext("{*}content"),
+            max_len=260,
+        )
+        if not title:
+            continue
+        items.append(
+            {
+                "title": title,
+                "link": link,
+                "summary": summary,
+                "source_label": source_label,
+                "category": source_category,
+            }
+        )
+        if len(items) >= AUTO_COMMUNITY_MAX_ITEMS_PER_SOURCE:
+            break
+    return items
+
+
+def _parse_html_source_items(html_text: str, source_url: str, source_label: str, source_category: str):
+    items = []
+    title_match = re.search(r"<title[^>]*>(.*?)</title>", html_text, flags=re.IGNORECASE | re.DOTALL)
+    page_title = _clean_inline_text(title_match.group(1), max_len=180) if title_match else None
+    if page_title:
+        items.append(
+            {
+                "title": page_title,
+                "link": source_url,
+                "summary": None,
+                "source_label": source_label,
+                "category": source_category,
+            }
+        )
+
+    heading_matches = re.findall(r"<h2[^>]*>(.*?)</h2>", html_text, flags=re.IGNORECASE | re.DOTALL)
+    for raw_heading in heading_matches[: AUTO_COMMUNITY_MAX_ITEMS_PER_SOURCE]:
+        heading = _clean_inline_text(raw_heading, max_len=180)
+        if not heading:
+            continue
+        items.append(
+            {
+                "title": heading,
+                "link": source_url,
+                "summary": None,
+                "source_label": source_label,
+                "category": source_category,
+            }
+        )
+        if len(items) >= AUTO_COMMUNITY_MAX_ITEMS_PER_SOURCE:
+            break
+    return items
+
+
+def _fetch_community_auto_source_items(source_row: dict):
+    url = source_row.get("url")
+    label = source_row.get("label") or "Source"
+    category = source_row.get("category") or "general"
+    if not url:
+        return []
+
+    try:
+        response = httpx.get(
+            url,
+            timeout=16.0,
+            follow_redirects=True,
+            headers={"User-Agent": "CoachMIM/1.0 (+community-automation)"},
+        )
+        response.raise_for_status()
+    except Exception:
+        current_app.logger.exception("community automation source fetch failed: %s", url)
+        return []
+
+    content_type = (response.headers.get("content-type") or "").lower()
+    text = response.text or ""
+    sniff = text.lstrip()[:120].lower()
+
+    if "xml" in content_type or sniff.startswith("<?xml") or "<rss" in sniff:
+        rss_items = _parse_rss_feed_items(text, label, category)
+        if rss_items:
+            return rss_items
+        atom_items = _parse_atom_feed_items(text, label, category)
+        if atom_items:
+            return atom_items
+    elif "atom" in content_type or "<feed" in sniff:
+        atom_items = _parse_atom_feed_items(text, label, category)
+        if atom_items:
+            return atom_items
+        rss_items = _parse_rss_feed_items(text, label, category)
+        if rss_items:
+            return rss_items
+
+    return _parse_html_source_items(text, url, label, category)
+
+
+def _get_community_auto_settings():
+    keys = [
+        "community_auto_enabled",
+        "community_auto_runs_per_day",
+        "community_auto_post_as",
+        "community_auto_sources",
+        "community_auto_last_run_at",
+        "community_auto_last_status",
+        "community_auto_last_post_id",
+        "community_auto_last_trigger",
+        "community_auto_run_day",
+        "community_auto_run_count",
+    ]
+    values = get_site_settings(keys)
+    runs_per_day = parse_int(values.get("community_auto_runs_per_day")) or 3
+    if runs_per_day not in AUTO_COMMUNITY_ALLOWED_RUNS:
+        runs_per_day = 3
+
+    post_as = (values.get("community_auto_post_as") or "mim").strip().lower()
+    if post_as not in {"mim", "admin"}:
+        post_as = "mim"
+
+    sources_text = values.get("community_auto_sources") or SITE_SETTING_DEFAULTS["community_auto_sources"]
+    parsed_sources = _parse_community_auto_sources(sources_text)
+    last_post_id = parse_int(values.get("community_auto_last_post_id"))
+    run_day = (values.get("community_auto_run_day") or "").strip()
+    run_count = parse_int(values.get("community_auto_run_count")) or 0
+    return {
+        "enabled": parse_bool(values.get("community_auto_enabled")),
+        "runs_per_day": runs_per_day,
+        "post_as": post_as,
+        "sources_text": sources_text,
+        "sources": parsed_sources,
+        "last_run_at": values.get("community_auto_last_run_at") or None,
+        "last_status": values.get("community_auto_last_status") or None,
+        "last_post_id": last_post_id,
+        "last_trigger": values.get("community_auto_last_trigger") or None,
+        "run_day": run_day,
+        "run_count": run_count,
+    }
+
+
+def _build_auto_generation_prompt(*, category: str, source_items: list[dict]):
+    lines = []
+    for row in source_items[:8]:
+        title = normalize_text(row.get("title")) or "Untitled"
+        source_label = normalize_text(row.get("source_label")) or "Source"
+        link = normalize_text(row.get("link"))
+        summary = normalize_text(row.get("summary"))
+        if link:
+            lines.append(f"- {title} ({source_label}) [{link}]")
+        else:
+            lines.append(f"- {title} ({source_label})")
+        if summary:
+            lines.append(f"  context: {summary[:180]}")
+
+    if not lines:
+        lines.append("- Build one evidence-aware health/fitness coaching post from current trends.")
+
+    return (
+        "Create one community post for CoachMIM from the trend items below.\n"
+        f"Category: {category}\n"
+        "Constraints:\n"
+        "- Keep it practical and safe.\n"
+        "- No diagnosis or treatment claims.\n"
+        "- Include 3 concise takeaways and 1 action step.\n"
+        "- Tone: motivating but factual.\n"
+        "Output format exactly:\n"
+        "Title: ...\n"
+        "Body: ...\n\n"
+        "Trend items:\n"
+        f"{chr(10).join(lines)}"
+    )
+
+
+def _fallback_auto_post_content(*, category: str, source_items: list[dict]):
+    highlights = []
+    for row in source_items[:5]:
+        title = normalize_text(row.get("title"))
+        if title:
+            highlights.append(f"- {title}")
+    if not highlights:
+        highlights.append("- Keep your logging consistent and focus on one improvement today.")
+    title = f"MIM Daily {category.capitalize()} Brief"
+    body = (
+        "Trending highlights for the CoachMIM community:\n"
+        f"{chr(10).join(highlights)}\n\n"
+        "Action step: Pick one small behavior for today and track it to completion."
+    )
+    return title, body
+
+
+def run_community_automation(*, trigger: str, force: bool = False):
+    settings = _get_community_auto_settings()
+    if not settings["enabled"] and not force:
+        return (False, "Community automation is disabled.", None)
+    utc_today = datetime.utcnow().date().isoformat()
+    run_day = settings.get("run_day") or ""
+    run_count = settings.get("run_count") or 0
+    if run_day != utc_today:
+        run_count = 0
+    if not force and run_count >= settings["runs_per_day"]:
+        set_site_setting("community_auto_last_run_at", datetime.utcnow().isoformat())
+        set_site_setting(
+            "community_auto_last_status",
+            f"Skipped: reached {settings['runs_per_day']} auto-post runs for {utc_today} (UTC).",
+        )
+        set_site_setting("community_auto_last_trigger", trigger)
+        db.session.commit()
+        return (False, "Skipped: daily automation run limit reached.", None)
+
+    sources = settings["sources"]
+    if not sources:
+        return (False, "No valid automation sources configured.", None)
+
+    all_items = []
+    for source_row in sources:
+        all_items.extend(_fetch_community_auto_source_items(source_row))
+        if len(all_items) >= AUTO_COMMUNITY_TOTAL_ITEMS_CAP:
+            break
+
+    deduped_items = []
+    seen_keys = set()
+    for row in all_items:
+        title_key = normalize_text(row.get("title")) or ""
+        link_key = normalize_text(row.get("link")) or ""
+        dedupe_key = f"{title_key.lower()}|{link_key.lower()}"
+        if not title_key or dedupe_key in seen_keys:
+            continue
+        seen_keys.add(dedupe_key)
+        deduped_items.append(row)
+        if len(deduped_items) >= AUTO_COMMUNITY_TOTAL_ITEMS_CAP:
+            break
+
+    if not deduped_items:
+        set_site_setting("community_auto_last_run_at", datetime.utcnow().isoformat())
+        set_site_setting("community_auto_last_status", "No source items were fetched. Check source URLs/feeds.")
+        set_site_setting("community_auto_last_post_id", "")
+        set_site_setting("community_auto_last_trigger", trigger)
+        db.session.commit()
+        return (False, "No source items were fetched from configured feeds.", None)
+
+    category_counts = defaultdict(int)
+    for row in deduped_items:
+        category_counts[row.get("category") or "general"] += 1
+    selected_category = max(category_counts.items(), key=lambda pair: pair[1])[0] if category_counts else "general"
+    selected_items = [row for row in deduped_items if (row.get("category") or "general") == selected_category][:8]
+    if not selected_items:
+        selected_items = deduped_items[:8]
+        selected_category = normalize_community_category(selected_items[0].get("category") if selected_items else "general")
+
+    prompt = _build_auto_generation_prompt(category=selected_category, source_items=selected_items)
+    title = None
+    content = None
+    try:
+        mim_response = ask_mim_general_chat(
+            first_name="Admin",
+            question=prompt,
+            history=[],
+        )
+        title, content = _extract_title_and_body_from_mim_response(mim_response)
+    except Exception:
+        current_app.logger.exception("community automation AI generation failed")
+
+    if not title or not content:
+        title, content = _fallback_auto_post_content(category=selected_category, source_items=selected_items)
+
+    blocked, reason = community_content_is_blocked(f"{title}\n{content}")
+    if blocked:
+        set_site_setting("community_auto_last_run_at", datetime.utcnow().isoformat())
+        set_site_setting("community_auto_last_status", reason or "Generated content blocked by moderation.")
+        set_site_setting("community_auto_last_post_id", "")
+        set_site_setting("community_auto_last_trigger", trigger)
+        db.session.commit()
+        return (False, reason or "Generated content blocked by moderation.", None)
+
+    if settings["post_as"] == "admin":
+        author = get_or_create_system_user(
+            email="admin-team@coachmim.local",
+            full_name="CoachMIM Admin",
+        )
+    else:
+        author = get_or_create_system_user(
+            email="mim-bot@coachmim.local",
+            full_name="MIM",
+        )
+    if author is None:
+        return (False, "Could not resolve automation system author.", None)
+
+    post = CommunityPost(
+        user_id=author.id,
+        category=normalize_community_category(selected_category),
+        title=(title or "MIM Community Brief")[:180],
+        content=(content or "")[:4000],
+        is_hidden=False,
+        is_flagged=False,
+    )
+    db.session.add(post)
+    db.session.flush()
+    set_site_setting("community_auto_run_day", utc_today)
+    set_site_setting("community_auto_run_count", str((run_count or 0) + 1))
+    set_site_setting("community_auto_last_run_at", datetime.utcnow().isoformat())
+    set_site_setting("community_auto_last_status", f"Posted automatically from {len(selected_items)} source items.")
+    set_site_setting("community_auto_last_post_id", str(post.id))
+    set_site_setting("community_auto_last_trigger", trigger)
+    db.session.commit()
+    return (True, "Community automation post published.", post)
+
+
 def add_blocked_email(email: str | None, reason: str, admin_id: int | None):
     normalized = normalize_email(email)
     if not normalized:
@@ -3462,6 +3934,7 @@ def register():
 def login():
     if g.user is not None:
         return redirect(url_for("main.index"))
+    login_fact = build_login_brain_fact()
 
     if request.method == "POST":
         email = normalize_email(request.form.get("email"))
@@ -3471,10 +3944,10 @@ def login():
         user = User.query.filter_by(email=email).first() if email else None
         if not user or not user.password_hash or not check_password_hash(user.password_hash, password):
             flash("Invalid email or password.", "error")
-            return render_template("login.html", next=next_url)
+            return render_template("login.html", next=next_url, login_fact=login_fact)
         if user.is_blocked:
             flash("This account is blocked. Contact support if you need help.", "error")
-            return render_template("login.html", next=next_url)
+            return render_template("login.html", next=next_url, login_fact=login_fact)
 
         session.clear()
         session["user_id"] = user.id
@@ -3488,7 +3961,7 @@ def login():
             return redirect(next_url)
         return redirect(url_for("main.index"))
 
-    return render_template("login.html", next=request.args.get("next"))
+    return render_template("login.html", next=request.args.get("next"), login_fact=login_fact)
 
 
 @bp.route("/lost-password", methods=["GET", "POST"])
@@ -3567,7 +4040,7 @@ def contact_support():
 def logout():
     session.clear()
     flash("Logged out.", "success")
-    return redirect(url_for("main.login"))
+    return redirect(url_for("main.index"))
 
 
 @bp.route("/dontcrash", methods=["GET", "POST"])
@@ -3831,6 +4304,8 @@ def _extract_title_and_body_from_mim_response(text: str):
 def admin_community():
     author_id = parse_int(request.args.get("author_id"))
     include_hidden = parse_bool(request.args.get("include_hidden"))
+    automation = _get_community_auto_settings()
+    last_auto_post = db.session.get(CommunityPost, automation["last_post_id"]) if automation.get("last_post_id") else None
 
     post_query = CommunityPost.query.options(
         selectinload(CommunityPost.user),
@@ -3869,7 +4344,77 @@ def admin_community():
         include_hidden=include_hidden,
         author_id=author_id,
         category_options=COMMUNITY_CATEGORY_OPTIONS,
+        automation=automation,
+        last_auto_post=last_auto_post,
     )
+
+
+@bp.post("/dontcrash/community/automation")
+@admin_login_required
+def admin_community_automation_settings():
+    enabled = parse_bool(request.form.get("enabled"))
+    runs_per_day = parse_int(request.form.get("runs_per_day")) or 3
+    if runs_per_day not in AUTO_COMMUNITY_ALLOWED_RUNS:
+        runs_per_day = 3
+
+    post_as = (request.form.get("post_as") or "mim").strip().lower()
+    if post_as not in {"mim", "admin"}:
+        post_as = "mim"
+
+    raw_sources_text = (request.form.get("sources_text") or "").strip()
+    if not raw_sources_text:
+        raw_sources_text = SITE_SETTING_DEFAULTS["community_auto_sources"]
+
+    parsed_sources = _parse_community_auto_sources(raw_sources_text)
+    if not parsed_sources:
+        flash(
+            "No valid source URLs found. Use one per line: category | source label | https://feed-url",
+            "error",
+        )
+        return redirect(url_for("main.admin_community"))
+
+    set_site_setting("community_auto_enabled", "1" if enabled else "0")
+    set_site_setting("community_auto_runs_per_day", str(runs_per_day))
+    set_site_setting("community_auto_post_as", post_as)
+    set_site_setting("community_auto_sources", raw_sources_text)
+    db.session.commit()
+    flash("Community automation settings saved.", "success")
+    return redirect(url_for("main.admin_community"))
+
+
+@bp.post("/dontcrash/community/automation/run")
+@admin_login_required
+def admin_community_automation_run():
+    success, message, post = run_community_automation(
+        trigger=f"admin:{g.admin_user.username}",
+        force=True,
+    )
+    flash(message, "success" if success else "error")
+    if post:
+        return redirect(url_for("main.admin_community") + f"#admin-post-{post.id}")
+    return redirect(url_for("main.admin_community"))
+
+
+@bp.route("/internal/community-auto-post", methods=["GET", "POST"])
+def internal_community_auto_post():
+    token = (
+        request.headers.get("X-Community-Auto-Token")
+        or request.args.get("token")
+        or request.form.get("token")
+    )
+    expected = (os.getenv("COMMUNITY_AUTO_POST_TOKEN") or "").strip()
+    if not expected:
+        return jsonify({"ok": False, "error": "COMMUNITY_AUTO_POST_TOKEN is not configured."}), 503
+    if token != expected:
+        return jsonify({"ok": False, "error": "Invalid token."}), 403
+
+    success, message, post = run_community_automation(trigger="cron", force=False)
+    payload = {
+        "ok": bool(success),
+        "message": message,
+        "post_id": post.id if post else None,
+    }
+    return jsonify(payload), (200 if success else 202)
 
 
 @bp.post("/dontcrash/community/post")

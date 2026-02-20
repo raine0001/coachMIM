@@ -94,6 +94,9 @@ flask run
 - `/ask-mim` AI chat workspace
 - `/timeline` recent logs + pre-emptive prompts
 - `/insights` weekly summary and reflection
+- `/recipe-calculator` ingredient-by-ingredient nutrition calculator
+- `/dontcrash/community` admin community moderation + automation controls
+- `/internal/community-auto-post` token-protected automation trigger endpoint (for cron)
 
 ## Data Model
 
@@ -129,3 +132,9 @@ flask run
 - Uploads are stored in `app/static/uploads` for local/dev. Production object storage can replace this later.
 - For production cookie security, set `SESSION_COOKIE_SECURE=true`.
 - For production encryption enforcement, set `ENCRYPTION_REQUIRED=true` and provide `ENCRYPTION_MASTER_KEY`.
+- Community auto-post automation:
+  - Set `COMMUNITY_AUTO_POST_TOKEN` in environment.
+  - Configure sources in Admin -> Community Content -> MIM Community Automation.
+  - Create a Render Cron Job calling:
+    - `POST https://your-domain/internal/community-auto-post?token=YOUR_TOKEN`
+  - Schedule 2-3 runs/day (for example: `0 9,14,19 * * *` UTC).

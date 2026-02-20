@@ -52,6 +52,65 @@
   </div>
 
   <div class="card">
+    <h2>MIM Community Automation</h2>
+    <p class="muted">
+      Configure source URLs/news feeds. MIM can auto-create community posts from trending health/fitness items.
+      Use Render Cron to call <code>/internal/community-auto-post</code> 2-3 times daily.
+    </p>
+    <form method="post" action="{{ url_for('main.admin_community_automation_settings') }}">
+      <div class="grid">
+        <div>
+          <label for="auto_enabled">Automation Enabled</label>
+          <label style="font-weight: 500; margin-bottom: 0;">
+            <input id="auto_enabled" name="enabled" type="checkbox" {% if automation.enabled %}checked{% endif %} />
+            Enable auto-posting
+          </label>
+        </div>
+        <div>
+          <label for="auto_runs_per_day">Target Runs / Day</label>
+          <select id="auto_runs_per_day" name="runs_per_day">
+            <option value="1" {% if automation.runs_per_day == 1 %}selected{% endif %}>1</option>
+            <option value="2" {% if automation.runs_per_day == 2 %}selected{% endif %}>2</option>
+            <option value="3" {% if automation.runs_per_day == 3 %}selected{% endif %}>3</option>
+            <option value="4" {% if automation.runs_per_day == 4 %}selected{% endif %}>4</option>
+          </select>
+        </div>
+        <div>
+          <label for="auto_post_as">Post As</label>
+          <select id="auto_post_as" name="post_as">
+            <option value="mim" {% if automation.post_as == "mim" %}selected{% endif %}>MIM</option>
+            <option value="admin" {% if automation.post_as == "admin" %}selected{% endif %}>CoachMIM Admin</option>
+          </select>
+        </div>
+      </div>
+      <div style="margin-top: 8px;">
+        <label for="auto_sources_text">Sources (one per line: <code>category | source label | https://feed-url</code>)</label>
+        <textarea
+          id="auto_sources_text"
+          name="sources_text"
+          maxlength="12000"
+          style="min-height: 180px;"
+        >{{ automation.sources_text }}</textarea>
+      </div>
+      <div style="margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px;">
+        <button type="submit">Save Automation Settings</button>
+      </div>
+    </form>
+    <form method="post" action="{{ url_for('main.admin_community_automation_run') }}" style="margin-top: 10px;">
+      <button type="submit">Run MIM Automation Now</button>
+    </form>
+    <div class="muted" style="margin-top: 10px;">
+      <div>Last Run UTC: {{ automation.last_run_at or "not yet" }}</div>
+      <div>Last Trigger: {{ automation.last_trigger or "n/a" }}</div>
+      <div>Runs Today (UTC): {{ automation.run_count }} / {{ automation.runs_per_day }}</div>
+      <div>Status: {{ automation.last_status or "n/a" }}</div>
+      {% if last_auto_post %}
+        <div>Last Post: <a href="#admin-post-{{ last_auto_post.id }}">#{{ last_auto_post.id }} - {{ last_auto_post.title }}</a></div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="card">
     <h2>Flagged Content Queue</h2>
     <h3>Flagged Posts</h3>
     {% if flagged_posts %}

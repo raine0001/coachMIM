@@ -140,3 +140,7 @@ flask run
   - Create a Render Cron Job calling:
     - `POST https://your-domain/internal/community-auto-post?token=YOUR_TOKEN`
   - Schedule 2-3 runs/day (for example: `0 9,14,19 * * *` UTC).
+- Render memory note:
+  - Ensure web service start command uses gunicorn config file:
+    - `.venv/bin/python -m gunicorn -c gunicorn.conf.py wsgi:app`
+  - If your service was created manually (not Blueprint-managed), set this in Render dashboard.

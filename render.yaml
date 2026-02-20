@@ -4,7 +4,7 @@ services:
     env: python
     plan: starter
     buildCommand: .venv/bin/python -m pip install -r requirements.txt && .venv/bin/python -m flask --app wsgi.py db upgrade
-    startCommand: .venv/bin/python -m gunicorn --workers 1 --threads 1 --max-requests 80 --max-requests-jitter 20 --timeout 120 wsgi:app
+    startCommand: .venv/bin/python -m gunicorn -c gunicorn.conf.py wsgi:app
     envVars:
       - key: FLASK_ENV
         value: production
@@ -26,5 +26,15 @@ services:
         value: "true"
       - key: WEB_CONCURRENCY
         value: "1"
+      - key: GUNICORN_WORKERS
+        value: "1"
+      - key: GUNICORN_THREADS
+        value: "1"
+      - key: GUNICORN_WORKER_CLASS
+        value: sync
+      - key: GUNICORN_MAX_REQUESTS
+        value: "80"
+      - key: GUNICORN_MAX_REQUESTS_JITTER
+        value: "20"
       - key: UPLOAD_FOLDER
         value: /var/data/uploads

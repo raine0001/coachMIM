@@ -7141,7 +7141,8 @@ def ask_mim_clear():
 @bp.get("/community")
 @login_required
 def community_page():
-    selected_category = get_community_filter_or_all(request.args.get("category"))
+    raw_category = (request.args.get("category") or "").strip()
+    selected_category = "all" if not raw_category else get_community_filter_or_all(raw_category)
     author_id = parse_int(request.args.get("author"))
 
     post_query = (

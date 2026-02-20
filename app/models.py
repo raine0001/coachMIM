@@ -365,6 +365,8 @@ class CommunityPost(db.Model):
     category = db.Column(db.String(40), nullable=False, index=True)
     title = db.Column(db.String(180), nullable=False)
     content = db.Column(db.Text, nullable=False)
+    media_path = db.Column(db.String(500), nullable=True)
+    media_kind = db.Column(db.String(16), nullable=True)
     is_hidden = db.Column(db.Boolean, nullable=False, default=False, index=True)
     is_flagged = db.Column(db.Boolean, nullable=False, default=False, index=True)
     flag_reason = db.Column(db.Text, nullable=True)

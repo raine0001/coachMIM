@@ -13,7 +13,7 @@
 
   <div class="card">
     <h2>Add Community Content</h2>
-    <form method="post" action="{{ url_for('main.admin_community_post') }}">
+    <form method="post" action="{{ url_for('main.admin_community_post') }}" enctype="multipart/form-data">
       <div class="grid">
         <div>
           <label for="admin_post_category">Category</label>
@@ -44,6 +44,15 @@
       <div style="margin-top: 8px;">
         <label for="admin_post_content">Content</label>
         <textarea id="admin_post_content" name="content" maxlength="4000" placeholder="Type content or let MIM draft from topic."></textarea>
+      </div>
+      <div style="margin-top: 8px;">
+        <label for="admin_post_media">Image Or Video (optional)</label>
+        <input
+          id="admin_post_media"
+          name="media"
+          type="file"
+          accept="image/png,image/jpeg,image/webp,image/heic,image/gif,video/mp4,video/webm,video/quicktime"
+        />
       </div>
       <div style="margin-top: 10px;">
         <button type="submit">Publish Content</button>
@@ -122,6 +131,21 @@
           </div>
           <h4 style="margin: 6px 0;">{{ post.title }}</h4>
           <p style="margin: 0 0 8px;">{{ post.content }}</p>
+          {% if post.media_path %}
+            <div style="margin: 8px 0;">
+              {% if post.media_kind == "video" %}
+                <video controls preload="metadata" style="max-width: 100%; border-radius: 8px; border: 1px solid #d7dee7;">
+                  <source src="{{ url_for('static', filename=post.media_path) }}" />
+                </video>
+              {% else %}
+                <img
+                  src="{{ url_for('static', filename=post.media_path) }}"
+                  alt="Post media"
+                  style="max-width: 100%; border-radius: 8px; border: 1px solid #d7dee7;"
+                />
+              {% endif %}
+            </div>
+          {% endif %}
           {% if post.flag_reason %}
             <p class="muted" style="margin: 0 0 8px;">Reason: {{ post.flag_reason }}</p>
           {% endif %}
@@ -214,6 +238,21 @@
           </div>
           <h4 style="margin: 6px 0;">{{ post.title }}</h4>
           <p style="margin: 0;">{{ post.content }}</p>
+          {% if post.media_path %}
+            <div style="margin-top: 8px;">
+              {% if post.media_kind == "video" %}
+                <video controls preload="metadata" style="max-width: 100%; border-radius: 8px; border: 1px solid #d7dee7;">
+                  <source src="{{ url_for('static', filename=post.media_path) }}" />
+                </video>
+              {% else %}
+                <img
+                  src="{{ url_for('static', filename=post.media_path) }}"
+                  alt="Post media"
+                  style="max-width: 100%; border-radius: 8px; border: 1px solid #d7dee7;"
+                />
+              {% endif %}
+            </div>
+          {% endif %}
         </div>
       {% endfor %}
     {% else %}

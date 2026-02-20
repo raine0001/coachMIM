@@ -80,6 +80,9 @@ SUPPORT_ALLOWED_EXTENSIONS = {
     "doc",
     "docx",
 }
+COMMUNITY_MEDIA_IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "webp", "heic", "gif"}
+COMMUNITY_MEDIA_VIDEO_EXTENSIONS = {"mp4", "webm", "mov", "m4v"}
+COMMUNITY_MEDIA_ALLOWED_EXTENSIONS = COMMUNITY_MEDIA_IMAGE_EXTENSIONS | COMMUNITY_MEDIA_VIDEO_EXTENSIONS
 SUPPORT_STATUS_OPTIONS = {"new", "resolved", "spam"}
 
 PREFERRED_TIMEZONES = [
@@ -761,6 +764,75 @@ def allowed_file(filename: str) -> bool:
 
 def support_allowed_file(filename: str) -> bool:
     return "." in filename and filename.rsplit(".", 1)[1].lower() in SUPPORT_ALLOWED_EXTENSIONS
+
+
+def community_media_allowed_file(filename: str) -> bool:
+    return "." in filename and filename.rsplit(".", 1)[1].lower() in COMMUNITY_MEDIA_ALLOWED_EXTENSIONS
+
+
+def _community_media_kind(filename: str, mime_type: str | None = None):
+    extension = filename.rsplit(".", 1)[1].lower() if "." in filename else ""
+    mime = (mime_type or "").lower()
+    if extension in COMMUNITY_MEDIA_IMAGE_EXTENSIONS or mime.startswith("image/"):
+        return "image"
+    if extension in COMMUNITY_MEDIA_VIDEO_EXTENSIONS or mime.startswith("video/"):
+        return "video"
+    return None
+
+
+def _save_community_media_upload(upload):
+    if upload is None or not upload.filename:
+        return (None, None, None)
+
+    filename = upload.filename or ""
+    mime_type = (upload.mimetype or "").lower()
+    if not community_media_allowed_file(filename) and not (
+        mime_type.startswith("image/") or mime_type.startswith("video/")
+    ):
+        return (
+            None,
+            None,
+            "Unsupported media file type. Use png/jpg/jpeg/webp/heic/gif or mp4/webm/mov.",
+        )
+
+    media_kind = _community_media_kind(filename, mime_type)
+    if media_kind is None:
+        return (None, None, "Could not detect media type. Use an image or video file.")
+
+    safe_name = secure_filename(filename)
+    if not safe_name:
+        fallback_ext = "jpg" if media_kind == "image" else "mp4"
+        safe_name = f"community-{uuid4().hex}.{fallback_ext}"
+    upload_name = f"{uuid4().hex}_{safe_name}"
+    upload_dir = os.path.join(current_app.config["UPLOAD_FOLDER"], "community")
+    os.makedirs(upload_dir, exist_ok=True)
+
+    relative_path = f"uploads/community/{upload_name}"
+    local_path = os.path.join(upload_dir, upload_name)
+    upload.save(local_path)
+    return (relative_path, media_kind, None)
+
+
+def _delete_community_media_file(media_path: str | None):
+    if not media_path:
+        return
+    normalized = str(media_path).replace("\\", "/").lstrip("/")
+    if not normalized.startswith("uploads/community/"):
+        return
+
+    static_root = current_app.static_folder
+    if not static_root:
+        return
+
+    absolute_path = os.path.normpath(os.path.join(static_root, normalized))
+    static_root_norm = os.path.normpath(static_root)
+    try:
+        if not absolute_path.startswith(static_root_norm):
+            return
+        if os.path.exists(absolute_path):
+            os.remove(absolute_path)
+    except OSError:
+        current_app.logger.warning("Failed to delete community media file: %s", absolute_path)
 
 
 def parse_int(value):
@@ -4491,6 +4563,7 @@ def admin_community_post():
     content = normalize_text(request.form.get("content"))
     generate_prompt = normalize_text(request.form.get("generate_prompt"))
     post_as = (request.form.get("post_as") or "mim").strip().lower()
+    media_upload = request.files.get("media")
 
     if generate_prompt:
         try:
@@ -4524,6 +4597,11 @@ def admin_community_post():
         flash(reason or "This content was blocked by moderation.", "error")
         return redirect(url_for("main.admin_community"))
 
+    media_path, media_kind, media_error = _save_community_media_upload(media_upload)
+    if media_error:
+        flash(media_error, "error")
+        return redirect(url_for("main.admin_community"))
+
     if post_as == "admin":
         author = get_or_create_system_user(
             email="admin-team@coachmim.local",
@@ -4543,6 +4621,8 @@ def admin_community_post():
         category=category,
         title=title[:180],
         content=content,
+        media_path=media_path,
+        media_kind=media_kind,
         is_hidden=False,
         is_flagged=False,
     )
@@ -7300,6 +7380,7 @@ def community_create_post():
     category = normalize_community_category(request.form.get("category"))
     title = normalize_text(request.form.get("title"))
     content = normalize_text(request.form.get("content"))
+    media_upload = request.files.get("media")
 
     if not title or len(title) < 4:
         flash("Post title must be at least 4 characters.", "error")
@@ -7316,11 +7397,18 @@ def community_create_post():
         flash(reason or "This content was blocked by community safety rules.", "error")
         return redirect(url_for("main.community_page", category=return_category))
 
+    media_path, media_kind, media_error = _save_community_media_upload(media_upload)
+    if media_error:
+        flash(media_error, "error")
+        return redirect(url_for("main.community_page", category=return_category))
+
     post = CommunityPost(
         user_id=g.user.id,
         category=category,
         title=title[:180],
         content=content,
+        media_path=media_path,
+        media_kind=media_kind,
     )
     db.session.add(post)
     db.session.commit()
@@ -7426,8 +7514,10 @@ def community_delete_post(post_id: int):
         flash("You can only delete your own community posts.", "error")
         return redirect(url_for("main.community_page", category=return_category))
 
+    media_path = post.media_path
     db.session.delete(post)
     db.session.commit()
+    _delete_community_media_file(media_path)
     flash("Community post deleted.", "success")
     return redirect(url_for("main.community_page", category=return_category))
 

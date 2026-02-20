@@ -109,6 +109,22 @@
       color: var(--muted);
       background: #fff;
     }
+    .community-media {
+      margin: 4px 0 12px;
+      border: 1px solid #d7dee7;
+      border-radius: 12px;
+      overflow: hidden;
+      background: #f7fafc;
+      max-width: 100%;
+    }
+    .community-media img,
+    .community-media video {
+      display: block;
+      width: 100%;
+      max-height: 520px;
+      object-fit: cover;
+      background: #0f172a;
+    }
     .community-comment-list {
       border-top: 1px solid var(--line);
       padding-top: 10px;
@@ -146,7 +162,7 @@
 
   <div class="card">
     <h2>Share A Post</h2>
-    <form method="post" action="{{ url_for('main.community_create_post') }}">
+    <form method="post" action="{{ url_for('main.community_create_post') }}" enctype="multipart/form-data">
       <input type="hidden" name="return_category" value="{{ selected_category }}" />
       <div class="grid">
         <div>
@@ -167,6 +183,15 @@
       <div style="margin-top: 10px;">
         <label for="content">Post</label>
         <textarea id="content" name="content" maxlength="4000" placeholder="Share your recipe, routine, or tip..." required></textarea>
+      </div>
+      <div style="margin-top: 10px;">
+        <label for="media">Image Or Video (optional)</label>
+        <input
+          id="media"
+          name="media"
+          type="file"
+          accept="image/png,image/jpeg,image/webp,image/heic,image/gif,video/mp4,video/webm,video/quicktime"
+        />
       </div>
       <div style="margin-top: 10px;">
         <button type="submit">Publish Post</button>
@@ -201,6 +226,15 @@
         </div>
 
         <div class="community-body">{{ card.content_html }}</div>
+        {% if post.media_path %}
+          <div class="community-media">
+            {% if post.media_kind == "video" %}
+              <video controls preload="metadata" src="{{ url_for('static', filename=post.media_path) }}"></video>
+            {% else %}
+              <img src="{{ url_for('static', filename=post.media_path) }}" alt="Community post media" loading="lazy" />
+            {% endif %}
+          </div>
+        {% endif %}
 
         <div class="community-actions">
           <form method="post" action="{{ url_for('main.community_toggle_like', post_id=post.id) }}">

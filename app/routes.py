@@ -10,6 +10,7 @@ from urllib.parse import quote_plus, urlparse
 from uuid import uuid4
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError, available_timezones
 
+from markupsafe import Markup, escape
 from flask import (
     Blueprint,
     current_app,
@@ -872,6 +873,71 @@ def community_display_name(user: User | None) -> str:
     if len(pieces) < 2:
         return pieces[0][:36]
     return f"{pieces[0][:20]} {pieces[-1][:1].upper()}."
+
+
+def format_community_text(text: str | None) -> Markup:
+    raw = (text or "").strip()
+    if not raw:
+        return Markup("")
+
+    cleaned = raw.replace("\r\n", "\n").replace("\r", "\n")
+    cleaned = re.sub(r"(?i)<br\s*/?>", "\n", cleaned)
+    cleaned = re.sub(r"<[^>]+>", "", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+    if not cleaned:
+        return Markup("")
+
+    lines = [line.strip() for line in cleaned.split("\n")]
+    blocks: list[tuple[str, list[str]]] = []
+    paragraph_lines: list[str] = []
+    bullet_lines: list[str] = []
+
+    def flush_paragraph():
+        nonlocal paragraph_lines
+        if paragraph_lines:
+            blocks.append(("p", paragraph_lines))
+            paragraph_lines = []
+
+    def flush_bullets():
+        nonlocal bullet_lines
+        if bullet_lines:
+            blocks.append(("ul", bullet_lines))
+            bullet_lines = []
+
+    for line in lines:
+        if not line:
+            flush_paragraph()
+            flush_bullets()
+            continue
+
+        bullet_match = re.match(r"^([-*•]\s+|\d+[.)]\s+)(.+)$", line)
+        if bullet_match:
+            flush_paragraph()
+            bullet_lines.append(bullet_match.group(2).strip())
+            continue
+
+        if bullet_lines:
+            flush_bullets()
+        paragraph_lines.append(line)
+
+    flush_paragraph()
+    flush_bullets()
+
+    html_chunks: list[str] = []
+    for block_type, block_lines in blocks:
+        if block_type == "ul":
+            items = "".join(f"<li>{escape(item)}</li>" for item in block_lines if item)
+            if items:
+                html_chunks.append(f"<ul>{items}</ul>")
+            continue
+        paragraph_text = " ".join(block_lines).strip()
+        if paragraph_text:
+            html_chunks.append(f"<p>{escape(paragraph_text)}</p>")
+
+    if not html_chunks:
+        html_chunks.append(f"<p>{escape(cleaned)}</p>")
+
+    return Markup("".join(html_chunks))
 
 
 def build_community_share_links(post: CommunityPost):
@@ -7182,6 +7248,7 @@ def community_page():
                 "comment_count": len(ordered_comments),
                 "liked_by_me": any(like.user_id == g.user.id for like in post.likes),
                 "comments": ordered_comments,
+                "content_html": format_community_text(post.content),
                 "share": build_community_share_links(post),
             }
         )

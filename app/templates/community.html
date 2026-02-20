@@ -1,6 +1,11 @@
 {% extends "base.html" %}
 {% block content %}
   <style>
+    .community-feed {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
     .community-tabs {
       display: flex;
       flex-wrap: wrap;
@@ -22,21 +27,67 @@
     }
     .community-meta {
       color: var(--muted);
-      font-size: 0.9rem;
-      margin-bottom: 10px;
+      font-size: 0.84rem;
+      margin-bottom: 8px;
+    }
+    .community-post-card {
+      background: #fff;
+      border: 1px solid #d7dee7;
+      border-radius: 12px;
+      box-shadow: 0 2px 8px rgba(16, 24, 40, 0.04);
+      padding: 12px;
+    }
+    .community-head {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+    .community-avatar {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: #e8eef6;
+      color: #0f172a;
+      font-weight: 700;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .community-title {
+      margin: 0 0 2px;
+      font-size: 1.12rem;
+      line-height: 1.25;
     }
     .community-body {
       margin-top: 0;
       margin-bottom: 12px;
-      white-space: normal;
       word-break: break-word;
+      line-height: 1.5;
+      color: #101828;
+    }
+    .community-body p {
+      margin: 0 0 10px;
+    }
+    .community-body p:last-child {
+      margin-bottom: 0;
+    }
+    .community-body ul {
+      margin: 0 0 10px 20px;
+      padding: 0;
+    }
+    .community-body li {
+      margin-bottom: 4px;
     }
     .community-actions {
       display: flex;
       flex-wrap: wrap;
       align-items: center;
       gap: 8px;
-      margin-bottom: 12px;
+      margin-bottom: 10px;
+      padding-top: 8px;
+      border-top: 1px solid var(--line);
     }
     .community-actions form {
       margin: 0;
@@ -60,8 +111,8 @@
     }
     .community-comment-list {
       border-top: 1px solid var(--line);
-      padding-top: 12px;
-      margin-top: 4px;
+      padding-top: 10px;
+      margin-top: 2px;
       margin-bottom: 12px;
     }
     .community-comment {
@@ -79,6 +130,9 @@
     .community-comment p {
       margin: 0;
       word-break: break-word;
+    }
+    .community-comment-form label {
+      margin-bottom: 6px;
     }
   </style>
 
@@ -132,14 +186,21 @@
   </div>
 
   {% if posts %}
+    <div class="community-feed">
     {% for card in posts %}
       {% set post = card.post %}
-      <article id="post-{{ post.id }}" class="card">
-        <h3 style="margin-bottom: 4px;">{{ post.title }}</h3>
-        <div class="community-meta">
-          {{ card.author_name }} | {{ post.category|capitalize }} | {{ post.created_at.strftime('%b %d, %Y %I:%M %p') }}
+      <article id="post-{{ post.id }}" class="community-post-card">
+        <div class="community-head">
+          <div class="community-avatar">{{ card.author_name[:1] }}</div>
+          <div>
+            <h3 class="community-title">{{ post.title }}</h3>
+            <div class="community-meta">
+              {{ card.author_name }} | {{ post.category|capitalize }} | {{ post.created_at.strftime('%b %d, %Y %I:%M %p') }}
+            </div>
+          </div>
         </div>
-        <p class="community-body">{{ post.content | e | replace('\n', '<br />') | safe }}</p>
+
+        <div class="community-body">{{ card.content_html }}</div>
 
         <div class="community-actions">
           <form method="post" action="{{ url_for('main.community_toggle_like', post_id=post.id) }}">
@@ -193,7 +254,7 @@
           {% endif %}
         </div>
 
-        <form method="post" action="{{ url_for('main.community_add_comment', post_id=post.id) }}">
+        <form class="community-comment-form" method="post" action="{{ url_for('main.community_add_comment', post_id=post.id) }}">
           <input type="hidden" name="category" value="{{ selected_category }}" />
           <label for="comment-{{ post.id }}">Add Comment</label>
           <textarea id="comment-{{ post.id }}" name="comment" maxlength="1200" placeholder="Reply to this post..." required></textarea>
@@ -203,6 +264,7 @@
         </form>
       </article>
     {% endfor %}
+    </div>
   {% else %}
     <div class="card">
       <p class="muted">No posts yet in this category. Be the first to share something useful.</p>

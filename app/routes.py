@@ -66,6 +66,8 @@ from app.models import (
     Substance,
     SupportMessage,
     User,
+    UserNotification,
+    UserNotificationPreference,
     UserDailyCoachInsight,
     UserGoal,
     UserGoalAction,
@@ -381,6 +383,14 @@ SITEMAP_PUBLIC_ENDPOINTS = [
     ("main.privacy_page", "monthly", "0.4"),
     ("main.terms_page", "monthly", "0.4"),
 ]
+NOTIFICATION_KIND_LABELS = {
+    "reminder_morning": "Morning reminder",
+    "reminder_midday": "Midday reminder",
+    "reminder_evening": "Evening reminder",
+    "missing_data": "Missing data",
+    "motivation": "MIM motivation",
+    "reengagement": "We miss you",
+}
 
 PROFILE_ENCRYPTED_FIELDS = [
     "phone",
@@ -4505,6 +4515,299 @@ def get_or_create_profile(user: User):
     return profile
 
 
+def get_or_create_notification_preferences(user: User):
+    prefs = user.notification_preferences
+    if not prefs:
+        prefs = UserNotificationPreference(user_id=user.id)
+        db.session.add(prefs)
+        db.session.flush()
+    return prefs
+
+
+def _get_active_goal_title(user: User):
+    active_goal = (
+        UserGoal.query.filter_by(user_id=user.id, status="active")
+        .order_by(UserGoal.updated_at.desc(), UserGoal.id.desc())
+        .first()
+    )
+    if active_goal and normalize_text(active_goal.title):
+        return normalize_text(active_goal.title)
+    profile = user.profile
+    if profile and normalize_text(profile.primary_goal):
+        return normalize_text(profile.primary_goal)
+    return "your current goals"
+
+
+def create_user_notification(
+    *,
+    user_id: int,
+    kind: str,
+    title: str,
+    message: str,
+    action_url: str | None = None,
+    unique_key: str | None = None,
+):
+    unique_value = normalize_text(unique_key)
+    if unique_value:
+        existing = UserNotification.query.filter_by(user_id=user_id, unique_key=unique_value).first()
+        if existing:
+            if existing.is_deleted:
+                existing.is_deleted = False
+                existing.is_archived = False
+                existing.is_read = False
+                db.session.add(existing)
+            return existing, False
+
+    notification = UserNotification(
+        user_id=user_id,
+        kind=(kind or "general").strip().lower()[:50],
+        title=(title or "CoachMIM update")[:180],
+        message=message or "",
+        action_url=safe_next_path(action_url),
+        unique_key=unique_value,
+    )
+    db.session.add(notification)
+    return notification, True
+
+
+def unread_notification_count_for_user(user_id: int):
+    return (
+        UserNotification.query.filter(
+            UserNotification.user_id == user_id,
+            UserNotification.is_deleted.is_(False),
+            UserNotification.is_archived.is_(False),
+            UserNotification.is_read.is_(False),
+        ).count()
+    )
+
+
+def _notification_action_url_for_segment(local_today: date, segment: str):
+    return url_for("main.checkin_form", day=local_today.isoformat(), view="checkin", segment=segment)
+
+
+def _create_segment_reminder_if_needed(
+    *,
+    user: User,
+    local_today: date,
+    local_hour: int,
+    expected_segments: list[str],
+    segment_status: dict[str, bool],
+    prefs: UserNotificationPreference,
+):
+    created = 0
+    segment_windows = [
+        ("morning", "reminder_morning", 6, 11, prefs.enable_morning_reminder),
+        ("midday", "reminder_midday", 11, 17, prefs.enable_midday_reminder),
+        ("evening", "reminder_evening", 17, 22, prefs.enable_evening_reminder),
+    ]
+    for segment_name, kind, window_start, window_end, enabled in segment_windows:
+        if not enabled:
+            continue
+        if not (window_start <= local_hour < window_end):
+            continue
+        if segment_name not in expected_segments:
+            continue
+        if segment_status.get(segment_name):
+            continue
+        _, is_new = create_user_notification(
+            user_id=user.id,
+            kind=kind,
+            title=f"{CHECKIN_SEGMENT_LABELS[segment_name]} check-in ready",
+            message=(
+                f"It is time to log your {CHECKIN_SEGMENT_LABELS[segment_name].lower()} update. "
+                "Small logs now make stronger coaching later."
+            ),
+            action_url=_notification_action_url_for_segment(local_today, segment_name),
+            unique_key=f"{kind}:{local_today.isoformat()}",
+        )
+        if is_new:
+            created += 1
+    return created
+
+
+def _create_missing_data_alert_if_needed(
+    *,
+    user: User,
+    local_today: date,
+    local_hour: int,
+    expected_segments: list[str],
+    segment_status: dict[str, bool],
+    prefs: UserNotificationPreference,
+):
+    if not prefs.enable_missing_data_alert or local_hour < 20:
+        return 0
+    missing = [segment for segment in expected_segments if not segment_status.get(segment)]
+    if not missing:
+        return 0
+    labels = [CHECKIN_SEGMENT_LABELS.get(segment, segment).lower() for segment in missing[:2]]
+    missing_text = " and ".join(labels) if labels else "today's missing segments"
+    _, is_new = create_user_notification(
+        user_id=user.id,
+        kind="missing_data",
+        title="A few logs are still missing",
+        message=(
+            f"Before the day closes, add {missing_text}. "
+            "This improves trend quality and tomorrow's coaching guidance."
+        ),
+        action_url=_notification_action_url_for_segment(local_today, missing[0]),
+        unique_key=f"missing_data:{local_today.isoformat()}",
+    )
+    return 1 if is_new else 0
+
+
+def _create_motivation_alert_if_needed(
+    *,
+    user: User,
+    local_today: date,
+    local_hour: int,
+    prefs: UserNotificationPreference,
+):
+    if not prefs.enable_motivation_alert or local_hour < 9:
+        return 0
+
+    window_start = local_today - timedelta(days=6)
+    recent_checkins = (
+        DailyCheckIn.query.filter(
+            DailyCheckIn.user_id == user.id,
+            DailyCheckIn.day >= window_start,
+            DailyCheckIn.day <= local_today,
+        )
+        .order_by(DailyCheckIn.day.desc())
+        .all()
+    )
+    by_day = {row.day: row for row in recent_checkins}
+    for row in recent_checkins:
+        hydrate_checkin_secure_fields(user, row)
+
+    streak = 0
+    probe_day = local_today
+    for _ in range(7):
+        row = by_day.get(probe_day)
+        if row and checkin_has_any_data(row):
+            streak += 1
+            probe_day -= timedelta(days=1)
+            continue
+        break
+
+    goal_title = _get_active_goal_title(user)
+    if streak >= 3:
+        motivation_line = f"You are on a {streak}-day consistency streak. Keep compounding small wins toward {goal_title}."
+    elif streak >= 1:
+        motivation_line = f"Good momentum. Protect today's streak and stay locked on {goal_title}."
+    else:
+        motivation_line = f"Day one is always now. One check-in today will move {goal_title} forward."
+
+    _, is_new = create_user_notification(
+        user_id=user.id,
+        kind="motivation",
+        title="MIM motivation",
+        message=motivation_line,
+        action_url=url_for("main.goals_page"),
+        unique_key=f"motivation:{local_today.isoformat()}",
+    )
+    return 1 if is_new else 0
+
+
+def _create_reengagement_alert_if_needed(
+    *,
+    user: User,
+    local_today: date,
+    local_hour: int,
+    prefs: UserNotificationPreference,
+):
+    if not prefs.enable_reengagement_alert or local_hour < 10:
+        return 0
+
+    last_checkin_day = (
+        db.session.query(func.max(DailyCheckIn.day))
+        .filter(DailyCheckIn.user_id == user.id)
+        .scalar()
+    )
+    if not last_checkin_day:
+        days_away = 999
+    else:
+        days_away = (local_today - last_checkin_day).days
+
+    if days_away < 2:
+        return 0
+
+    _, is_new = create_user_notification(
+        user_id=user.id,
+        kind="reengagement",
+        title="We miss you in CoachMIM",
+        message=(
+            "You have been away for a bit. A quick 60-second check-in is enough to restart your signal."
+        ),
+        action_url=url_for("main.checkin_form", day=local_today.isoformat(), view="checkin"),
+        unique_key=f"reengagement:{local_today.isoformat()}",
+    )
+    return 1 if is_new else 0
+
+
+def maybe_generate_user_notifications(user: User):
+    if user is None:
+        return 0
+
+    prefs = get_or_create_notification_preferences(user)
+    now_utc = datetime.utcnow()
+    if prefs.last_generated_at and (now_utc - prefs.last_generated_at) < timedelta(minutes=30):
+        return 0
+
+    local_today = get_user_local_today(user)
+    if prefs.pause_notifications_until and prefs.pause_notifications_until >= local_today:
+        prefs.last_generated_at = now_utc
+        db.session.add(prefs)
+        db.session.commit()
+        return 0
+
+    local_now = datetime.now(get_user_zoneinfo(user))
+    local_hour = local_now.hour
+
+    today_checkin = DailyCheckIn.query.filter_by(user_id=user.id, day=local_today).first()
+    hydrate_checkin_secure_fields(user, today_checkin)
+    segment_status = checkin_segment_status(today_checkin)
+    expected_segments = expected_checkin_segments_for_day(
+        local_today,
+        local_today=local_today,
+        local_hour=local_hour,
+    )
+
+    created_count = 0
+    created_count += _create_segment_reminder_if_needed(
+        user=user,
+        local_today=local_today,
+        local_hour=local_hour,
+        expected_segments=expected_segments,
+        segment_status=segment_status,
+        prefs=prefs,
+    )
+    created_count += _create_missing_data_alert_if_needed(
+        user=user,
+        local_today=local_today,
+        local_hour=local_hour,
+        expected_segments=expected_segments,
+        segment_status=segment_status,
+        prefs=prefs,
+    )
+    created_count += _create_motivation_alert_if_needed(
+        user=user,
+        local_today=local_today,
+        local_hour=local_hour,
+        prefs=prefs,
+    )
+    created_count += _create_reengagement_alert_if_needed(
+        user=user,
+        local_today=local_today,
+        local_hour=local_hour,
+        prefs=prefs,
+    )
+
+    prefs.last_generated_at = now_utc
+    db.session.add(prefs)
+    db.session.commit()
+    return created_count
+
+
 def login_required(view):
     @wraps(view)
     def wrapped(*args, **kwargs):
@@ -4577,6 +4880,7 @@ def load_logged_in_user():
     g.user = db.session.get(User, user_id) if user_id else None
     admin_user_id = session.get(ADMIN_SESSION_KEY)
     g.admin_user = db.session.get(AdminUser, admin_user_id) if admin_user_id else None
+    g.notification_unread_count = 0
     now_utc = datetime.utcnow()
 
     if g.user and g.user.profile:
@@ -4592,6 +4896,23 @@ def load_logged_in_user():
                 db.session.add(g.user)
                 db.session.commit()
 
+            should_generate_notifications = (
+                request.method in {"GET", "HEAD"}
+                and request.endpoint not in {None, "static"}
+                and not request.path.startswith("/static/")
+            )
+            if should_generate_notifications:
+                try:
+                    maybe_generate_user_notifications(g.user)
+                except Exception:
+                    db.session.rollback()
+                    current_app.logger.exception("Failed to generate notifications for user_id=%s", g.user.id)
+
+            try:
+                g.notification_unread_count = unread_notification_count_for_user(g.user.id)
+            except Exception:
+                g.notification_unread_count = 0
+
 
 @bp.app_context_processor
 def inject_user():
@@ -4604,6 +4925,7 @@ def inject_user():
         "current_user": current_user,
         "current_admin": current_admin,
         "profile_complete": profile_complete,
+        "notification_unread_count": g.get("notification_unread_count", 0),
         "uploaded_file_url": uploaded_file_url,
     }
 
@@ -4678,6 +5000,124 @@ def index():
 @bp.get("/healthz")
 def healthz():
     return jsonify({"ok": True, "ts": datetime.utcnow().isoformat()}), 200
+
+
+@bp.get("/notifications")
+@login_required
+def notifications_page():
+    maybe_generate_user_notifications(g.user)
+    view_mode = normalize_text(request.args.get("view") or "inbox").lower()
+    if view_mode not in {"inbox", "archived", "all"}:
+        view_mode = "inbox"
+
+    prefs = get_or_create_notification_preferences(g.user)
+
+    notifications_query = UserNotification.query.filter(
+        UserNotification.user_id == g.user.id,
+        UserNotification.is_deleted.is_(False),
+    )
+    if view_mode == "inbox":
+        notifications_query = notifications_query.filter(UserNotification.is_archived.is_(False))
+    elif view_mode == "archived":
+        notifications_query = notifications_query.filter(UserNotification.is_archived.is_(True))
+
+    notifications = notifications_query.order_by(UserNotification.created_at.desc(), UserNotification.id.desc()).limit(150).all()
+    unread_count = unread_notification_count_for_user(g.user.id)
+    inbox_count = (
+        UserNotification.query.filter(
+            UserNotification.user_id == g.user.id,
+            UserNotification.is_deleted.is_(False),
+            UserNotification.is_archived.is_(False),
+        ).count()
+    )
+    archived_count = (
+        UserNotification.query.filter(
+            UserNotification.user_id == g.user.id,
+            UserNotification.is_deleted.is_(False),
+            UserNotification.is_archived.is_(True),
+        ).count()
+    )
+
+    local_today = get_user_local_today(g.user)
+    return render_template(
+        "notifications.html",
+        notifications=notifications,
+        view_mode=view_mode,
+        unread_count=unread_count,
+        inbox_count=inbox_count,
+        archived_count=archived_count,
+        kind_labels=NOTIFICATION_KIND_LABELS,
+        prefs=prefs,
+        local_today=local_today,
+    )
+
+
+@bp.post("/notifications/preferences")
+@login_required
+def notifications_preferences_save():
+    prefs = get_or_create_notification_preferences(g.user)
+
+    pause_until_raw = (request.form.get("pause_notifications_until") or "").strip()
+    pause_until = None
+    if pause_until_raw:
+        try:
+            pause_until = date.fromisoformat(pause_until_raw)
+        except ValueError:
+            pause_until = None
+            flash("Pause date was invalid. Preferences saved without pause date.", "error")
+    prefs.pause_notifications_until = pause_until
+
+    prefs.enable_morning_reminder = parse_bool(request.form.get("enable_morning_reminder"))
+    prefs.enable_midday_reminder = parse_bool(request.form.get("enable_midday_reminder"))
+    prefs.enable_evening_reminder = parse_bool(request.form.get("enable_evening_reminder"))
+    prefs.enable_missing_data_alert = parse_bool(request.form.get("enable_missing_data_alert"))
+    prefs.enable_motivation_alert = parse_bool(request.form.get("enable_motivation_alert"))
+    prefs.enable_reengagement_alert = parse_bool(request.form.get("enable_reengagement_alert"))
+    prefs.allow_browser_push = parse_bool(request.form.get("allow_browser_push"))
+    prefs.allow_device_push = parse_bool(request.form.get("allow_device_push"))
+
+    db.session.add(prefs)
+    db.session.commit()
+    flash("Notification preferences saved.", "success")
+    return redirect(url_for("main.notifications_page"))
+
+
+@bp.post("/notifications/<int:notification_id>/action")
+@login_required
+def notifications_action(notification_id: int):
+    next_url = safe_next_path(request.form.get("next")) or url_for("main.notifications_page")
+    action = normalize_text(request.form.get("action")).lower()
+    if action not in {"open", "read", "unread", "archive", "restore", "delete"}:
+        flash("Unknown notification action.", "error")
+        return redirect(next_url)
+
+    notification = UserNotification.query.filter_by(
+        id=notification_id,
+        user_id=g.user.id,
+    ).first_or_404()
+
+    redirect_url = next_url
+    if action == "open":
+        notification.is_read = True
+        if notification.action_url:
+            redirect_url = safe_next_path(notification.action_url) or next_url
+    elif action == "read":
+        notification.is_read = True
+    elif action == "unread":
+        notification.is_read = False
+        notification.is_archived = False
+    elif action == "archive":
+        notification.is_archived = True
+        notification.is_read = True
+    elif action == "restore":
+        notification.is_archived = False
+        notification.is_deleted = False
+    elif action == "delete":
+        notification.is_deleted = True
+
+    db.session.add(notification)
+    db.session.commit()
+    return redirect(redirect_url)
 
 
 @bp.get("/robots.txt")

@@ -52,6 +52,26 @@
         font-size: 0.8rem;
         line-height: 1.1;
       }
+      .nav-icon-link.nav-has-badge {
+        position: relative;
+      }
+      .nav-alert-badge {
+        position: absolute;
+        top: -6px;
+        right: -6px;
+        min-width: 20px;
+        height: 20px;
+        padding: 0 5px;
+        border-radius: 999px;
+        background: #b42318;
+        color: #fff;
+        font-size: 0.72rem;
+        font-weight: 700;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border: 2px solid #fff;
+      }
       .nav-icon-link:hover,
       .nav-icon-button:hover {
         border-color: #b8c6d6;
@@ -258,6 +278,7 @@
             <span class="nav-icon-label">Home</span>
           </a>
           {% if current_user %}
+            {% set unread_notifs = notification_unread_count or 0 %}
             <a class="nav-icon-link" href="{{ url_for('main.profile') }}" aria-label="Profile">
               <span class="nav-icon" aria-hidden="true">
                 <svg viewBox="0 0 24 24">
@@ -314,6 +335,18 @@
                 </svg>
               </span>
               <span class="nav-icon-label">Community</span>
+            </a>
+            <a class="nav-icon-link nav-has-badge" href="{{ url_for('main.notifications_page') }}" aria-label="Notifications">
+              <span class="nav-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <path d="M6.5 10a5.5 5.5 0 1 1 11 0v4.5l1.8 2.2H4.7l1.8-2.2Z"></path>
+                  <path d="M10 19a2 2 0 0 0 4 0"></path>
+                </svg>
+              </span>
+              <span class="nav-icon-label">Alerts</span>
+              {% if unread_notifs > 0 %}
+                <span class="nav-alert-badge">{{ unread_notifs if unread_notifs < 100 else "99+" }}</span>
+              {% endif %}
             </a>
             <form method="post" action="{{ url_for('main.logout') }}">
               <button class="nav-icon-button" type="submit" aria-label="Logout">

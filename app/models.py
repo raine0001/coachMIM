@@ -30,6 +30,19 @@ class User(db.Model):
     goals = db.relationship("UserGoal", backref="user", lazy=True)
     goal_actions = db.relationship("UserGoalAction", backref="user", lazy=True)
     daily_coach_insights = db.relationship("UserDailyCoachInsight", backref="user", lazy=True)
+    notifications = db.relationship(
+        "UserNotification",
+        backref="user",
+        lazy=True,
+        cascade="all, delete-orphan",
+    )
+    notification_preferences = db.relationship(
+        "UserNotificationPreference",
+        backref="user",
+        uselist=False,
+        lazy=True,
+        cascade="all, delete-orphan",
+    )
 
 
 class UserProfile(db.Model):
@@ -522,4 +535,57 @@ class UserDailyCoachInsight(db.Model):
 
     __table_args__ = (
         db.UniqueConstraint("user_id", "day", "context", name="uq_user_daily_coach_insight_user_day_context"),
+    )
+
+
+class UserNotification(db.Model):
+    __tablename__ = "user_notifications"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
+    kind = db.Column(db.String(50), nullable=False, index=True)
+    title = db.Column(db.String(180), nullable=False)
+    message = db.Column(db.Text, nullable=False)
+    action_url = db.Column(db.String(255), nullable=True)
+    unique_key = db.Column(db.String(120), nullable=True)
+    is_read = db.Column(db.Boolean, nullable=False, default=False, index=True)
+    is_archived = db.Column(db.Boolean, nullable=False, default=False, index=True)
+    is_deleted = db.Column(db.Boolean, nullable=False, default=False, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+    updated_at = db.Column(
+        db.DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
+
+    __table_args__ = (
+        db.UniqueConstraint("user_id", "unique_key", name="uq_user_notifications_user_key"),
+    )
+
+
+class UserNotificationPreference(db.Model):
+    __tablename__ = "user_notification_preferences"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), unique=True, nullable=False, index=True)
+    pause_notifications_until = db.Column(db.Date, nullable=True, index=True)
+
+    enable_morning_reminder = db.Column(db.Boolean, nullable=False, default=True)
+    enable_midday_reminder = db.Column(db.Boolean, nullable=False, default=True)
+    enable_evening_reminder = db.Column(db.Boolean, nullable=False, default=True)
+    enable_missing_data_alert = db.Column(db.Boolean, nullable=False, default=True)
+    enable_motivation_alert = db.Column(db.Boolean, nullable=False, default=True)
+    enable_reengagement_alert = db.Column(db.Boolean, nullable=False, default=True)
+
+    allow_browser_push = db.Column(db.Boolean, nullable=False, default=False)
+    allow_device_push = db.Column(db.Boolean, nullable=False, default=False)
+
+    last_generated_at = db.Column(db.DateTime, nullable=True, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(
+        db.DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
     )

@@ -1,0 +1,313 @@
+{% extends "base.html" %}
+{% block content %}
+  <style>
+    .notification-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 10px;
+      margin-top: 10px;
+    }
+    .notification-stat {
+      border: 1px solid #d7dee7;
+      border-radius: 10px;
+      padding: 10px;
+      background: #fff;
+    }
+    .notification-stat-label {
+      font-size: 0.86rem;
+      color: #5a6b7d;
+      margin-bottom: 4px;
+    }
+    .notification-stat-value {
+      font-size: 1.4rem;
+      font-weight: 700;
+      color: #17212b;
+    }
+    .notification-filter-tabs {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 10px;
+    }
+    .notification-filter-tab {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid #d7dee7;
+      border-radius: 999px;
+      padding: 6px 10px;
+      text-decoration: none;
+      color: #17212b;
+      background: #fff;
+      font-size: 0.9rem;
+    }
+    .notification-filter-tab.active {
+      background: #0f766e;
+      color: #fff;
+      border-color: #0f766e;
+    }
+    .notification-list {
+      display: grid;
+      gap: 10px;
+    }
+    .notification-item {
+      border: 1px solid #d7dee7;
+      border-radius: 10px;
+      padding: 10px;
+      background: #fff;
+    }
+    .notification-item.is-unread {
+      border-color: #b8d7ff;
+      background: #f7fbff;
+    }
+    .notification-item-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .notification-kind-chip {
+      display: inline-flex;
+      align-items: center;
+      border: 1px solid #d7dee7;
+      border-radius: 999px;
+      padding: 3px 8px;
+      font-size: 0.8rem;
+      color: #4d5b6b;
+      background: #fff;
+    }
+    .notification-body {
+      margin: 8px 0;
+      white-space: pre-wrap;
+      line-height: 1.45;
+    }
+    .notification-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      font-size: 0.84rem;
+      color: #5a6b7d;
+      margin-bottom: 8px;
+    }
+    .notification-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .notification-actions form {
+      margin: 0;
+    }
+    .btn-secondary {
+      border: 1px solid #d7dee7;
+      background: #fff;
+      color: #17212b;
+      border-radius: 8px;
+      padding: 7px 10px;
+      cursor: pointer;
+    }
+    .notification-preferences-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 12px;
+      margin-top: 10px;
+    }
+    .preference-group {
+      border: 1px solid #d7dee7;
+      border-radius: 10px;
+      padding: 10px;
+      background: #fff;
+    }
+    .preference-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+      font-size: 0.93rem;
+    }
+    .preference-row:last-child {
+      margin-bottom: 0;
+    }
+    .preference-row input[type="checkbox"] {
+      width: auto;
+      margin: 0;
+    }
+    .empty-note {
+      color: #5a6b7d;
+      margin: 0;
+    }
+  </style>
+
+  <div class="card">
+    <h1 style="margin-bottom: 6px;">Notifications</h1>
+    <p class="muted" style="margin: 0;">
+      In-app reminders and coaching nudges. Adjust preferences below.
+    </p>
+    <div class="notification-grid">
+      <div class="notification-stat">
+        <div class="notification-stat-label">Unread</div>
+        <div class="notification-stat-value">{{ unread_count }}</div>
+      </div>
+      <div class="notification-stat">
+        <div class="notification-stat-label">Inbox</div>
+        <div class="notification-stat-value">{{ inbox_count }}</div>
+      </div>
+      <div class="notification-stat">
+        <div class="notification-stat-label">Archived</div>
+        <div class="notification-stat-value">{{ archived_count }}</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-bottom: 8px;">Alert Preferences</h2>
+    <form method="post" action="{{ url_for('main.notifications_preferences_save') }}">
+      <div class="notification-preferences-grid">
+        <div class="preference-group">
+          <label style="margin-bottom: 6px;">Reminder Timing</label>
+          <label class="preference-row">
+            <input type="checkbox" name="enable_morning_reminder" value="1" {% if prefs.enable_morning_reminder %}checked{% endif %} />
+            Morning reminder
+          </label>
+          <label class="preference-row">
+            <input type="checkbox" name="enable_midday_reminder" value="1" {% if prefs.enable_midday_reminder %}checked{% endif %} />
+            Midday reminder
+          </label>
+          <label class="preference-row">
+            <input type="checkbox" name="enable_evening_reminder" value="1" {% if prefs.enable_evening_reminder %}checked{% endif %} />
+            Evening reminder
+          </label>
+        </div>
+
+        <div class="preference-group">
+          <label style="margin-bottom: 6px;">Coach Alerts</label>
+          <label class="preference-row">
+            <input type="checkbox" name="enable_missing_data_alert" value="1" {% if prefs.enable_missing_data_alert %}checked{% endif %} />
+            Missing data reminders
+          </label>
+          <label class="preference-row">
+            <input type="checkbox" name="enable_motivation_alert" value="1" {% if prefs.enable_motivation_alert %}checked{% endif %} />
+            Motivation nudges
+          </label>
+          <label class="preference-row">
+            <input type="checkbox" name="enable_reengagement_alert" value="1" {% if prefs.enable_reengagement_alert %}checked{% endif %} />
+            Re-engagement alerts
+          </label>
+        </div>
+
+        <div class="preference-group">
+          <label style="margin-bottom: 6px;">Push & Pause</label>
+          <label class="preference-row">
+            <input type="checkbox" name="allow_browser_push" value="1" {% if prefs.allow_browser_push %}checked{% endif %} />
+            Allow browser notifications
+          </label>
+          <label class="preference-row">
+            <input type="checkbox" name="allow_device_push" value="1" {% if prefs.allow_device_push %}checked{% endif %} />
+            Allow device push notifications
+          </label>
+          <label for="pause_notifications_until" style="margin-top: 8px;">Pause Until (optional)</label>
+          <input
+            id="pause_notifications_until"
+            type="date"
+            name="pause_notifications_until"
+            min="{{ local_today.isoformat() }}"
+            value="{{ prefs.pause_notifications_until.isoformat() if prefs.pause_notifications_until else '' }}"
+          />
+        </div>
+      </div>
+      <div style="margin-top: 12px;">
+        <button type="submit">Save Notification Settings</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-bottom: 8px;">In-App Notifications</h2>
+    <div class="notification-filter-tabs">
+      <a
+        class="notification-filter-tab {% if view_mode == 'inbox' %}active{% endif %}"
+        href="{{ url_for('main.notifications_page', view='inbox') }}"
+      >
+        Inbox
+      </a>
+      <a
+        class="notification-filter-tab {% if view_mode == 'archived' %}active{% endif %}"
+        href="{{ url_for('main.notifications_page', view='archived') }}"
+      >
+        Archived
+      </a>
+      <a
+        class="notification-filter-tab {% if view_mode == 'all' %}active{% endif %}"
+        href="{{ url_for('main.notifications_page', view='all') }}"
+      >
+        All
+      </a>
+    </div>
+
+    {% if notifications %}
+      <div class="notification-list">
+        {% for notification in notifications %}
+          <article class="notification-item {% if not notification.is_read %}is-unread{% endif %}">
+            <div class="notification-item-head">
+              <strong>{{ notification.title }}</strong>
+              <span class="notification-kind-chip">
+                {{ kind_labels.get(notification.kind, notification.kind.replace('_', ' ').title()) }}
+              </span>
+            </div>
+            <div class="notification-body">{{ notification.message }}</div>
+            <div class="notification-meta">
+              <span>{{ notification.created_at.strftime("%b %d, %Y %I:%M %p UTC") }}</span>
+              {% if notification.is_read %}
+                <span>Read</span>
+              {% else %}
+                <span>Unread</span>
+              {% endif %}
+              {% if notification.is_archived %}
+                <span>Archived</span>
+              {% endif %}
+            </div>
+            <div class="notification-actions">
+              {% if notification.action_url %}
+                <form method="post" action="{{ url_for('main.notifications_action', notification_id=notification.id) }}">
+                  <input type="hidden" name="action" value="open" />
+                  <input type="hidden" name="next" value="{{ request.full_path.rstrip('?') }}" />
+                  <button type="submit">Open</button>
+                </form>
+              {% endif %}
+
+              <form method="post" action="{{ url_for('main.notifications_action', notification_id=notification.id) }}">
+                <input type="hidden" name="next" value="{{ request.full_path.rstrip('?') }}" />
+                {% if notification.is_read %}
+                  <input type="hidden" name="action" value="unread" />
+                  <button type="submit" class="btn-secondary">Mark Unread</button>
+                {% else %}
+                  <input type="hidden" name="action" value="read" />
+                  <button type="submit" class="btn-secondary">Mark Read</button>
+                {% endif %}
+              </form>
+
+              <form method="post" action="{{ url_for('main.notifications_action', notification_id=notification.id) }}">
+                <input type="hidden" name="next" value="{{ request.full_path.rstrip('?') }}" />
+                {% if notification.is_archived %}
+                  <input type="hidden" name="action" value="restore" />
+                  <button type="submit" class="btn-secondary">Restore</button>
+                {% else %}
+                  <input type="hidden" name="action" value="archive" />
+                  <button type="submit" class="btn-secondary">Archive</button>
+                {% endif %}
+              </form>
+
+              <form method="post" action="{{ url_for('main.notifications_action', notification_id=notification.id) }}">
+                <input type="hidden" name="action" value="delete" />
+                <input type="hidden" name="next" value="{{ request.full_path.rstrip('?') }}" />
+                <button type="submit" class="btn-secondary">Delete</button>
+              </form>
+            </div>
+          </article>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="empty-note">No notifications in this view.</p>
+    {% endif %}
+  </div>
+{% endblock %}

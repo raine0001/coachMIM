@@ -35,6 +35,32 @@
       font-size: 0.9rem;
       color: #364152;
     }
+    .login-helper-note {
+      margin-top: 8px;
+      margin-bottom: 0;
+      font-size: 0.9rem;
+      color: #364152;
+    }
+    .google-login-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      border: 1px solid #d7dee7;
+      border-radius: 8px;
+      background: #fff;
+      color: #17212b;
+      text-decoration: none;
+      padding: 10px 14px;
+      font-weight: 600;
+      margin-top: 10px;
+    }
+    .google-login-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: conic-gradient(#4285f4 0 25%, #34a853 25% 50%, #fbbc05 50% 75%, #ea4335 75% 100%);
+    }
   </style>
   <div class="login-page-wrap">
   {% if login_fact %}
@@ -62,7 +88,14 @@
       <div style="margin-top: 12px;">
         <button type="submit">Login</button>
       </div>
+      <p class="login-helper-note">After password check, CoachMIM sends a 6-digit verification code to your email.</p>
     </form>
+    {% if google_login_enabled %}
+      <a class="google-login-btn" href="{{ url_for('main.google_login_start', next=next or '') }}">
+        <span class="google-login-dot" aria-hidden="true"></span>
+        Continue with Google
+      </a>
+    {% endif %}
     <p class="muted" style="margin-top: 12px;">
       Need an account? <a href="{{ url_for('main.register') }}">Register</a>
     </p>

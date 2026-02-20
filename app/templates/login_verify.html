@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block content %}
+  <style>
+    .verify-wrap {
+      max-width: 520px;
+      margin: 24px auto;
+    }
+    .verify-card {
+      border: 1px solid #cfe3ff;
+      background: linear-gradient(180deg, #f5faff 0%, #eef7ff 100%);
+      border-radius: 12px;
+      padding: 14px;
+      margin-bottom: 10px;
+    }
+    .verify-title {
+      margin: 0 0 6px;
+      font-size: 1.08rem;
+      font-weight: 700;
+    }
+    .verify-meta {
+      margin: 0;
+      font-size: 0.9rem;
+      color: #364152;
+    }
+    .verify-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .verify-resend-btn {
+      border: 1px solid #d7dee7;
+      background: #fff;
+      color: #17212b;
+      border-radius: 8px;
+      padding: 9px 12px;
+      cursor: pointer;
+      text-decoration: none;
+      font: inherit;
+    }
+  </style>
+  <div class="verify-wrap">
+    <div class="verify-card">
+      <h2 class="verify-title">Verify Login</h2>
+      <p class="verify-meta">Enter the 6-digit code sent to {{ masked_email }}.</p>
+      <p class="verify-meta">Code expires in {{ (seconds_remaining // 60) if seconds_remaining else 0 }} minute(s).</p>
+      <p class="verify-meta">Attempts remaining: {{ attempts_remaining }}</p>
+    </div>
+    <div class="card" style="max-width: 520px; margin: 0 auto;">
+      <form method="post" action="{{ url_for('main.login_verify') }}">
+        <label for="code">Verification Code</label>
+        <input id="code" name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" placeholder="123456" required autofocus />
+        <div class="verify-actions">
+          <button type="submit">Verify & Login</button>
+        </div>
+      </form>
+      <div class="verify-actions">
+        <form method="post" action="{{ url_for('main.login_verify_resend') }}">
+          <button type="submit" class="verify-resend-btn">Resend Code</button>
+        </form>
+        <a class="verify-resend-btn" href="{{ url_for('main.login') }}">Back To Login</a>
+      </div>
+    </div>
+  </div>
+{% endblock %}

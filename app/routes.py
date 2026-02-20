@@ -2,12 +2,15 @@ import hashlib
 import json
 import os
 import re
+import secrets
+import smtplib
 import xml.etree.ElementTree as ET
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 from difflib import SequenceMatcher
+from email.message import EmailMessage
 from functools import wraps
-from urllib.parse import quote_plus, urlparse
+from urllib.parse import quote_plus, urlencode, urlparse
 from uuid import uuid4
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError, available_timezones
 
@@ -191,6 +194,15 @@ PROFILE_MISSING_PROMPTS = {
     "medical_conditions": "Any known medical conditions I should factor into coaching guidance?",
 }
 ADMIN_SESSION_KEY = "admin_user_id"
+LOGIN_PENDING_USER_ID_SESSION_KEY = "pending_login_user_id"
+LOGIN_PENDING_CODE_HASH_SESSION_KEY = "pending_login_code_hash"
+LOGIN_PENDING_EXPIRES_AT_SESSION_KEY = "pending_login_expires_at"
+LOGIN_PENDING_ATTEMPTS_SESSION_KEY = "pending_login_attempts"
+LOGIN_PENDING_NEXT_SESSION_KEY = "pending_login_next"
+LOGIN_PENDING_EMAIL_SESSION_KEY = "pending_login_email"
+LOGIN_PENDING_SENT_AT_SESSION_KEY = "pending_login_sent_at"
+GOOGLE_OAUTH_STATE_SESSION_KEY = "google_oauth_state"
+GOOGLE_OAUTH_NEXT_SESSION_KEY = "google_oauth_next"
 ADMIN_BOOTSTRAP_USERNAME = os.getenv("ADMIN_BOOTSTRAP_USERNAME", "testpilot")
 ADMIN_BOOTSTRAP_PASSWORD = os.getenv("ADMIN_BOOTSTRAP_PASSWORD", "1234")
 COMMUNITY_CATEGORY_OPTIONS = [
@@ -3754,6 +3766,166 @@ def normalize_email(value: str | None):
     return value.strip().lower()
 
 
+def safe_next_path(value: str | None):
+    candidate = (value or "").strip()
+    if candidate.startswith("/") and not candidate.startswith("//"):
+        return candidate
+    return None
+
+
+def mask_email_for_display(email: str | None):
+    normalized = normalize_email(email)
+    if not normalized or "@" not in normalized:
+        return "your email"
+    local, domain = normalized.split("@", 1)
+    if len(local) <= 2:
+        masked_local = local[0] + "*" if local else "*"
+    else:
+        masked_local = local[:2] + ("*" * max(1, len(local) - 2))
+    return f"{masked_local}@{domain}"
+
+
+def clear_pending_login_session():
+    for key in [
+        LOGIN_PENDING_USER_ID_SESSION_KEY,
+        LOGIN_PENDING_CODE_HASH_SESSION_KEY,
+        LOGIN_PENDING_EXPIRES_AT_SESSION_KEY,
+        LOGIN_PENDING_ATTEMPTS_SESSION_KEY,
+        LOGIN_PENDING_NEXT_SESSION_KEY,
+        LOGIN_PENDING_EMAIL_SESSION_KEY,
+        LOGIN_PENDING_SENT_AT_SESSION_KEY,
+    ]:
+        session.pop(key, None)
+
+
+def finalize_user_login(user: User, next_url: str | None = None, flash_message: str | None = "Logged in."):
+    safe_next = safe_next_path(next_url)
+    clear_pending_login_session()
+    session.pop(GOOGLE_OAUTH_STATE_SESSION_KEY, None)
+    session.pop(GOOGLE_OAUTH_NEXT_SESSION_KEY, None)
+    session.clear()
+    session["user_id"] = user.id
+    session.permanent = True
+    user.last_active_at = datetime.utcnow()
+    db.session.add(user)
+    db.session.commit()
+    if flash_message:
+        flash(flash_message, "success")
+    if safe_next:
+        return redirect(safe_next)
+    return redirect(url_for("main.index"))
+
+
+def _smtp_is_configured():
+    return bool(current_app.config.get("SMTP_HOST"))
+
+
+def _send_email_message(
+    *,
+    to_email: str,
+    subject: str,
+    plain_text: str,
+):
+    host = (current_app.config.get("SMTP_HOST") or "").strip()
+    if not host:
+        return False
+
+    from_email = (current_app.config.get("MAIL_FROM") or "no-reply@coachmim.com").strip()
+    port = int(current_app.config.get("SMTP_PORT") or 587)
+    username = current_app.config.get("SMTP_USERNAME")
+    password = current_app.config.get("SMTP_PASSWORD")
+    use_ssl = bool(current_app.config.get("SMTP_USE_SSL"))
+    use_tls = bool(current_app.config.get("SMTP_USE_TLS"))
+
+    message = EmailMessage()
+    message["From"] = from_email
+    message["To"] = to_email
+    message["Subject"] = subject
+    message.set_content(plain_text)
+
+    try:
+        if use_ssl:
+            with smtplib.SMTP_SSL(host, port, timeout=20) as smtp:
+                if username and password:
+                    smtp.login(username, password)
+                smtp.send_message(message)
+            return True
+
+        with smtplib.SMTP(host, port, timeout=20) as smtp:
+            smtp.ehlo()
+            if use_tls:
+                smtp.starttls()
+                smtp.ehlo()
+            if username and password:
+                smtp.login(username, password)
+            smtp.send_message(message)
+        return True
+    except Exception:
+        current_app.logger.exception("Failed to send transactional email to %s", to_email)
+        return False
+
+
+def login_email_verification_enabled():
+    return bool(current_app.config.get("LOGIN_EMAIL_CODE_ENABLED"))
+
+
+def _build_login_code_hash(*, user_id: int, code: str):
+    secret = str(current_app.config.get("SECRET_KEY") or "coachmim-secret")
+    payload = f"{secret}|login-code|{user_id}|{code}".encode("utf-8", errors="ignore")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _google_login_is_configured():
+    return bool(current_app.config.get("GOOGLE_OAUTH_CLIENT_ID") and current_app.config.get("GOOGLE_OAUTH_SECRET"))
+
+
+def _google_redirect_uri():
+    configured = (current_app.config.get("GOOGLE_OAUTH_REDIRECT_URI") or "").strip()
+    if configured:
+        return configured
+    root_url = (request.url_root or "").rstrip("/")
+    return f"{root_url}{url_for('main.google_login_callback')}"
+
+
+def send_login_email_code(user: User):
+    if not user or not normalize_email(user.email):
+        return (False, None)
+    code = f"{secrets.randbelow(1000000):06d}"
+    masked = mask_email_for_display(user.email)
+    ttl_minutes = int(current_app.config.get("LOGIN_EMAIL_CODE_TTL_MINUTES") or 10)
+    subject = "CoachMIM verification code"
+    body = (
+        f"Your CoachMIM login verification code is: {code}\n\n"
+        f"This code expires in {ttl_minutes} minutes.\n"
+        "If you did not request this login, you can ignore this email."
+    )
+    sent = _send_email_message(
+        to_email=user.email,
+        subject=subject,
+        plain_text=body,
+    )
+    if not sent:
+        return (False, None)
+    return (True, {"code": code, "masked_email": masked})
+
+
+def start_login_email_verification(user: User, next_url: str | None = None):
+    sent, payload = send_login_email_code(user)
+    if not sent or not payload:
+        return False
+    now_ts = int(datetime.utcnow().timestamp())
+    ttl_minutes = int(current_app.config.get("LOGIN_EMAIL_CODE_TTL_MINUTES") or 10)
+    session[LOGIN_PENDING_USER_ID_SESSION_KEY] = user.id
+    session[LOGIN_PENDING_CODE_HASH_SESSION_KEY] = _build_login_code_hash(user_id=user.id, code=payload["code"])
+    session[LOGIN_PENDING_EXPIRES_AT_SESSION_KEY] = now_ts + (ttl_minutes * 60)
+    session[LOGIN_PENDING_ATTEMPTS_SESSION_KEY] = 0
+    session[LOGIN_PENDING_NEXT_SESSION_KEY] = safe_next_path(next_url)
+    session[LOGIN_PENDING_EMAIL_SESSION_KEY] = payload["masked_email"]
+    session[LOGIN_PENDING_SENT_AT_SESSION_KEY] = now_ts
+    session.modified = True
+    return True
+
+
 def ensure_default_admin_user():
     admin = AdminUser.query.filter_by(username=ADMIN_BOOTSTRAP_USERNAME).first()
     if admin:
@@ -4475,6 +4647,7 @@ def healthz():
 def register():
     if g.user is not None:
         return redirect(url_for("main.index"))
+    google_login_enabled = _google_login_is_configured()
 
     if request.method == "POST":
         full_name = (request.form.get("full_name") or "").strip()
@@ -4484,22 +4657,22 @@ def register():
 
         if not full_name:
             flash("Full name is required.", "error")
-            return render_template("register.html")
+            return render_template("register.html", google_login_enabled=google_login_enabled)
         if not email:
             flash("Email is required.", "error")
-            return render_template("register.html")
+            return render_template("register.html", google_login_enabled=google_login_enabled)
         if len(password) < 8:
             flash("Password must be at least 8 characters.", "error")
-            return render_template("register.html")
+            return render_template("register.html", google_login_enabled=google_login_enabled)
         if password != password_confirm:
             flash("Password confirmation does not match.", "error")
-            return render_template("register.html")
+            return render_template("register.html", google_login_enabled=google_login_enabled)
         if email and BlockedEmail.query.filter_by(email=email).first():
             flash("This email is blocked from registration. Contact support if this is a mistake.", "error")
-            return render_template("register.html")
+            return render_template("register.html", google_login_enabled=google_login_enabled)
         if User.query.filter_by(email=email).first():
             flash("An account with that email already exists.", "error")
-            return render_template("register.html")
+            return render_template("register.html", google_login_enabled=google_login_enabled)
 
         user = User(
             full_name=full_name,
@@ -4517,7 +4690,7 @@ def register():
         flash("Account created. Complete your profile to begin tracking.", "success")
         return redirect(url_for("main.profile"))
 
-    return render_template("register.html")
+    return render_template("register.html", google_login_enabled=google_login_enabled)
 
 
 @bp.route("/login", methods=["GET", "POST"])
@@ -4525,33 +4698,310 @@ def login():
     if g.user is not None:
         return redirect(url_for("main.index"))
     login_fact = build_login_brain_fact()
+    google_login_enabled = _google_login_is_configured()
 
     if request.method == "POST":
         email = normalize_email(request.form.get("email"))
         password = request.form.get("password") or ""
-        next_url = request.form.get("next") or request.args.get("next")
+        next_url = safe_next_path(request.form.get("next") or request.args.get("next"))
 
         user = User.query.filter_by(email=email).first() if email else None
         if not user or not user.password_hash or not check_password_hash(user.password_hash, password):
             flash("Invalid email or password.", "error")
-            return render_template("login.html", next=next_url, login_fact=login_fact)
+            return render_template(
+                "login.html",
+                next=next_url,
+                login_fact=login_fact,
+                google_login_enabled=google_login_enabled,
+            )
         if user.is_blocked:
             flash("This account is blocked. Contact support if you need help.", "error")
-            return render_template("login.html", next=next_url, login_fact=login_fact)
+            return render_template(
+                "login.html",
+                next=next_url,
+                login_fact=login_fact,
+                google_login_enabled=google_login_enabled,
+            )
+        if user.is_spam:
+            flash("This account is blocked from login.", "error")
+            return render_template(
+                "login.html",
+                next=next_url,
+                login_fact=login_fact,
+                google_login_enabled=google_login_enabled,
+            )
 
-        session.clear()
-        session["user_id"] = user.id
-        session.permanent = True
-        user.last_active_at = datetime.utcnow()
-        db.session.add(user)
-        db.session.commit()
-        flash("Logged in.", "success")
+        if login_email_verification_enabled():
+            if _smtp_is_configured():
+                if not start_login_email_verification(user, next_url=next_url):
+                    flash("Could not send verification code right now. Try again in a moment.", "error")
+                    return render_template(
+                        "login.html",
+                        next=next_url,
+                        login_fact=login_fact,
+                        google_login_enabled=google_login_enabled,
+                    )
+                flash(f"Verification code sent to {mask_email_for_display(user.email)}.", "success")
+                return redirect(url_for("main.login_verify"))
+            flash("Email verification is enabled but SMTP is not configured. Logged in with password only.", "error")
 
-        if next_url and next_url.startswith("/"):
-            return redirect(next_url)
+        return finalize_user_login(user, next_url=next_url, flash_message="Logged in.")
+
+    return render_template(
+        "login.html",
+        next=safe_next_path(request.args.get("next")),
+        login_fact=login_fact,
+        google_login_enabled=google_login_enabled,
+    )
+
+
+@bp.route("/login/verify", methods=["GET", "POST"])
+def login_verify():
+    if g.user is not None:
         return redirect(url_for("main.index"))
 
-    return render_template("login.html", next=request.args.get("next"), login_fact=login_fact)
+    pending_user_id = parse_int(session.get(LOGIN_PENDING_USER_ID_SESSION_KEY))
+    pending_code_hash = session.get(LOGIN_PENDING_CODE_HASH_SESSION_KEY)
+    expires_at = parse_int(session.get(LOGIN_PENDING_EXPIRES_AT_SESSION_KEY))
+    attempts = parse_int(session.get(LOGIN_PENDING_ATTEMPTS_SESSION_KEY)) or 0
+    masked_email = session.get(LOGIN_PENDING_EMAIL_SESSION_KEY) or "your email"
+    next_url = safe_next_path(session.get(LOGIN_PENDING_NEXT_SESSION_KEY))
+
+    if not pending_user_id or not pending_code_hash or not expires_at:
+        clear_pending_login_session()
+        flash("Your verification session expired. Please login again.", "error")
+        return redirect(url_for("main.login", next=next_url))
+
+    pending_user = db.session.get(User, pending_user_id)
+    if pending_user is None:
+        clear_pending_login_session()
+        flash("Account not found. Please login again.", "error")
+        return redirect(url_for("main.login"))
+
+    now_ts = int(datetime.utcnow().timestamp())
+    if now_ts > expires_at:
+        clear_pending_login_session()
+        flash("Verification code expired. Please login again.", "error")
+        return redirect(url_for("main.login", next=next_url))
+
+    if request.method == "POST":
+        code = (request.form.get("code") or "").strip()
+        if not re.fullmatch(r"\d{6}", code):
+            flash("Enter the 6-digit code from your email.", "error")
+            return render_template(
+                "login_verify.html",
+                masked_email=masked_email,
+                seconds_remaining=max(0, expires_at - now_ts),
+                attempts_remaining=max(0, 8 - attempts),
+            )
+
+        submitted_hash = _build_login_code_hash(user_id=pending_user_id, code=code)
+        if submitted_hash != pending_code_hash:
+            attempts += 1
+            session[LOGIN_PENDING_ATTEMPTS_SESSION_KEY] = attempts
+            session.modified = True
+            if attempts >= 8:
+                clear_pending_login_session()
+                flash("Too many invalid attempts. Please login again.", "error")
+                return redirect(url_for("main.login", next=next_url))
+            flash("Invalid verification code.", "error")
+            return render_template(
+                "login_verify.html",
+                masked_email=masked_email,
+                seconds_remaining=max(0, expires_at - now_ts),
+                attempts_remaining=max(0, 8 - attempts),
+            )
+
+        if pending_user.is_blocked or pending_user.is_spam:
+            clear_pending_login_session()
+            flash("This account is blocked from login.", "error")
+            return redirect(url_for("main.login"))
+
+        return finalize_user_login(pending_user, next_url=next_url, flash_message="Logged in.")
+
+    return render_template(
+        "login_verify.html",
+        masked_email=masked_email,
+        seconds_remaining=max(0, expires_at - now_ts),
+        attempts_remaining=max(0, 8 - attempts),
+    )
+
+
+@bp.post("/login/verify/resend")
+def login_verify_resend():
+    if g.user is not None:
+        return redirect(url_for("main.index"))
+
+    pending_user_id = parse_int(session.get(LOGIN_PENDING_USER_ID_SESSION_KEY))
+    next_url = safe_next_path(session.get(LOGIN_PENDING_NEXT_SESSION_KEY))
+    if not pending_user_id:
+        clear_pending_login_session()
+        flash("Your verification session expired. Please login again.", "error")
+        return redirect(url_for("main.login", next=next_url))
+
+    user = db.session.get(User, pending_user_id)
+    if user is None:
+        clear_pending_login_session()
+        flash("Account not found. Please login again.", "error")
+        return redirect(url_for("main.login"))
+
+    now_ts = int(datetime.utcnow().timestamp())
+    sent_at = parse_int(session.get(LOGIN_PENDING_SENT_AT_SESSION_KEY)) or 0
+    resend_wait = int(current_app.config.get("LOGIN_EMAIL_CODE_RESEND_SECONDS") or 30)
+    if now_ts - sent_at < resend_wait:
+        flash(f"Please wait {resend_wait - (now_ts - sent_at)}s before requesting a new code.", "error")
+        return redirect(url_for("main.login_verify"))
+
+    if not _smtp_is_configured():
+        flash("Email delivery is not configured right now. Please try password login again later.", "error")
+        return redirect(url_for("main.login", next=next_url))
+
+    if not start_login_email_verification(user, next_url=next_url):
+        flash("Could not resend verification code right now. Try again in a moment.", "error")
+        return redirect(url_for("main.login_verify"))
+
+    flash(f"New verification code sent to {mask_email_for_display(user.email)}.", "success")
+    return redirect(url_for("main.login_verify"))
+
+
+@bp.get("/auth/google/start")
+def google_login_start():
+    if g.user is not None:
+        return redirect(url_for("main.index"))
+    if not _google_login_is_configured():
+        flash("Google login is not configured yet.", "error")
+        return redirect(url_for("main.login", next=safe_next_path(request.args.get("next"))))
+
+    state = uuid4().hex
+    next_url = safe_next_path(request.args.get("next"))
+    session[GOOGLE_OAUTH_STATE_SESSION_KEY] = state
+    session[GOOGLE_OAUTH_NEXT_SESSION_KEY] = next_url
+    session.modified = True
+
+    params = {
+        "client_id": current_app.config.get("GOOGLE_OAUTH_CLIENT_ID"),
+        "redirect_uri": _google_redirect_uri(),
+        "response_type": "code",
+        "scope": "openid email profile",
+        "state": state,
+        "prompt": "select_account",
+        "access_type": "online",
+    }
+    return redirect("https://accounts.google.com/o/oauth2/v2/auth?" + urlencode(params))
+
+
+@bp.get("/auth/google/callback")
+def google_login_callback():
+    if g.user is not None:
+        return redirect(url_for("main.index"))
+    if not _google_login_is_configured():
+        flash("Google login is not configured yet.", "error")
+        return redirect(url_for("main.login"))
+
+    expected_state = session.get(GOOGLE_OAUTH_STATE_SESSION_KEY)
+    provided_state = request.args.get("state")
+    next_url = safe_next_path(session.get(GOOGLE_OAUTH_NEXT_SESSION_KEY))
+    session.pop(GOOGLE_OAUTH_STATE_SESSION_KEY, None)
+    session.pop(GOOGLE_OAUTH_NEXT_SESSION_KEY, None)
+
+    oauth_error = normalize_text(request.args.get("error"))
+    if oauth_error:
+        flash(f"Google login canceled: {oauth_error}.", "error")
+        return redirect(url_for("main.login", next=next_url))
+
+    if not expected_state or provided_state != expected_state:
+        flash("Invalid Google login state. Please try again.", "error")
+        return redirect(url_for("main.login", next=next_url))
+
+    code = normalize_text(request.args.get("code"))
+    if not code:
+        flash("Google login code was missing. Please try again.", "error")
+        return redirect(url_for("main.login", next=next_url))
+
+    token_payload = {
+        "code": code,
+        "client_id": current_app.config.get("GOOGLE_OAUTH_CLIENT_ID"),
+        "client_secret": current_app.config.get("GOOGLE_OAUTH_SECRET"),
+        "redirect_uri": _google_redirect_uri(),
+        "grant_type": "authorization_code",
+    }
+
+    try:
+        token_response = httpx.post("https://oauth2.googleapis.com/token", data=token_payload, timeout=20.0)
+    except Exception:
+        current_app.logger.exception("Google token exchange failed.")
+        flash("Google login failed during token exchange. Please try again.", "error")
+        return redirect(url_for("main.login", next=next_url))
+
+    if token_response.status_code >= 400:
+        current_app.logger.warning("Google token exchange returned %s: %s", token_response.status_code, token_response.text)
+        flash("Google login failed during token exchange. Please try again.", "error")
+        return redirect(url_for("main.login", next=next_url))
+
+    token_json = token_response.json()
+    id_token = normalize_text(token_json.get("id_token"))
+    if not id_token:
+        flash("Google login failed: id token missing.", "error")
+        return redirect(url_for("main.login", next=next_url))
+
+    try:
+        token_info_response = httpx.get(
+            "https://oauth2.googleapis.com/tokeninfo",
+            params={"id_token": id_token},
+            timeout=20.0,
+        )
+    except Exception:
+        current_app.logger.exception("Google token validation failed.")
+        flash("Google login failed while validating token. Please try again.", "error")
+        return redirect(url_for("main.login", next=next_url))
+
+    if token_info_response.status_code >= 400:
+        current_app.logger.warning(
+            "Google token validation returned %s: %s",
+            token_info_response.status_code,
+            token_info_response.text,
+        )
+        flash("Google login failed while validating token. Please try again.", "error")
+        return redirect(url_for("main.login", next=next_url))
+
+    token_info = token_info_response.json()
+    expected_aud = str(current_app.config.get("GOOGLE_OAUTH_CLIENT_ID") or "")
+    actual_aud = str(token_info.get("aud") or "")
+    if not expected_aud or actual_aud != expected_aud:
+        flash("Google login failed: token audience mismatch.", "error")
+        return redirect(url_for("main.login", next=next_url))
+
+    email_verified_raw = str(token_info.get("email_verified") or "").strip().lower()
+    email_verified = email_verified_raw in {"true", "1"}
+    email = normalize_email(token_info.get("email"))
+    full_name = normalize_text(token_info.get("name")) or normalize_text(token_info.get("given_name"))
+
+    if not email or not email_verified:
+        flash("Google account email is not verified. Use password login or verify your Google email.", "error")
+        return redirect(url_for("main.login", next=next_url))
+
+    if BlockedEmail.query.filter_by(email=email).first():
+        flash("This email is blocked from CoachMIM.", "error")
+        return redirect(url_for("main.login", next=next_url))
+
+    user = User.query.filter_by(email=email).first()
+    if user:
+        if user.is_blocked or user.is_spam:
+            flash("This account is blocked. Contact support if needed.", "error")
+            return redirect(url_for("main.login", next=next_url))
+        if not normalize_text(user.full_name) and full_name:
+            user.full_name = full_name
+    else:
+        user = User(
+            full_name=full_name,
+            email=email,
+            password_hash=None,
+        )
+        db.session.add(user)
+        db.session.flush()
+        db.session.add(UserProfile(user_id=user.id))
+
+    return finalize_user_login(user, next_url=next_url, flash_message="Logged in with Google.")
 
 
 @bp.route("/lost-password", methods=["GET", "POST"])

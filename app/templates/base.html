@@ -244,7 +244,7 @@
     </style>
   </head>
   <body>
-    {% set hide_public_nav = (not current_user) and request.endpoint in ['main.index', 'main.login', 'main.register', 'main.lost_password'] %}
+    {% set hide_public_nav = (not current_user) and request.endpoint in ['main.index', 'main.login', 'main.login_verify', 'main.register', 'main.lost_password'] %}
     <div class="wrap">
       {% if not hide_public_nav %}
         <nav class="main-nav">

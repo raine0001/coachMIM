@@ -29,3 +29,29 @@ class Config:
 
     ENCRYPTION_MASTER_KEY = os.getenv("ENCRYPTION_MASTER_KEY")
     ENCRYPTION_REQUIRED = os.getenv("ENCRYPTION_REQUIRED", "false").lower() == "true"
+    LOGIN_EMAIL_CODE_ENABLED = (
+        os.getenv("LOGIN_EMAIL_CODE_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
+    )
+    LOGIN_EMAIL_CODE_TTL_MINUTES = int(os.getenv("LOGIN_EMAIL_CODE_TTL_MINUTES", "10"))
+    LOGIN_EMAIL_CODE_RESEND_SECONDS = int(os.getenv("LOGIN_EMAIL_CODE_RESEND_SECONDS", "30"))
+
+    SMTP_HOST = os.getenv("SMTP_HOST")
+    SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+    SMTP_USERNAME = os.getenv("SMTP_USERNAME")
+    SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
+    SMTP_USE_TLS = os.getenv("SMTP_USE_TLS", "true").strip().lower() in {"1", "true", "yes", "on"}
+    SMTP_USE_SSL = os.getenv("SMTP_USE_SSL", "false").strip().lower() in {"1", "true", "yes", "on"}
+    MAIL_FROM = os.getenv("MAIL_FROM", "no-reply@coachmim.com")
+
+    GOOGLE_OAUTH_CLIENT_ID = (
+        os.getenv("GOOGLE_OAUTH_CLIENT_ID")
+        or os.getenv("GOOGLE_CLIENT_ID")
+        or os.getenv("google_oauth_client_id")
+    )
+    GOOGLE_OAUTH_SECRET = (
+        os.getenv("GOOGLE_OAUTH_SECRET")
+        or os.getenv("GOOGLE_OAUTH_CLIENT_SECRET")
+        or os.getenv("GOOGLE_CLIENT_SECRET")
+        or os.getenv("google_oauth_secret")
+    )
+    GOOGLE_OAUTH_REDIRECT_URI = os.getenv("GOOGLE_OAUTH_REDIRECT_URI")

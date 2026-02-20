@@ -25,6 +25,8 @@ services:
         sync: false
       - key: PUSH_VAPID_CLAIMS_SUB
         value: mailto:support@coachmim.com
+      - key: NOTIFICATION_AUTOMATION_TOKEN
+        sync: false
       - key: ENCRYPTION_MASTER_KEY
         sync: false
       - key: ENCRYPTION_REQUIRED

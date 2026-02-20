@@ -4864,13 +4864,13 @@ def _create_reengagement_alert_if_needed(
     return [notification] if is_new else []
 
 
-def maybe_generate_user_notifications(user: User):
+def maybe_generate_user_notifications(user: User, *, force: bool = False):
     if user is None:
         return 0
 
     prefs = get_or_create_notification_preferences(user)
     now_utc = datetime.utcnow()
-    if prefs.last_generated_at and (now_utc - prefs.last_generated_at) < timedelta(minutes=30):
+    if not force and prefs.last_generated_at and (now_utc - prefs.last_generated_at) < timedelta(minutes=30):
         return 0
 
     local_today = get_user_local_today(user)
@@ -5418,6 +5418,63 @@ def service_worker_js():
     response.headers["Service-Worker-Allowed"] = "/"
     response.headers["Cache-Control"] = "no-cache"
     return response
+
+
+def run_notifications_dispatch(*, trigger: str = "cron", force: bool = False):
+    users = (
+        User.query.join(UserPushSubscription, UserPushSubscription.user_id == User.id)
+        .filter(
+            UserPushSubscription.is_active.is_(True),
+            User.is_blocked.is_(False),
+            User.is_spam.is_(False),
+        )
+        .distinct()
+        .all()
+    )
+
+    processed = 0
+    created = 0
+    failures = 0
+    for user in users:
+        if normalize_email(user.email) in SYSTEM_USER_EMAILS:
+            continue
+        try:
+            processed += 1
+            created += int(maybe_generate_user_notifications(user, force=force) or 0)
+        except Exception:
+            failures += 1
+            db.session.rollback()
+            current_app.logger.exception(
+                "notifications dispatch failed for user_id=%s trigger=%s",
+                user.id,
+                trigger,
+            )
+
+    return {
+        "ok": True,
+        "trigger": trigger,
+        "processed_users": processed,
+        "created_notifications": created,
+        "failures": failures,
+    }
+
+
+@bp.route("/internal/notifications-dispatch", methods=["GET", "POST"])
+def internal_notifications_dispatch():
+    token = (
+        request.headers.get("X-Notifications-Token")
+        or request.args.get("token")
+        or request.form.get("token")
+    )
+    expected = (os.getenv("NOTIFICATION_AUTOMATION_TOKEN") or "").strip()
+    if not expected:
+        return jsonify({"ok": False, "error": "NOTIFICATION_AUTOMATION_TOKEN is not configured."}), 503
+    if token != expected:
+        return jsonify({"ok": False, "error": "Invalid token."}), 403
+
+    force = parse_bool(request.args.get("force") or request.form.get("force"))
+    payload = run_notifications_dispatch(trigger="internal", force=force)
+    return jsonify(payload), 200
 
 
 @bp.get("/robots.txt")

@@ -12,6 +12,8 @@ from typing import Sequence
 import httpx
 from openai import OpenAI
 
+PRODUCT_PAGE_MAX_BYTES = int(os.getenv("PRODUCT_PAGE_MAX_BYTES", "1800000"))
+
 from app.models import DailyCheckIn, Meal
 
 COMMUNITY_BLOCK_KEYWORDS = {
@@ -1227,17 +1229,31 @@ def parse_product_page_url(product_url: str, hint_name: str | None = None) -> di
     safe_url = _validate_product_url(product_url)
 
     try:
-        response = httpx.get(
+        with httpx.stream(
+            "GET",
             safe_url,
             follow_redirects=True,
             timeout=12.0,
             headers={"User-Agent": "CoachMIM/1.0 (+nutrition-parser)"},
-        )
-        response.raise_for_status()
+        ) as response:
+            response.raise_for_status()
+            encoding = response.encoding or "utf-8"
+            chunks = []
+            total_bytes = 0
+            for chunk in response.iter_bytes():
+                if not chunk:
+                    continue
+                total_bytes += len(chunk)
+                if total_bytes > PRODUCT_PAGE_MAX_BYTES:
+                    break
+                chunks.append(chunk)
     except httpx.HTTPError as exc:
         raise RuntimeError(f"Could not fetch product page: {exc}") from exc
 
-    html_text = response.text[:2_000_000]
+    raw = b"".join(chunks)
+    if not raw:
+        raise RuntimeError("Could not read product page content.")
+    html_text = raw.decode(encoding, errors="ignore")
     page_title = _extract_title(html_text)
     text = _clean_text(html_text)
 

@@ -260,6 +260,9 @@ AUTO_COMMUNITY_ALLOWED_RUNS = {1, 2, 3, 4}
 AUTO_COMMUNITY_MAX_SOURCES = 24
 AUTO_COMMUNITY_MAX_ITEMS_PER_SOURCE = 6
 AUTO_COMMUNITY_TOTAL_ITEMS_CAP = 32
+AUTO_COMMUNITY_SOURCE_MAX_BYTES = int(os.getenv("AUTO_COMMUNITY_SOURCE_MAX_BYTES", "1200000"))
+FOOD_MATCH_CANDIDATE_LIMIT = int(os.getenv("FOOD_MATCH_CANDIDATE_LIMIT", "120"))
+FOOD_FUZZY_CANDIDATE_LIMIT = int(os.getenv("FOOD_FUZZY_CANDIDATE_LIMIT", "140"))
 LOGIN_BRAIN_FACTS = [
     {
         "title": "Did You Know?",
@@ -2173,6 +2176,7 @@ def build_home_scoreboard_context(user: User, *, local_today: date):
             Meal.eaten_at < history_end_dt,
         )
         .order_by(Meal.eaten_at.asc())
+        .limit(4000)
         .all()
     )
     for entry in meals:
@@ -2185,6 +2189,7 @@ def build_home_scoreboard_context(user: User, *, local_today: date):
             Substance.taken_at < history_end_dt,
         )
         .order_by(Substance.taken_at.asc())
+        .limit(4000)
         .all()
     )
     for entry in substances:
@@ -3637,19 +3642,33 @@ def _fetch_community_auto_source_items(source_row: dict):
         return []
 
     try:
-        response = httpx.get(
+        with httpx.stream(
+            "GET",
             url,
             timeout=16.0,
             follow_redirects=True,
             headers={"User-Agent": "CoachMIM/1.0 (+community-automation)"},
-        )
-        response.raise_for_status()
+        ) as response:
+            response.raise_for_status()
+            content_type = (response.headers.get("content-type") or "").lower()
+            encoding = response.encoding or "utf-8"
+            chunks = []
+            total_bytes = 0
+            for chunk in response.iter_bytes():
+                if not chunk:
+                    continue
+                total_bytes += len(chunk)
+                if total_bytes > AUTO_COMMUNITY_SOURCE_MAX_BYTES:
+                    break
+                chunks.append(chunk)
     except Exception:
         current_app.logger.exception("community automation source fetch failed: %s", url)
         return []
 
-    content_type = (response.headers.get("content-type") or "").lower()
-    text = response.text or ""
+    raw = b"".join(chunks)
+    if not raw:
+        return []
+    text = raw.decode(encoding, errors="ignore")
     sniff = text.lstrip()[:120].lower()
 
     if "xml" in content_type or sniff.startswith("<?xml") or "<rss" in sniff:
@@ -6454,7 +6473,7 @@ def fuzzy_food_matches(query: str, existing_ids: set[int], limit: int = 8):
             case((FoodItem.calories.isnot(None), 0), else_=1),
             FoodItem.name.asc(),
         )
-        .limit(350)
+        .limit(max(30, FOOD_FUZZY_CANDIDATE_LIMIT))
         .all()
     )
 
@@ -6562,7 +6581,7 @@ def find_best_food_item_match(query: str) -> tuple[FoodItem | None, float]:
             case((FoodItem.calories.isnot(None), 0), else_=1),
             FoodItem.name.asc(),
         )
-        .limit(250)
+        .limit(max(25, FOOD_MATCH_CANDIDATE_LIMIT))
         .all()
     )
 

@@ -6,7 +6,7 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta
 from difflib import SequenceMatcher
 from functools import wraps
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urlparse
 from uuid import uuid4
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError, available_timezones
 

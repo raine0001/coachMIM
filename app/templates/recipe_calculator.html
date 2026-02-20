@@ -44,6 +44,59 @@
       padding: 10px;
       margin-top: 10px;
     }
+    .entry-method-card {
+      margin-top: 10px;
+      border: 1px solid #cfe3ff;
+      border-radius: 10px;
+      background: #f9fcff;
+      padding: 10px;
+    }
+    .entry-method-tabs {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 6px;
+    }
+    .entry-method-btn {
+      padding: 7px 11px;
+      border-radius: 8px;
+      border: 1px solid #d7dee7;
+      background: #fff;
+      color: #17212b;
+      font-size: 0.92rem;
+      cursor: pointer;
+    }
+    .entry-method-btn.active {
+      border-color: #0f766e;
+      background: #0f766e;
+      color: #fff;
+    }
+    .entry-method-hint {
+      margin: 8px 0 0;
+      font-size: 0.92rem;
+      color: var(--muted);
+    }
+    .mim-assist-panel {
+      margin-top: 8px;
+      border: 1px solid #cfe3ff;
+      background: #f9fcff;
+      border-radius: 8px;
+      padding: 8px;
+    }
+    .mim-assist-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .mim-assist-row input {
+      flex: 1 1 260px;
+    }
+    .mim-note {
+      margin: 7px 0 0;
+      font-size: 0.9rem;
+      line-height: 1.35;
+    }
     .recipe-row {
       display: grid;
       grid-template-columns: 1.5fr 0.5fr 0.6fr auto;
@@ -232,7 +285,10 @@
 
     <div class="card">
       <h2>Recipe Nutrition Calculator</h2>
-      <p class="muted">Add one ingredient at a time, press <strong>MIM Calculate</strong>, review totals, then save entry/favorite.</p>
+      <p class="muted">
+        Add full-batch ingredients, press <strong>MIM Calculate</strong>, then set batch yield and servings eaten.
+        CoachMIM logs only your eaten portion.
+      </p>
 
       <form id="recipe_form" method="post" action="{{ url_for('main.recipe_calculator_save') }}">
         <input type="hidden" name="day" value="{{ selected_day }}" />
@@ -298,70 +354,135 @@
             <label for="recipe_portion_notes">Portion Notes</label>
             <input id="recipe_portion_notes" name="portion_notes" placeholder="1 serving, 20 oz, etc." />
           </div>
+          <div>
+            <label for="recipe_batch_yield">Batch Yield (servings)</label>
+            <input id="recipe_batch_yield" name="batch_yield" type="number" min="0.1" step="0.1" value="1" required />
+          </div>
+          <div>
+            <label for="recipe_servings_eaten">Servings Eaten (this entry)</label>
+            <input id="recipe_servings_eaten" name="servings_eaten" type="number" min="0.1" step="0.1" value="1" required />
+          </div>
         </div>
 
-        <div class="recipe-builder-panel">
-          <label>Ingredients</label>
-          <div id="recipe_rows"></div>
-          <div class="recipe-actions">
-            <button class="secondary" type="button" id="recipe_add_row">+ Add Ingredient</button>
-            <button type="button" id="recipe_calculate">MIM Calculate</button>
-            <div id="recipe_loading" class="calc-loading">
-              <span class="inline-spinner"></span>
-              <span>MIM is calculating nutrition...</span>
+        <div class="entry-method-card">
+          <label>Entry Method</label>
+          <div class="entry-method-tabs">
+            <button id="recipe_method_mim_btn" class="entry-method-btn" type="button">MIM Estimate</button>
+            <button id="recipe_method_manual_btn" class="entry-method-btn" type="button">Manual Calculator</button>
+          </div>
+          <p id="recipe_method_hint" class="entry-method-hint"></p>
+        </div>
+
+        <div id="recipe_mim_panel" class="mim-assist-panel">
+          <div class="mim-assist-row">
+            <input id="recipe_mim_prompt" type="text" placeholder="Describe your meal/drink and serving size (example: 2 cups bowtie pasta with garlic vodka sauce)" />
+            <button id="recipe_mim_run" type="button">Ask MIM</button>
+          </div>
+          <div id="recipe_mim_loading" class="loading-row" style="display: none; margin-top: 8px;">
+            <span class="inline-spinner"></span>
+            <span>MIM is estimating this entry...</span>
+          </div>
+          <p id="recipe_mim_status" class="mim-note muted"></p>
+        </div>
+
+        <div id="recipe_manual_panel">
+          <div class="recipe-builder-panel">
+            <label>Ingredients</label>
+            <div id="recipe_rows"></div>
+            <div class="recipe-actions">
+              <button class="secondary" type="button" id="recipe_add_row">+ Add Ingredient</button>
+              <button type="button" id="recipe_calculate">MIM Calculate</button>
+              <div id="recipe_loading" class="calc-loading">
+                <span class="inline-spinner"></span>
+                <span>MIM is calculating nutrition...</span>
+              </div>
+            </div>
+            <p id="recipe_status" class="recipe-status muted"></p>
+
+            <div class="match-table-wrap">
+              <table class="match-table">
+                <thead>
+                  <tr>
+                    <th>Ingredient</th>
+                    <th>Matched Catalog Item</th>
+                    <th class="align-right">Cal</th>
+                    <th class="align-right">P/C/F</th>
+                    <th class="align-right">Sugar</th>
+                    <th class="align-center">Action</th>
+                  </tr>
+                </thead>
+                <tbody id="recipe_match_rows">
+                  <tr>
+                    <td colspan="6" class="muted">No calculation yet.</td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           </div>
-          <p id="recipe_status" class="recipe-status muted"></p>
-
-          <div class="match-table-wrap">
-            <table class="match-table">
-              <thead>
-                <tr>
-                  <th>Ingredient</th>
-                  <th>Matched Catalog Item</th>
-                  <th class="align-right">Cal</th>
-                  <th class="align-right">P/C/F</th>
-                  <th class="align-right">Sugar</th>
-                  <th class="align-center">Action</th>
-                </tr>
-              </thead>
-              <tbody id="recipe_match_rows">
-                <tr>
-                  <td colspan="6" class="muted">No calculation yet.</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
         </div>
 
-        <div class="grid" style="margin-top: 10px;">
+        <h3 style="margin-top: 12px; margin-bottom: 6px;">Batch Totals</h3>
+        <div class="grid" style="margin-top: 8px;">
           <div>
-            <label for="recipe_calories">Calories</label>
+            <label for="recipe_calories">Batch Calories</label>
             <input id="recipe_calories" name="calories" type="number" min="0" />
           </div>
           <div>
-            <label for="recipe_protein_g">Protein (g)</label>
+            <label for="recipe_protein_g">Batch Protein (g)</label>
             <input id="recipe_protein_g" name="protein_g" type="number" min="0" step="0.1" />
           </div>
           <div>
-            <label for="recipe_carbs_g">Carbs (g)</label>
+            <label for="recipe_carbs_g">Batch Carbs (g)</label>
             <input id="recipe_carbs_g" name="carbs_g" type="number" min="0" step="0.1" />
           </div>
           <div>
-            <label for="recipe_fat_g">Fat (g)</label>
+            <label for="recipe_fat_g">Batch Fat (g)</label>
             <input id="recipe_fat_g" name="fat_g" type="number" min="0" step="0.1" />
           </div>
           <div>
-            <label for="recipe_sugar_g">Sugar (g)</label>
+            <label for="recipe_sugar_g">Batch Sugar (g)</label>
             <input id="recipe_sugar_g" name="sugar_g" type="number" min="0" step="0.1" />
           </div>
           <div>
-            <label for="recipe_sodium_mg">Sodium (mg)</label>
+            <label for="recipe_sodium_mg">Batch Sodium (mg)</label>
             <input id="recipe_sodium_mg" name="sodium_mg" type="number" min="0" step="0.1" />
           </div>
           <div>
-            <label for="recipe_caffeine_mg">Caffeine (mg)</label>
+            <label for="recipe_caffeine_mg">Batch Caffeine (mg)</label>
             <input id="recipe_caffeine_mg" name="caffeine_mg" type="number" min="0" step="0.1" />
+          </div>
+        </div>
+
+        <h3 style="margin-top: 12px; margin-bottom: 6px;">Your Intake (auto-calculated)</h3>
+        <p id="recipe_intake_hint" class="muted" style="margin-top: 0;">Logging 1 of 1 servings (100%).</p>
+        <div class="grid" style="margin-top: 8px;">
+          <div>
+            <label for="recipe_intake_calories">Logged Calories</label>
+            <input id="recipe_intake_calories" type="text" readonly />
+          </div>
+          <div>
+            <label for="recipe_intake_protein_g">Logged Protein (g)</label>
+            <input id="recipe_intake_protein_g" type="text" readonly />
+          </div>
+          <div>
+            <label for="recipe_intake_carbs_g">Logged Carbs (g)</label>
+            <input id="recipe_intake_carbs_g" type="text" readonly />
+          </div>
+          <div>
+            <label for="recipe_intake_fat_g">Logged Fat (g)</label>
+            <input id="recipe_intake_fat_g" type="text" readonly />
+          </div>
+          <div>
+            <label for="recipe_intake_sugar_g">Logged Sugar (g)</label>
+            <input id="recipe_intake_sugar_g" type="text" readonly />
+          </div>
+          <div>
+            <label for="recipe_intake_sodium_mg">Logged Sodium (mg)</label>
+            <input id="recipe_intake_sodium_mg" type="text" readonly />
+          </div>
+          <div>
+            <label for="recipe_intake_caffeine_mg">Logged Caffeine (mg)</label>
+            <input id="recipe_intake_caffeine_mg" type="text" readonly />
           </div>
         </div>
 
@@ -449,6 +570,19 @@
       const ingredientsHidden = document.getElementById("recipe_ingredients_json");
       const entryTypeField = document.getElementById("recipe_entry_type");
       const favoriteSelect = document.getElementById("recipe_favorite_id");
+      const recipeMethodMimButton = document.getElementById("recipe_method_mim_btn");
+      const recipeMethodManualButton = document.getElementById("recipe_method_manual_btn");
+      const recipeMethodHint = document.getElementById("recipe_method_hint");
+      const recipeMimPanel = document.getElementById("recipe_mim_panel");
+      const recipeManualPanel = document.getElementById("recipe_manual_panel");
+      const recipeMimPrompt = document.getElementById("recipe_mim_prompt");
+      const recipeMimRunButton = document.getElementById("recipe_mim_run");
+      const recipeMimLoading = document.getElementById("recipe_mim_loading");
+      const recipeMimStatus = document.getElementById("recipe_mim_status");
+      const batchYieldField = document.getElementById("recipe_batch_yield");
+      const servingsEatenField = document.getElementById("recipe_servings_eaten");
+      const intakeHintEl = document.getElementById("recipe_intake_hint");
+      const mimAssistEndpoint = "{{ url_for('main.ai_day_manager_assist') }}";
       let latestMatchRows = [];
 
       const fieldMap = {
@@ -464,9 +598,39 @@
         caffeine_mg: document.getElementById("recipe_caffeine_mg"),
         favorite_name: document.getElementById("recipe_favorite_name")
       };
+      const intakeFieldMap = {
+        calories: document.getElementById("recipe_intake_calories"),
+        protein_g: document.getElementById("recipe_intake_protein_g"),
+        carbs_g: document.getElementById("recipe_intake_carbs_g"),
+        fat_g: document.getElementById("recipe_intake_fat_g"),
+        sugar_g: document.getElementById("recipe_intake_sugar_g"),
+        sodium_mg: document.getElementById("recipe_intake_sodium_mg"),
+        caffeine_mg: document.getElementById("recipe_intake_caffeine_mg")
+      };
 
       function normalizeText(value) {
         return String(value || "").replace(/\s+/g, " ").trim();
+      }
+
+      function setRecipeMethod(mode) {
+        const activeMode = mode === "manual" ? "manual" : "mim";
+        recipeMethodMimButton?.classList.toggle("active", activeMode === "mim");
+        recipeMethodManualButton?.classList.toggle("active", activeMode === "manual");
+        if (recipeMimPanel) {
+          recipeMimPanel.style.display = activeMode === "mim" ? "" : "none";
+        }
+        if (recipeManualPanel) {
+          recipeManualPanel.style.display = activeMode === "manual" ? "" : "none";
+        }
+        if (recipeMethodHint) {
+          recipeMethodHint.textContent =
+            activeMode === "mim"
+              ? "Describe once. MIM estimates calories/macros quickly, then you can review and save."
+              : "Add ingredient rows and calculate for precise manual totals.";
+        }
+        if (activeMode === "mim" && recipeMimPrompt && !normalizeText(recipeMimPrompt.value)) {
+          recipeMimPrompt.value = normalizeText(fieldMap.description?.value || "");
+        }
       }
 
       function buildUnitOptions(selected) {
@@ -584,6 +748,50 @@
         if (value === null || value === undefined || value === "") return null;
         const parsed = Number(value);
         return Number.isFinite(parsed) ? parsed : null;
+      }
+
+      function displayDecimal(value, digits = 1) {
+        const parsed = numberOrNull(value);
+        if (parsed === null) return "";
+        return parsed.toFixed(digits);
+      }
+
+      function displayServing(value) {
+        const parsed = numberOrNull(value);
+        if (parsed === null || parsed <= 0) return "1";
+        const rounded = Math.round(parsed * 100) / 100;
+        if (Math.abs(rounded - Math.round(rounded)) < 0.001) {
+          return String(Math.round(rounded));
+        }
+        return rounded.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
+      }
+
+      function recalculateIntakePreview() {
+        const batchYieldRaw = numberOrNull(batchYieldField?.value);
+        const servingsRaw = numberOrNull(servingsEatenField?.value);
+        const batchYield = batchYieldRaw && batchYieldRaw > 0 ? batchYieldRaw : 1;
+        const servings = servingsRaw && servingsRaw > 0 ? servingsRaw : 1;
+        const ratio = servings / batchYield;
+
+        if (intakeHintEl) {
+          intakeHintEl.textContent = `Logging ${displayServing(servings)} of ${displayServing(batchYield)} servings (${Math.round(ratio * 100)}%).`;
+        }
+
+        const batchCalories = numberOrNull(fieldMap.calories.value);
+        const batchProtein = numberOrNull(fieldMap.protein_g.value);
+        const batchCarbs = numberOrNull(fieldMap.carbs_g.value);
+        const batchFat = numberOrNull(fieldMap.fat_g.value);
+        const batchSugar = numberOrNull(fieldMap.sugar_g.value);
+        const batchSodium = numberOrNull(fieldMap.sodium_mg.value);
+        const batchCaffeine = numberOrNull(fieldMap.caffeine_mg.value);
+
+        intakeFieldMap.calories.value = batchCalories === null ? "" : String(Math.round(batchCalories * ratio));
+        intakeFieldMap.protein_g.value = batchProtein === null ? "" : displayDecimal(batchProtein * ratio, 1);
+        intakeFieldMap.carbs_g.value = batchCarbs === null ? "" : displayDecimal(batchCarbs * ratio, 1);
+        intakeFieldMap.fat_g.value = batchFat === null ? "" : displayDecimal(batchFat * ratio, 1);
+        intakeFieldMap.sugar_g.value = batchSugar === null ? "" : displayDecimal(batchSugar * ratio, 1);
+        intakeFieldMap.sodium_mg.value = batchSodium === null ? "" : displayDecimal(batchSodium * ratio, 1);
+        intakeFieldMap.caffeine_mg.value = batchCaffeine === null ? "" : displayDecimal(batchCaffeine * ratio, 1);
       }
 
       function normalizeUnit(unit) {
@@ -833,17 +1041,76 @@
           const value = totals[key];
           field.value = value === null || value === undefined ? "" : String(value);
         });
+        recalculateIntakePreview();
       }
 
-      function applySuggestedFields(suggested) {
+      function applySuggestedFields(suggested, force = false) {
         if (!suggested || typeof suggested !== "object") return;
         ["description", "label", "portion_notes"].forEach((key) => {
           const field = fieldMap[key];
           if (!field) return;
-          if (!normalizeText(field.value) && normalizeText(suggested[key])) {
+          if ((force || !normalizeText(field.value)) && normalizeText(suggested[key])) {
             field.value = String(suggested[key]);
           }
         });
+      }
+
+      async function runRecipeMimEstimate() {
+        const prompt = normalizeText(recipeMimPrompt?.value) || normalizeText(fieldMap.description?.value);
+        if (!prompt) {
+          if (recipeMimStatus) {
+            recipeMimStatus.textContent = "Describe the meal/drink first (include amount or serving size).";
+          }
+          recipeMimPrompt?.focus();
+          return;
+        }
+
+        if (recipeMimLoading) {
+          recipeMimLoading.style.display = "";
+        }
+        if (recipeMimRunButton) {
+          recipeMimRunButton.disabled = true;
+        }
+        if (recipeMimStatus) {
+          recipeMimStatus.textContent = "";
+        }
+
+        try {
+          const context = entryTypeField?.value === "drink" ? "drink" : "meal";
+          const response = await fetch(mimAssistEndpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ context, text: prompt })
+          });
+          const data = await response.json();
+          if (!response.ok || !data.ok) {
+            throw new Error(data.error || "MIM estimate failed.");
+          }
+
+          if (data.reply && recipeMimStatus) {
+            recipeMimStatus.textContent = data.reply;
+          }
+          applySuggestedFields(data.suggested_fields || {}, true);
+          applyTotals(data.suggested_fields || {});
+          if (fieldMap.description && !normalizeText(fieldMap.description.value)) {
+            fieldMap.description.value = prompt;
+          }
+          if (!normalizeText(fieldMap.favorite_name.value) && normalizeText(fieldMap.description.value)) {
+            fieldMap.favorite_name.value = normalizeText(fieldMap.description.value);
+          }
+          recalculateIntakePreview();
+        } catch (error) {
+          if (recipeMimStatus) {
+            recipeMimStatus.textContent = error.message || "MIM estimate failed.";
+          }
+        } finally {
+          if (recipeMimLoading) {
+            recipeMimLoading.style.display = "none";
+          }
+          if (recipeMimRunButton) {
+            recipeMimRunButton.disabled = false;
+          }
+        }
       }
 
       async function calculateRecipe() {
@@ -941,9 +1208,30 @@
         fieldMap.sugar_g.value = option.dataset.sugarG || option.dataset.sugar_g || "";
         fieldMap.sodium_mg.value = option.dataset.sodiumMg || option.dataset.sodium_mg || "";
         fieldMap.caffeine_mg.value = option.dataset.caffeineMg || option.dataset.caffeine_mg || "";
+        if (batchYieldField) batchYieldField.value = "1";
+        if (servingsEatenField) servingsEatenField.value = "1";
         if (!normalizeText(fieldMap.favorite_name.value)) {
           fieldMap.favorite_name.value = option.textContent.trim();
         }
+        recalculateIntakePreview();
+      }
+
+      if (recipeMethodMimButton) {
+        recipeMethodMimButton.addEventListener("click", () => setRecipeMethod("mim"));
+      }
+      if (recipeMethodManualButton) {
+        recipeMethodManualButton.addEventListener("click", () => setRecipeMethod("manual"));
+      }
+      if (recipeMimRunButton) {
+        recipeMimRunButton.addEventListener("click", runRecipeMimEstimate);
+      }
+      if (recipeMimPrompt) {
+        recipeMimPrompt.addEventListener("keydown", (event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            runRecipeMimEstimate();
+          }
+        });
       }
 
       addButton.addEventListener("click", () => createRow());
@@ -965,6 +1253,21 @@
           updateTotalsFromRows();
         }
       });
+
+      [fieldMap.calories, fieldMap.protein_g, fieldMap.carbs_g, fieldMap.fat_g, fieldMap.sugar_g, fieldMap.sodium_mg, fieldMap.caffeine_mg]
+        .filter(Boolean)
+        .forEach((input) => {
+          input.addEventListener("input", recalculateIntakePreview);
+        });
+
+      if (batchYieldField) {
+        batchYieldField.addEventListener("input", recalculateIntakePreview);
+        batchYieldField.addEventListener("change", recalculateIntakePreview);
+      }
+      if (servingsEatenField) {
+        servingsEatenField.addEventListener("input", recalculateIntakePreview);
+        servingsEatenField.addEventListener("change", recalculateIntakePreview);
+      }
 
       matchRowsEl.addEventListener("click", (event) => {
         const target = event.target;
@@ -1011,6 +1314,8 @@
 
       createRow();
       refreshFavoriteOptions();
+      setRecipeMethod("mim");
+      recalculateIntakePreview();
     })();
   </script>
 {% endblock %}

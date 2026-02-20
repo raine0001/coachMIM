@@ -324,6 +324,38 @@
       font-size: 0.9rem;
       line-height: 1.35;
     }
+    .entry-method-card {
+      margin-top: 10px;
+      border: 1px solid #cfe3ff;
+      border-radius: 10px;
+      background: #f9fcff;
+      padding: 10px;
+    }
+    .entry-method-tabs {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 6px;
+    }
+    .entry-method-btn {
+      padding: 7px 11px;
+      border-radius: 8px;
+      border: 1px solid #d7dee7;
+      background: #fff;
+      color: #17212b;
+      font-size: 0.92rem;
+      cursor: pointer;
+    }
+    .entry-method-btn.active {
+      border-color: #0f766e;
+      background: #0f766e;
+      color: #fff;
+    }
+    .entry-method-hint {
+      margin: 8px 0 0;
+      font-size: 0.92rem;
+      color: var(--muted);
+    }
     .manager-coach-grid {
       display: grid;
       grid-template-columns: 1.25fr 1fr;
@@ -825,9 +857,34 @@
             placeholder="Breakfast / Lunch / Dinner / Snack"
           />
         </div>
-        <div>
-          <label for="meal_description">Meal Name</label>
-          <div class="mim-field-row">
+      </div>
+
+      <div class="entry-method-card">
+        <label>Entry Method</label>
+        <div class="entry-method-tabs">
+          <button id="meal_method_mim_btn" class="entry-method-btn" type="button">MIM Estimate</button>
+          <button id="meal_method_manual_btn" class="entry-method-btn" type="button">Manual</button>
+        </div>
+        <p id="meal_method_hint" class="entry-method-hint"></p>
+        <button id="meal_mim_toggle" type="button" style="display: none;">Open MIM</button>
+      </div>
+
+      <div id="meal_mim_panel" class="mim-assist-panel" style="display: none;">
+        <div class="mim-assist-row">
+          <input id="meal_mim_prompt" type="text" placeholder="Tell MIM what was in it (ingredients + amounts)" />
+          <button id="meal_mim_run" type="button">Ask MIM</button>
+        </div>
+        <div id="meal_mim_loading" class="loading-row" style="display: none;">
+          <span class="inline-spinner"></span>
+          <span>MIM is estimating nutrition...</span>
+        </div>
+        <p id="meal_mim_status" class="muted mim-note"></p>
+      </div>
+
+      <div id="meal_manual_section">
+        <div class="grid">
+          <div>
+            <label for="meal_description">Meal Name</label>
             <input
               id="meal_description"
               name="description"
@@ -835,73 +892,59 @@
               placeholder="e.g., Turkey sandwich"
               required
             />
-            <button id="meal_mim_toggle" class="mim-icon-btn" type="button" title="Ask MIM for help">
-              <img class="mim-icon-img" src="{{ mim_logo_url }}" alt="MIM" />
-            </button>
           </div>
-          <div id="meal_mim_panel" class="mim-assist-panel" style="display: none;">
-            <div class="mim-assist-row">
-              <input id="meal_mim_prompt" type="text" placeholder="Tell MIM what was in it (ingredients + amounts)" />
-              <button id="meal_mim_run" type="button">Ask MIM</button>
-            </div>
-            <div id="meal_mim_loading" class="loading-row" style="display: none;">
-              <span class="inline-spinner"></span>
-              <span>MIM is estimating nutrition...</span>
-            </div>
-            <p id="meal_mim_status" class="muted mim-note"></p>
+          <div>
+            <label for="meal_portion_notes">Portion Notes</label>
+            <input
+              id="meal_portion_notes"
+              name="portion_notes"
+              value="{{ edit_meal_entry.portion_notes if edit_meal_entry else '' }}"
+              placeholder="1 bowl, 2 slices..."
+            />
           </div>
-        </div>
-        <div>
-          <label for="meal_portion_notes">Portion Notes</label>
-          <input
-            id="meal_portion_notes"
-            name="portion_notes"
-            value="{{ edit_meal_entry.portion_notes if edit_meal_entry else '' }}"
-            placeholder="1 bowl, 2 slices..."
-          />
-        </div>
-        <div>
-          <label for="meal_calories">Calories</label>
-          <input
-            id="meal_calories"
-            name="calories"
-            type="number"
-            min="0"
-            value="{{ edit_meal_entry.calories if edit_meal_entry and edit_meal_entry.calories is not none else '' }}"
-          />
-        </div>
-        <div>
-          <label for="meal_protein_g">Protein (g)</label>
-          <input
-            id="meal_protein_g"
-            name="protein_g"
-            type="number"
-            min="0"
-            step="0.1"
-            value="{{ edit_meal_entry.protein_g if edit_meal_entry and edit_meal_entry.protein_g is not none else '' }}"
-          />
-        </div>
-        <div>
-          <label for="meal_carbs_g">Carbs (g)</label>
-          <input
-            id="meal_carbs_g"
-            name="carbs_g"
-            type="number"
-            min="0"
-            step="0.1"
-            value="{{ edit_meal_entry.carbs_g if edit_meal_entry and edit_meal_entry.carbs_g is not none else '' }}"
-          />
-        </div>
-        <div>
-          <label for="meal_fat_g">Fat (g)</label>
-          <input
-            id="meal_fat_g"
-            name="fat_g"
-            type="number"
-            min="0"
-            step="0.1"
-            value="{{ edit_meal_entry.fat_g if edit_meal_entry and edit_meal_entry.fat_g is not none else '' }}"
-          />
+          <div>
+            <label for="meal_calories">Calories</label>
+            <input
+              id="meal_calories"
+              name="calories"
+              type="number"
+              min="0"
+              value="{{ edit_meal_entry.calories if edit_meal_entry and edit_meal_entry.calories is not none else '' }}"
+            />
+          </div>
+          <div>
+            <label for="meal_protein_g">Protein (g)</label>
+            <input
+              id="meal_protein_g"
+              name="protein_g"
+              type="number"
+              min="0"
+              step="0.1"
+              value="{{ edit_meal_entry.protein_g if edit_meal_entry and edit_meal_entry.protein_g is not none else '' }}"
+            />
+          </div>
+          <div>
+            <label for="meal_carbs_g">Carbs (g)</label>
+            <input
+              id="meal_carbs_g"
+              name="carbs_g"
+              type="number"
+              min="0"
+              step="0.1"
+              value="{{ edit_meal_entry.carbs_g if edit_meal_entry and edit_meal_entry.carbs_g is not none else '' }}"
+            />
+          </div>
+          <div>
+            <label for="meal_fat_g">Fat (g)</label>
+            <input
+              id="meal_fat_g"
+              name="fat_g"
+              type="number"
+              min="0"
+              step="0.1"
+              value="{{ edit_meal_entry.fat_g if edit_meal_entry and edit_meal_entry.fat_g is not none else '' }}"
+            />
+          </div>
         </div>
       </div>
       <div class="grid" style="margin-top: 8px;">
@@ -1021,9 +1064,34 @@
             required
           />
         </div>
-        <div>
-          <label for="drink_description">Drink Name</label>
-          <div class="mim-field-row">
+      </div>
+
+      <div class="entry-method-card">
+        <label>Entry Method</label>
+        <div class="entry-method-tabs">
+          <button id="drink_method_mim_btn" class="entry-method-btn" type="button">MIM Estimate</button>
+          <button id="drink_method_manual_btn" class="entry-method-btn" type="button">Manual</button>
+        </div>
+        <p id="drink_method_hint" class="entry-method-hint"></p>
+        <button id="drink_mim_toggle" type="button" style="display: none;">Open MIM</button>
+      </div>
+
+      <div id="drink_mim_panel" class="mim-assist-panel" style="display: none;">
+        <div class="mim-assist-row">
+          <input id="drink_mim_prompt" type="text" placeholder="Tell MIM ingredients and amounts (for example: 12 oz tea + 1 tbsp honey)" />
+          <button id="drink_mim_run" type="button">Ask MIM</button>
+        </div>
+        <div id="drink_mim_loading" class="loading-row" style="display: none;">
+          <span class="inline-spinner"></span>
+          <span>MIM is estimating drink nutrition...</span>
+        </div>
+        <p id="drink_mim_status" class="muted mim-note"></p>
+      </div>
+
+      <div id="drink_manual_section">
+        <div class="grid">
+          <div>
+            <label for="drink_description">Drink Name</label>
             <input
               id="drink_description"
               name="description"
@@ -1031,62 +1099,48 @@
               placeholder="e.g., Iced coffee, Diet soda"
               required
             />
-            <button id="drink_mim_toggle" class="mim-icon-btn" type="button" title="Ask MIM for help">
-              <img class="mim-icon-img" src="{{ mim_logo_url }}" alt="MIM" />
-            </button>
           </div>
-          <div id="drink_mim_panel" class="mim-assist-panel" style="display: none;">
-            <div class="mim-assist-row">
-              <input id="drink_mim_prompt" type="text" placeholder="Tell MIM ingredients and amounts (for example: 12 oz tea + 1 tbsp honey)" />
-              <button id="drink_mim_run" type="button">Ask MIM</button>
-            </div>
-            <div id="drink_mim_loading" class="loading-row" style="display: none;">
-              <span class="inline-spinner"></span>
-              <span>MIM is estimating drink nutrition...</span>
-            </div>
-            <p id="drink_mim_status" class="muted mim-note"></p>
+          <div>
+            <label for="drink_portion_notes">Volume / Portion</label>
+            <input
+              id="drink_portion_notes"
+              name="portion_notes"
+              value="{{ edit_drink_entry.portion_notes if edit_drink_entry else '' }}"
+              placeholder="12 oz, 1 can, 500 ml..."
+            />
           </div>
-        </div>
-        <div>
-          <label for="drink_portion_notes">Volume / Portion</label>
-          <input
-            id="drink_portion_notes"
-            name="portion_notes"
-            value="{{ edit_drink_entry.portion_notes if edit_drink_entry else '' }}"
-            placeholder="12 oz, 1 can, 500 ml..."
-          />
-        </div>
-        <div>
-          <label for="drink_caffeine_mg">Caffeine (mg)</label>
-          <input
-            id="drink_caffeine_mg"
-            name="caffeine_mg"
-            type="number"
-            min="0"
-            step="0.1"
-            value="{{ edit_drink_entry.caffeine_mg if edit_drink_entry and edit_drink_entry.caffeine_mg is not none else '' }}"
-          />
-        </div>
-        <div>
-          <label for="drink_calories">Calories</label>
-          <input
-            id="drink_calories"
-            name="calories"
-            type="number"
-            min="0"
-            value="{{ edit_drink_entry.calories if edit_drink_entry and edit_drink_entry.calories is not none else '' }}"
-          />
-        </div>
-        <div>
-          <label for="drink_sugar_g">Sugar (g)</label>
-          <input
-            id="drink_sugar_g"
-            name="sugar_g"
-            type="number"
-            min="0"
-            step="0.1"
-            value="{{ edit_drink_entry.sugar_g if edit_drink_entry and edit_drink_entry.sugar_g is not none else '' }}"
-          />
+          <div>
+            <label for="drink_caffeine_mg">Caffeine (mg)</label>
+            <input
+              id="drink_caffeine_mg"
+              name="caffeine_mg"
+              type="number"
+              min="0"
+              step="0.1"
+              value="{{ edit_drink_entry.caffeine_mg if edit_drink_entry and edit_drink_entry.caffeine_mg is not none else '' }}"
+            />
+          </div>
+          <div>
+            <label for="drink_calories">Calories</label>
+            <input
+              id="drink_calories"
+              name="calories"
+              type="number"
+              min="0"
+              value="{{ edit_drink_entry.calories if edit_drink_entry and edit_drink_entry.calories is not none else '' }}"
+            />
+          </div>
+          <div>
+            <label for="drink_sugar_g">Sugar (g)</label>
+            <input
+              id="drink_sugar_g"
+              name="sugar_g"
+              type="number"
+              min="0"
+              step="0.1"
+              value="{{ edit_drink_entry.sugar_g if edit_drink_entry and edit_drink_entry.sugar_g is not none else '' }}"
+            />
+          </div>
         </div>
       </div>
       <div class="grid" style="margin-top: 8px;">
@@ -1786,6 +1840,42 @@
       return String(value || "").replace(/\s+/g, " ").trim();
     }
 
+    function wireMethodTabs(config) {
+      const mimButton = document.getElementById(config.mimButtonId);
+      const manualButton = document.getElementById(config.manualButtonId);
+      const mimPanel = document.getElementById(config.mimPanelId);
+      const manualPanel = document.getElementById(config.manualPanelId);
+      const hintEl = document.getElementById(config.hintId);
+      const sourceInput = document.getElementById(config.sourceFieldId);
+      const promptInput = document.getElementById(config.promptId);
+      if (!mimButton || !manualButton || !mimPanel || !manualPanel || !hintEl) {
+        return;
+      }
+
+      function setMode(mode) {
+        const activeMode = mode === "manual" ? "manual" : "mim";
+        mimButton.classList.toggle("active", activeMode === "mim");
+        manualButton.classList.toggle("active", activeMode === "manual");
+        mimPanel.style.display = activeMode === "mim" ? "" : "none";
+        manualPanel.style.display = activeMode === "manual" ? "" : "none";
+        hintEl.textContent =
+          activeMode === "mim"
+            ? (config.mimHint || "Describe once and let MIM estimate this entry.")
+            : (config.manualHint || "Enter values manually or load a favorite.");
+
+        if (sourceInput) {
+          sourceInput.required = activeMode === "manual";
+        }
+        if (activeMode === "mim" && promptInput && sourceInput && !sanitizePrompt(promptInput.value)) {
+          promptInput.value = sanitizePrompt(sourceInput.value);
+        }
+      }
+
+      mimButton.addEventListener("click", () => setMode("mim"));
+      manualButton.addEventListener("click", () => setMode("manual"));
+      setMode(config.defaultMode || "mim");
+    }
+
     function applySuggestedFields(fieldMap, suggestedFields) {
       if (!suggestedFields || typeof suggestedFields !== "object") {
         return;
@@ -1893,6 +1983,32 @@
         }
       });
     }
+
+    wireMethodTabs({
+      mimButtonId: "meal_method_mim_btn",
+      manualButtonId: "meal_method_manual_btn",
+      mimPanelId: "meal_mim_panel",
+      manualPanelId: "meal_manual_section",
+      hintId: "meal_method_hint",
+      sourceFieldId: "meal_description",
+      promptId: "meal_mim_prompt",
+      defaultMode: {{ "'manual'" if edit_meal_entry else "'mim'" }},
+      mimHint: "Describe your meal and MIM will estimate calories/macros, then you can save or adjust.",
+      manualHint: "Type meal details directly, or load a favorite and save."
+    });
+
+    wireMethodTabs({
+      mimButtonId: "drink_method_mim_btn",
+      manualButtonId: "drink_method_manual_btn",
+      mimPanelId: "drink_mim_panel",
+      manualPanelId: "drink_manual_section",
+      hintId: "drink_method_hint",
+      sourceFieldId: "drink_description",
+      promptId: "drink_mim_prompt",
+      defaultMode: {{ "'manual'" if edit_drink_entry else "'mim'" }},
+      mimHint: "Describe the drink and MIM will estimate caffeine/sugar/calories quickly.",
+      manualHint: "Enter drink details manually, or load a drink favorite."
+    });
 
     wireMimAssist({
       context: "meal",

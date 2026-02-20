@@ -6414,26 +6414,49 @@ def recipe_calculator_save():
     if is_beverage and not label_value:
         label_value = "Drink"
     portion_notes = normalize_text(request.form.get("portion_notes"))
+    batch_yield = parse_float(request.form.get("batch_yield"))
+    servings_eaten = parse_float(request.form.get("servings_eaten"))
+    if batch_yield is None or batch_yield <= 0:
+        batch_yield = 1.0
+    if servings_eaten is None or servings_eaten <= 0:
+        servings_eaten = 1.0
 
-    calories_value = parse_int(request.form.get("calories"))
-    protein_value = parse_float(request.form.get("protein_g"))
-    carbs_value = parse_float(request.form.get("carbs_g"))
-    fat_value = parse_float(request.form.get("fat_g"))
-    sugar_value = parse_float(request.form.get("sugar_g"))
-    sodium_value = parse_float(request.form.get("sodium_mg"))
-    caffeine_value = parse_float(request.form.get("caffeine_mg"))
+    batch_calories_value = parse_float(request.form.get("calories"))
+    batch_protein_value = parse_float(request.form.get("protein_g"))
+    batch_carbs_value = parse_float(request.form.get("carbs_g"))
+    batch_fat_value = parse_float(request.form.get("fat_g"))
+    batch_sugar_value = parse_float(request.form.get("sugar_g"))
+    batch_sodium_value = parse_float(request.form.get("sodium_mg"))
+    batch_caffeine_value = parse_float(request.form.get("caffeine_mg"))
+
+    logged_ratio = servings_eaten / batch_yield if batch_yield > 0 else 1.0
+
+    def scaled(value, digits: int = 2):
+        if value is None:
+            return None
+        return round(float(value) * logged_ratio, digits)
+
+    calories_value = int(round(batch_calories_value * logged_ratio)) if batch_calories_value is not None else None
+    protein_value = scaled(batch_protein_value, 2)
+    carbs_value = scaled(batch_carbs_value, 2)
+    fat_value = scaled(batch_fat_value, 2)
+    sugar_value = scaled(batch_sugar_value, 2)
+    sodium_value = scaled(batch_sodium_value, 2)
+    caffeine_value = scaled(batch_caffeine_value, 2)
+
+    def format_serving_value(value: float) -> str:
+        if abs(value - int(value)) < 0.001:
+            return str(int(value))
+        return f"{value:.2f}".rstrip("0").rstrip(".")
+
+    serving_context = f"{format_serving_value(servings_eaten)} of {format_serving_value(batch_yield)} servings"
+    if portion_notes:
+        if "serving" not in portion_notes.lower():
+            portion_notes = f"{portion_notes} | {serving_context}"
+    else:
+        portion_notes = serving_context
 
     ingredients_payload = parse_ingredients_json(request.form.get("ingredients_json")) or []
-    if not portion_notes and ingredients_payload:
-        compact_rows = [
-            {
-                "name": row.get("food_name"),
-                "quantity": row.get("quantity"),
-                "unit": row.get("unit"),
-            }
-            for row in ingredients_payload
-        ]
-        portion_notes = _compact_ingredient_summary(compact_rows)
 
     meal = Meal(user_id=g.user.id, eaten_at=eaten_at_dt)
     meal.label = label_value
@@ -6471,16 +6494,45 @@ def recipe_calculator_save():
                 favorite.food_item_id = meal.food_item_id
                 favorite.label = meal.label
                 favorite.description = meal.description
-                favorite.portion_notes = meal.portion_notes
+                favorite.portion_notes = "1 serving"
                 favorite.tags = _apply_favorite_scope(meal.tags, favorite_scope)
                 favorite.is_beverage = meal.is_beverage
-                favorite.calories = meal.calories
-                favorite.protein_g = meal.protein_g
-                favorite.carbs_g = meal.carbs_g
-                favorite.fat_g = meal.fat_g
-                favorite.sugar_g = meal.sugar_g
-                favorite.sodium_mg = meal.sodium_mg
-                favorite.caffeine_mg = meal.caffeine_mg
+                favorite_per_serving_ratio = 1.0 / batch_yield if batch_yield > 0 else 1.0
+                favorite.calories = (
+                    int(round(batch_calories_value * favorite_per_serving_ratio))
+                    if batch_calories_value is not None
+                    else meal.calories
+                )
+                favorite.protein_g = (
+                    round(batch_protein_value * favorite_per_serving_ratio, 2)
+                    if batch_protein_value is not None
+                    else meal.protein_g
+                )
+                favorite.carbs_g = (
+                    round(batch_carbs_value * favorite_per_serving_ratio, 2)
+                    if batch_carbs_value is not None
+                    else meal.carbs_g
+                )
+                favorite.fat_g = (
+                    round(batch_fat_value * favorite_per_serving_ratio, 2)
+                    if batch_fat_value is not None
+                    else meal.fat_g
+                )
+                favorite.sugar_g = (
+                    round(batch_sugar_value * favorite_per_serving_ratio, 2)
+                    if batch_sugar_value is not None
+                    else meal.sugar_g
+                )
+                favorite.sodium_mg = (
+                    round(batch_sodium_value * favorite_per_serving_ratio, 2)
+                    if batch_sodium_value is not None
+                    else meal.sodium_mg
+                )
+                favorite.caffeine_mg = (
+                    round(batch_caffeine_value * favorite_per_serving_ratio, 2)
+                    if batch_caffeine_value is not None
+                    else meal.caffeine_mg
+                )
                 favorite.ingredients = ingredients_payload or None
                 persist_favorite_secure_fields(g.user, favorite)
                 db.session.add(favorite)

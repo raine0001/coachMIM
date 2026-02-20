@@ -30,7 +30,7 @@ from flask import (
 import httpx
 from sqlalchemy import case, func, or_
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import aliased, selectinload
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
@@ -2558,12 +2558,44 @@ def build_home_scoreboard_context(user: User, *, local_today: date):
 def _community_post_candidates_for_tips(*, context: str, limit: int = 24):
     hint_categories = AI_TIP_CONTEXT_CATEGORY_HINTS.get(context, AI_TIP_CONTEXT_CATEGORY_HINTS["home"])
 
-    posts = (
-        CommunityPost.query.join(User, CommunityPost.user_id == User.id)
-        .options(
-            selectinload(CommunityPost.likes),
-            selectinload(CommunityPost.comments).selectinload(CommunityComment.user),
+    like_counts_sq = (
+        db.session.query(
+            CommunityLike.post_id.label("post_id"),
+            func.count(CommunityLike.id).label("like_count"),
         )
+        .group_by(CommunityLike.post_id)
+        .subquery()
+    )
+    comment_user = aliased(User)
+    comment_counts_sq = (
+        db.session.query(
+            CommunityComment.post_id.label("post_id"),
+            func.count(CommunityComment.id).label("comment_count"),
+        )
+        .join(comment_user, CommunityComment.user_id == comment_user.id)
+        .filter(
+            CommunityComment.is_hidden.is_(False),
+            CommunityComment.is_flagged.is_(False),
+            comment_user.is_blocked.is_(False),
+            comment_user.is_spam.is_(False),
+        )
+        .group_by(CommunityComment.post_id)
+        .subquery()
+    )
+
+    post_rows = (
+        db.session.query(
+            CommunityPost.id.label("id"),
+            CommunityPost.title.label("title"),
+            CommunityPost.category.label("category"),
+            CommunityPost.content.label("content"),
+            CommunityPost.created_at.label("created_at"),
+            func.coalesce(like_counts_sq.c.like_count, 0).label("like_count"),
+            func.coalesce(comment_counts_sq.c.comment_count, 0).label("comment_count"),
+        )
+        .join(User, CommunityPost.user_id == User.id)
+        .outerjoin(like_counts_sq, like_counts_sq.c.post_id == CommunityPost.id)
+        .outerjoin(comment_counts_sq, comment_counts_sq.c.post_id == CommunityPost.id)
         .filter(
             CommunityPost.is_hidden.is_(False),
             CommunityPost.is_flagged.is_(False),
@@ -2576,13 +2608,9 @@ def _community_post_candidates_for_tips(*, context: str, limit: int = 24):
     )
 
     scored = []
-    for post in posts:
-        safe_comment_count = sum(
-            1
-            for comment in post.comments
-            if not comment.is_hidden and not comment.is_flagged and comment.user and not comment.user.is_blocked and not comment.user.is_spam
-        )
-        like_count = len(post.likes)
+    for post in post_rows:
+        safe_comment_count = int(post.comment_count or 0)
+        like_count = int(post.like_count or 0)
         engagement_score = float(like_count) + (safe_comment_count * 1.25)
         category_boost = 2.5 if post.category in hint_categories else 0.0
         recency_boost = max(0.0, 2.0 - ((datetime.utcnow() - post.created_at).days / 7.0))

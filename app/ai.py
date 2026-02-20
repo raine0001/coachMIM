@@ -13,6 +13,9 @@ import httpx
 from openai import OpenAI
 
 PRODUCT_PAGE_MAX_BYTES = int(os.getenv("PRODUCT_PAGE_MAX_BYTES", "1800000"))
+OPENAI_REQUEST_TIMEOUT_SECONDS = float(os.getenv("OPENAI_REQUEST_TIMEOUT_SECONDS", "8"))
+OPENAI_CONNECT_TIMEOUT_SECONDS = float(os.getenv("OPENAI_CONNECT_TIMEOUT_SECONDS", "5"))
+OPENAI_MAX_RETRIES = max(0, int(os.getenv("OPENAI_MAX_RETRIES", "0")))
 
 from app.models import DailyCheckIn, Meal
 
@@ -30,6 +33,17 @@ COMMUNITY_BLOCK_KEYWORDS = {
     "xvideos": "explicit sexual content",
     "redtube": "explicit sexual content",
 }
+
+
+def build_openai_client(api_key: str) -> OpenAI:
+    timeout = httpx.Timeout(
+        timeout=OPENAI_REQUEST_TIMEOUT_SECONDS,
+        connect=OPENAI_CONNECT_TIMEOUT_SECONDS,
+        read=OPENAI_REQUEST_TIMEOUT_SECONDS,
+        write=OPENAI_REQUEST_TIMEOUT_SECONDS,
+        pool=OPENAI_CONNECT_TIMEOUT_SECONDS,
+    )
+    return OpenAI(api_key=api_key, timeout=timeout, max_retries=OPENAI_MAX_RETRIES)
 
 
 def coach_prompt_missing_fields(user, meals: Sequence[Meal], checkins: Sequence[DailyCheckIn]):
@@ -75,7 +89,7 @@ def ai_reflection(summary_text: str) -> str:
         return "Set OPENAI_API_KEY to enable AI reflection."
 
     model = os.getenv("OPENAI_REFLECTION_MODEL", "gpt-4.1-mini")
-    client = OpenAI(api_key=api_key)
+    client = build_openai_client(api_key)
 
     resp = client.responses.create(
         model=model,
@@ -100,7 +114,7 @@ def ask_mim_general_chat(
         )
 
     model = os.getenv("OPENAI_CHAT_MODEL", "gpt-4.1-mini")
-    client = OpenAI(api_key=api_key)
+    client = build_openai_client(api_key)
 
     system_prompt = (
         "You are MIM, a practical health-performance assistant. "
@@ -158,7 +172,7 @@ def generate_daily_personalized_tip(
         return {}
 
     model = os.getenv("OPENAI_DAILY_TIP_MODEL", "gpt-4.1-mini")
-    client = OpenAI(api_key=api_key)
+    client = build_openai_client(api_key)
 
     safe_context = str(context or "home").strip().lower()
     post_rows = []
@@ -531,7 +545,7 @@ def _ai_parse_meal_sentence(text: str) -> dict:
         f"Sentence: {text}"
     )
 
-    client = OpenAI(api_key=api_key)
+    client = build_openai_client(api_key)
     response = client.responses.create(model=model, input=prompt)
     parsed = _extract_json_object(response.output_text or "")
     ingredients = _normalize_parsed_ingredients(parsed.get("ingredients"))
@@ -765,7 +779,7 @@ def _ai_day_manager_assist(context: str, text: str, first_name: str) -> dict:
         f"User text: {text}\n"
     )
 
-    client = OpenAI(api_key=api_key)
+    client = build_openai_client(api_key)
     response = client.responses.create(model=model, input=prompt)
     parsed = _extract_json_object(response.output_text or "")
     if not isinstance(parsed, dict):
@@ -878,7 +892,7 @@ def parse_nutrition_label_image(image_bytes: bytes, mime_type: str | None, hint_
         f"{hint_line}"
     )
 
-    client = OpenAI(api_key=api_key)
+    client = build_openai_client(api_key)
     response = client.responses.create(
         model=model,
         input=[
@@ -1205,7 +1219,7 @@ def _parse_product_with_ai(page_title: str | None, page_text: str, product_url: 
         f"Page text excerpt:\n{excerpt}"
     )
 
-    client = OpenAI(api_key=api_key)
+    client = build_openai_client(api_key)
     response = client.responses.create(model=model, input=prompt)
     parsed = _extract_json_object(response.output_text or "")
 
@@ -1296,7 +1310,7 @@ def community_content_is_blocked(text: str) -> tuple[bool, str | None]:
         return (False, None)
 
     try:
-        client = OpenAI(api_key=api_key)
+        client = build_openai_client(api_key)
         moderation = client.moderations.create(model="omni-moderation-latest", input=cleaned[:4000])
         if moderation.results and moderation.results[0].flagged:
             categories = moderation.results[0].categories

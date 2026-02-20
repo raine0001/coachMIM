@@ -36,5 +36,7 @@ services:
         value: "80"
       - key: GUNICORN_MAX_REQUESTS_JITTER
         value: "20"
+      - key: GUNICORN_CMD_ARGS
+        value: "--workers 1 --threads 2 --worker-class gthread --timeout 120 --graceful-timeout 30 --keep-alive 5 --max-requests 80 --max-requests-jitter 20"
       - key: UPLOAD_FOLDER
         value: /var/data/uploads

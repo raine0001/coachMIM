@@ -26,6 +26,7 @@ class User(db.Model):
     community_comments = db.relationship("CommunityComment", backref="user", lazy=True)
     community_likes = db.relationship("CommunityLike", backref="user", lazy=True)
     support_messages = db.relationship("SupportMessage", backref="user", lazy=True)
+    home_page_visits = db.relationship("HomePageVisit", backref="user", lazy=True)
     goals = db.relationship("UserGoal", backref="user", lazy=True)
     goal_actions = db.relationship("UserGoalAction", backref="user", lazy=True)
     daily_coach_insights = db.relationship("UserDailyCoachInsight", backref="user", lazy=True)
@@ -470,6 +471,25 @@ class SupportMessage(db.Model):
     admin_note = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
     resolved_at = db.Column(db.DateTime, nullable=True, index=True)
+
+
+class HomePageVisit(db.Model):
+    __tablename__ = "home_page_visits"
+
+    id = db.Column(db.Integer, primary_key=True)
+    day = db.Column(db.Date, nullable=False, index=True)
+    host = db.Column(db.String(120), nullable=False, index=True)
+    visitor_hash = db.Column(db.String(64), nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True, index=True)
+    is_authenticated = db.Column(db.Boolean, nullable=False, default=False, index=True)
+    hit_count = db.Column(db.Integer, nullable=False, default=1)
+    first_seen_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    last_seen_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+    user_agent_hash = db.Column(db.String(64), nullable=True)
+
+    __table_args__ = (
+        db.UniqueConstraint("day", "host", "visitor_hash", name="uq_home_page_visits_day_host_visitor"),
+    )
 
 
 class UserDailyCoachInsight(db.Model):

@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import re
@@ -18,6 +19,7 @@ from flask import (
     flash,
     g,
     jsonify,
+    make_response,
     redirect,
     render_template,
     request,
@@ -56,6 +58,7 @@ from app.models import (
     FoodItem,
     MIMChatMessage,
     Meal,
+    HomePageVisit,
     SiteSetting,
     Substance,
     SupportMessage,
@@ -86,6 +89,27 @@ COMMUNITY_MEDIA_IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "webp", "heic", "gif"}
 COMMUNITY_MEDIA_VIDEO_EXTENSIONS = {"mp4", "webm", "mov", "m4v"}
 COMMUNITY_MEDIA_ALLOWED_EXTENSIONS = COMMUNITY_MEDIA_IMAGE_EXTENSIONS | COMMUNITY_MEDIA_VIDEO_EXTENSIONS
 SUPPORT_STATUS_OPTIONS = {"new", "resolved", "spam"}
+HOMEPAGE_VISITOR_COOKIE_NAME = "coachmim_vid"
+HOMEPAGE_VISITOR_COOKIE_MAX_AGE = int(os.getenv("HOMEPAGE_VISITOR_COOKIE_MAX_AGE", "31536000"))
+HOMEPAGE_TRACKING_ENABLED = (
+    os.getenv("HOMEPAGE_TRACKING_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
+)
+HOMEPAGE_REPORT_DEFAULT_HOSTS = {"coachmim.com", "www.coachmim.com"}
+HOMEPAGE_BOT_HINTS = (
+    "bot",
+    "crawler",
+    "spider",
+    "l9scan",
+    "leakix",
+    "ahrefs",
+    "semrush",
+    "bingpreview",
+    "curl",
+    "python-requests",
+    "uptime",
+    "statuscake",
+    "checkmk",
+)
 
 PREFERRED_TIMEZONES = [
     "America/New_York",
@@ -976,6 +1000,142 @@ def parse_medication_amount_details(amount_value: str | None):
 
 def parse_bool(value):
     return str(value).lower() in {"1", "true", "yes", "on"}
+
+
+def _homepage_report_hosts():
+    raw = (os.getenv("HOMEPAGE_REPORT_HOSTS") or "").strip()
+    if not raw:
+        return sorted(HOMEPAGE_REPORT_DEFAULT_HOSTS)
+    hosts = set()
+    for token in re.split(r"[,\s]+", raw):
+        value = token.strip().lower()
+        if not value:
+            continue
+        hosts.add(value.split(":", 1)[0])
+    return sorted(hosts) if hosts else sorted(HOMEPAGE_REPORT_DEFAULT_HOSTS)
+
+
+def _is_likely_bot_user_agent(user_agent: str | None):
+    agent = (user_agent or "").strip().lower()
+    if not agent:
+        return False
+    return any(hint in agent for hint in HOMEPAGE_BOT_HINTS)
+
+
+def _hash_homepage_value(value: str):
+    secret = str(current_app.config.get("SECRET_KEY") or "coachmim-secret")
+    payload = f"{secret}|{value}".encode("utf-8", errors="ignore")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _track_homepage_visit(response):
+    if not HOMEPAGE_TRACKING_ENABLED:
+        return response
+    if request.method != "GET" or request.path != "/":
+        return response
+    if _is_likely_bot_user_agent(request.headers.get("User-Agent")):
+        return response
+
+    try:
+        host = (request.host or "").split(":", 1)[0].strip().lower() or "unknown"
+        raw_token = (request.cookies.get(HOMEPAGE_VISITOR_COOKIE_NAME) or "").strip()
+        needs_cookie = len(raw_token) < 16
+        if needs_cookie:
+            raw_token = uuid4().hex
+
+        visitor_hash = _hash_homepage_value(raw_token)
+        user_agent_raw = (request.headers.get("User-Agent") or "").strip().lower()
+        user_agent_hash = _hash_homepage_value(user_agent_raw) if user_agent_raw else None
+
+        today = datetime.utcnow().date()
+        now_utc = datetime.utcnow()
+        visit = HomePageVisit.query.filter_by(
+            day=today,
+            host=host,
+            visitor_hash=visitor_hash,
+        ).first()
+        if not visit:
+            visit = HomePageVisit(
+                day=today,
+                host=host,
+                visitor_hash=visitor_hash,
+                user_id=(g.user.id if g.get("user") else None),
+                is_authenticated=bool(g.get("user")),
+                hit_count=1,
+                first_seen_at=now_utc,
+                last_seen_at=now_utc,
+                user_agent_hash=user_agent_hash,
+            )
+        else:
+            visit.hit_count = int(visit.hit_count or 0) + 1
+            visit.last_seen_at = now_utc
+            if g.get("user") and not visit.user_id:
+                visit.user_id = g.user.id
+            if g.get("user"):
+                visit.is_authenticated = True
+            if user_agent_hash and not visit.user_agent_hash:
+                visit.user_agent_hash = user_agent_hash
+        db.session.add(visit)
+        db.session.commit()
+
+        if needs_cookie:
+            response.set_cookie(
+                HOMEPAGE_VISITOR_COOKIE_NAME,
+                raw_token,
+                max_age=HOMEPAGE_VISITOR_COOKIE_MAX_AGE,
+                httponly=True,
+                secure=bool(current_app.config.get("SESSION_COOKIE_SECURE")),
+                samesite=current_app.config.get("SESSION_COOKIE_SAMESITE", "Lax"),
+                path="/",
+            )
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception("homepage visit tracking failed")
+    return response
+
+
+def _build_homepage_visitor_metrics():
+    hosts = _homepage_report_hosts()
+    today = date.today()
+    week_start = today - timedelta(days=6)
+    month_start = today - timedelta(days=29)
+
+    def _base_query(start_day: date, end_day: date):
+        query = HomePageVisit.query.filter(
+            HomePageVisit.day >= start_day,
+            HomePageVisit.day <= end_day,
+        )
+        if hosts:
+            query = query.filter(HomePageVisit.host.in_(hosts))
+        return query
+
+    today_rows = _base_query(today, today).subquery()
+    week_rows = _base_query(week_start, today).subquery()
+    month_rows = _base_query(month_start, today).subquery()
+
+    unique_today = db.session.query(func.count(func.distinct(today_rows.c.visitor_hash))).scalar() or 0
+    unique_7d = db.session.query(func.count(func.distinct(week_rows.c.visitor_hash))).scalar() or 0
+    unique_30d = db.session.query(func.count(func.distinct(month_rows.c.visitor_hash))).scalar() or 0
+
+    views_today = db.session.query(func.coalesce(func.sum(today_rows.c.hit_count), 0)).scalar() or 0
+    anonymous_today = (
+        db.session.query(func.count())
+        .select_from(today_rows)
+        .filter(today_rows.c.is_authenticated.is_(False))
+        .scalar()
+        or 0
+    )
+    last_seen_at = db.session.query(func.max(month_rows.c.last_seen_at)).scalar()
+
+    return {
+        "hosts": hosts,
+        "unique_today": int(unique_today),
+        "unique_7d": int(unique_7d),
+        "unique_30d": int(unique_30d),
+        "views_today": int(views_today),
+        "anonymous_today": int(anonymous_today),
+        "last_seen_at": last_seen_at,
+    }
 
 
 def parse_tags(raw_value):
@@ -4051,11 +4211,14 @@ def inject_user():
 def index():
     public_content = get_site_settings(["home_intro", "contact_email"])
     if g.user is None:
-        return render_template(
-            "index.html",
-            is_authenticated=False,
-            public_content=public_content,
+        response = make_response(
+            render_template(
+                "index.html",
+                is_authenticated=False,
+                public_content=public_content,
+            )
         )
+        return _track_homepage_visit(response)
 
     profile = get_or_create_profile(g.user)
     local_today = get_user_local_today(g.user)
@@ -4093,19 +4256,22 @@ def index():
         goals=goals,
         day_summary=home_day_summary,
     )
-    return render_template(
-        "index.html",
-        is_authenticated=True,
-        local_today=local_today,
-        missing_required=profile.missing_required_fields(),
-        weekly=weekly,
-        profile_nudge=profile_nudge,
-        goals=goals,
-        scoreboard=scoreboard,
-        home_ai_tip=home_ai_tip,
-        coach_overview=coach_overview,
-        public_content=public_content,
+    response = make_response(
+        render_template(
+            "index.html",
+            is_authenticated=True,
+            local_today=local_today,
+            missing_required=profile.missing_required_fields(),
+            weekly=weekly,
+            profile_nudge=profile_nudge,
+            goals=goals,
+            scoreboard=scoreboard,
+            home_ai_tip=home_ai_tip,
+            coach_overview=coach_overview,
+            public_content=public_content,
+        )
     )
+    return _track_homepage_visit(response)
 
 
 @bp.route("/register", methods=["GET", "POST"])
@@ -4336,6 +4502,7 @@ def admin_dashboard():
         ~User.email.in_(SYSTEM_USER_EMAILS),
         User.created_at >= datetime.utcnow() - timedelta(days=7),
     ).count()
+    visitor_metrics = _build_homepage_visitor_metrics()
 
     return render_template(
         "admin_dashboard.html",
@@ -4350,6 +4517,7 @@ def admin_dashboard():
         support_total_count=support_total_count,
         support_new_count=support_new_count,
         latest_support_messages=latest_support_messages,
+        visitor_metrics=visitor_metrics,
     )
 
 

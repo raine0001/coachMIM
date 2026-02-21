@@ -135,11 +135,17 @@ flask run
 - For production cookie security, set `SESSION_COOKIE_SECURE=true`.
 - For production encryption enforcement, set `ENCRYPTION_REQUIRED=true` and provide `ENCRYPTION_MASTER_KEY`.
 - Community auto-post automation:
-  - Set `COMMUNITY_AUTO_POST_TOKEN` in environment.
+  - Set `COMMUNITY_AUTO_POST_TOKEN` in the **web service** environment (and use the same value in cron job env).
   - Configure sources in Admin -> Community Content -> MIM Community Automation.
   - Create a Render Cron Job calling:
     - `POST https://your-domain/internal/community-auto-post?token=YOUR_TOKEN`
   - Schedule 2-3 runs/day (for example: `0 9,14,19 * * *` UTC).
+- Notification automation:
+  - Set `NOTIFICATION_AUTOMATION_TOKEN` in the **web service** environment (and use the same value in cron job env).
+  - Create a Render Cron Job calling:
+    - `POST https://your-domain/internal/notifications-dispatch?token=YOUR_TOKEN`
+  - Optional force run:
+    - `POST https://your-domain/internal/notifications-dispatch?token=YOUR_TOKEN&force=1`
 - Render memory note:
   - Ensure web service start command uses gunicorn config file:
     - `.venv/bin/python -m gunicorn -c gunicorn.conf.py wsgi:app`

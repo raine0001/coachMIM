@@ -253,6 +253,16 @@
       background: #f9fcff;
       font-size: 0.93rem;
     }
+    .inline-save-success {
+      margin: 8px 0 10px;
+      padding: 9px 11px;
+      border: 1px solid #b7ebcc;
+      border-radius: 8px;
+      background: #e9f9ef;
+      color: #067647;
+      font-size: 0.94rem;
+      font-weight: 600;
+    }
     .inline-list {
       margin: 0;
       padding-left: 18px;
@@ -591,6 +601,9 @@
 
   {% if manager_view == "checkin" %}
   <div class="card">
+    {% if inline_saved_message %}
+      <div class="inline-save-success">{{ inline_saved_message }}</div>
+    {% endif %}
     <form method="post" action="{{ url_for('main.checkin_save') }}">
       <input type="hidden" name="day" value="{{ selected_day }}" />
 
@@ -874,6 +887,9 @@
   {% elif manager_view == "meal" %}
   <div class="card">
     <h2>Meals For {{ selected_day }}</h2>
+    {% if inline_saved_message %}
+      <div class="inline-save-success">{{ inline_saved_message }}</div>
+    {% endif %}
     <p class="muted">Quick-log a meal for this day, or open full meal tools for builder/search/photos.</p>
     {% if edit_meal_entry %}
       <div class="edit-mode-banner">
@@ -1095,6 +1111,9 @@
   {% elif manager_view == "drink" %}
   <div class="card">
     <h2>Drinks For {{ selected_day }}</h2>
+    {% if inline_saved_message %}
+      <div class="inline-save-success">{{ inline_saved_message }}</div>
+    {% endif %}
     <p class="muted">Quick-log drinks separately to make caffeine/hydration timing easier to track.</p>
     <div class="quick-open-link">
       <a href="{{ url_for('main.recipe_calculator_page', day=selected_day, type='drink') }}">Open Recipe Calculator</a>
@@ -1292,6 +1311,9 @@
   {% elif manager_view == "substance" %}
   <div class="card">
     <h2>Substances For {{ selected_day }}</h2>
+    {% if inline_saved_message %}
+      <div class="inline-save-success">{{ inline_saved_message }}</div>
+    {% endif %}
     {% if edit_substance_entry %}
       <div class="edit-mode-banner">
         Editing substance entry from {{ edit_substance_entry.taken_at.strftime("%H:%M") }}. Update values, then press Update Substance Entry.
@@ -1438,6 +1460,9 @@
   {% elif manager_view == "activity" %}
   <div class="card">
     <h2>Activity For {{ selected_day }}</h2>
+    {% if inline_saved_message %}
+      <div class="inline-save-success">{{ inline_saved_message }}</div>
+    {% endif %}
     {% if edit_substance_entry %}
       <div class="edit-mode-banner">
         Editing activity entry from {{ edit_substance_entry.taken_at.strftime("%H:%M") }}. Update values, then press Update Activity Entry.
@@ -1612,6 +1637,9 @@
   {% elif manager_view == "medications" %}
   <div class="card">
     <h2>Medications / Supplements For {{ selected_day }}</h2>
+    {% if inline_saved_message %}
+      <div class="inline-save-success">{{ inline_saved_message }}</div>
+    {% endif %}
     {% if edit_substance_entry %}
       <div class="edit-mode-banner">
         Editing meds/supp entry from {{ edit_substance_entry.taken_at.strftime("%H:%M") }}. Update values, then press Update Med/Supp Entry.
@@ -1968,9 +1996,6 @@
             ? (config.mimHint || "Describe once and let MIM estimate this entry.")
             : (config.manualHint || "Enter values manually or load a favorite.");
 
-        if (sourceInput) {
-          sourceInput.required = activeMode === "manual";
-        }
         if (activeMode === "mim" && promptInput && sourceInput && !sanitizePrompt(promptInput.value)) {
           promptInput.value = sanitizePrompt(sourceInput.value);
         }
@@ -2044,8 +2069,9 @@
       if (!toggleButton || !panel || !promptInput || !runButton || !loadingRow || !statusEl || !sourceInput) {
         return;
       }
-
-      let panelOpened = false;
+      const methodMimButton = config.methodMimButtonId
+        ? document.getElementById(config.methodMimButtonId)
+        : null;
 
       async function runAssist() {
         const seedText = sanitizePrompt(promptInput.value) || sanitizePrompt(sourceInput.value);
@@ -2057,7 +2083,7 @@
 
         loadingRow.style.display = "";
         runButton.disabled = true;
-        statusEl.textContent = "";
+        statusEl.textContent = config.pendingPrompt || "MIM is working...";
 
         try {
           const response = await fetch(mimAssistEndpoint, {
@@ -2092,11 +2118,11 @@
       }
 
       toggleButton.addEventListener("click", () => {
-        panelOpened = !panelOpened;
-        panel.style.display = panelOpened ? "" : "none";
-        if (!panelOpened) {
-          return;
+        if (methodMimButton) {
+          methodMimButton.click();
         }
+        panel.style.display = "";
+        panel.scrollIntoView({ behavior: "smooth", block: "nearest" });
         if (!sanitizePrompt(promptInput.value)) {
           promptInput.value = sanitizePrompt(sourceInput.value);
         }
@@ -2145,6 +2171,7 @@
 
     wireMimAssist({
       context: "meal",
+      methodMimButtonId: "meal_method_mim_btn",
       toggleId: "meal_mim_toggle",
       panelId: "meal_mim_panel",
       promptId: "meal_mim_prompt",
@@ -2161,12 +2188,14 @@
         carbs_g: "meal_carbs_g",
         fat_g: "meal_fat_g"
       },
+      pendingPrompt: "MIM is estimating this meal now...",
       emptyPrompt: "Tell MIM what you ate and include ingredients/amounts.",
       greetingPrompt: "Hi there, tell MIM what was in this meal and I can start filling it."
     });
 
     wireMimAssist({
       context: "drink",
+      methodMimButtonId: "drink_method_mim_btn",
       toggleId: "drink_mim_toggle",
       panelId: "drink_mim_panel",
       promptId: "drink_mim_prompt",
@@ -2181,6 +2210,7 @@
         sugar_g: "drink_sugar_g",
         caffeine_mg: "drink_caffeine_mg"
       },
+      pendingPrompt: "MIM is estimating this drink now...",
       emptyPrompt: "Tell MIM what drink you had and rough amounts.",
       greetingPrompt: "Hi there, tell MIM what was in this drink and I can start filling it."
     });

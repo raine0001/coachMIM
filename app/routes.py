@@ -5582,9 +5582,23 @@ def internal_notifications_dispatch():
         or request.args.get("token")
         or request.form.get("token")
     )
-    expected = (os.getenv("NOTIFICATION_AUTOMATION_TOKEN") or "").strip()
+    expected = (
+        (os.getenv("NOTIFICATION_AUTOMATION_TOKEN") or "").strip()
+        or (os.getenv("COACHMIM_NOTIFICATIONS_TOKEN") or "").strip()
+    )
     if not expected:
-        return jsonify({"ok": False, "error": "NOTIFICATION_AUTOMATION_TOKEN is not configured."}), 503
+        return (
+            jsonify(
+                {
+                    "ok": False,
+                    "error": (
+                        "Notification token is not configured on the web service. "
+                        "Set NOTIFICATION_AUTOMATION_TOKEN (or COACHMIM_NOTIFICATIONS_TOKEN) in web env."
+                    ),
+                }
+            ),
+            503,
+        )
     if token != expected:
         return jsonify({"ok": False, "error": "Invalid token."}), 403
 
@@ -6435,9 +6449,23 @@ def internal_community_auto_post():
         or request.args.get("token")
         or request.form.get("token")
     )
-    expected = (os.getenv("COMMUNITY_AUTO_POST_TOKEN") or "").strip()
+    expected = (
+        (os.getenv("COMMUNITY_AUTO_POST_TOKEN") or "").strip()
+        or (os.getenv("COACHMIM_COMMUNITY_TOKEN") or "").strip()
+    )
     if not expected:
-        return jsonify({"ok": False, "error": "COMMUNITY_AUTO_POST_TOKEN is not configured."}), 503
+        return (
+            jsonify(
+                {
+                    "ok": False,
+                    "error": (
+                        "Community token is not configured on the web service. "
+                        "Set COMMUNITY_AUTO_POST_TOKEN (or COACHMIM_COMMUNITY_TOKEN) in web env."
+                    ),
+                }
+            ),
+            503,
+        )
     if token != expected:
         return jsonify({"ok": False, "error": "Invalid token."}), 403
 
@@ -7120,6 +7148,8 @@ def checkin_form():
     local_today = get_user_local_today(g.user)
     day_str = request.args.get("day")
     manager_view = (request.args.get("view") or "checkin").strip().lower()
+    saved_view = (request.args.get("saved") or "").strip().lower()
+    saved_action = (request.args.get("saved_action") or "").strip().lower()
     requested_segment = (request.args.get("segment") or "").strip().lower()
     if requested_segment not in {"sleep", "morning", "midday", "evening", "overall"}:
         requested_segment = None
@@ -7137,6 +7167,19 @@ def checkin_form():
     if selected_day > local_today:
         selected_day = local_today
         flash("Future check-ins are disabled. Showing current local day.", "error")
+
+    inline_saved_message = None
+    if saved_view == manager_view:
+        label_map = {
+            "checkin": "Check-in",
+            "meal": "Meal entry",
+            "drink": "Drink entry",
+            "substance": "Substance entry",
+            "activity": "Activity entry",
+            "medications": "Medication/supplement entry",
+        }
+        action_label = "updated" if saved_action == "updated" else "saved"
+        inline_saved_message = f"{label_map.get(manager_view, 'Entry')} {action_label} successfully."
 
     record = DailyCheckIn.query.filter_by(user_id=g.user.id, day=selected_day).first()
     today_record = DailyCheckIn.query.filter_by(user_id=g.user.id, day=local_today).first()
@@ -7319,6 +7362,7 @@ def checkin_form():
         selected_day_weekday=selected_day.strftime("%A"),
         selected_day_pretty=selected_day.strftime("%B %d, %Y"),
         manager_view=manager_view,
+        inline_saved_message=inline_saved_message,
         local_today=local_today.isoformat(),
         checked_in_today=checkin_has_any_data(today_record),
         selected_day_checked_in=checkin_has_any_data(record),
@@ -7459,7 +7503,15 @@ def checkin_save():
     db.session.add(record)
     db.session.commit()
     flash(f"Check-in saved for {selected_day.isoformat()}.", "success")
-    return redirect(url_for("main.checkin_form", day=selected_day.isoformat()))
+    return redirect(
+        url_for(
+            "main.checkin_form",
+            day=selected_day.isoformat(),
+            view="checkin",
+            saved="checkin",
+            saved_action="saved",
+        )
+    )
 
 
 @bp.post("/checkin/brain-spark")
@@ -7633,7 +7685,15 @@ def checkin_meal_quick_save():
     db.session.add(meal)
     db.session.commit()
     flash("Entry updated." if is_edit_mode else "Entry logged.", "success")
-    return redirect(url_for("main.checkin_form", day=selected_day.isoformat(), view=manager_view))
+    return redirect(
+        url_for(
+            "main.checkin_form",
+            day=selected_day.isoformat(),
+            view=manager_view,
+            saved=manager_view,
+            saved_action=("updated" if is_edit_mode else "saved"),
+        )
+    )
 
 
 @bp.post("/checkin/meal-quick/<int:meal_id>/delete")
@@ -7833,7 +7893,15 @@ def checkin_substance_quick_save():
     db.session.add(entry)
     db.session.commit()
     flash("Entry updated." if is_edit_mode else "Entry logged.", "success")
-    return redirect(url_for("main.checkin_form", day=selected_day.isoformat(), view=manager_view))
+    return redirect(
+        url_for(
+            "main.checkin_form",
+            day=selected_day.isoformat(),
+            view=manager_view,
+            saved=manager_view,
+            saved_action=("updated" if is_edit_mode else "saved"),
+        )
+    )
 
 
 @bp.post("/checkin/substance-quick/<int:entry_id>/delete")

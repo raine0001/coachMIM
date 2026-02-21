@@ -27,6 +27,8 @@ services:
         value: mailto:support@coachmim.com
       - key: NOTIFICATION_AUTOMATION_TOKEN
         sync: false
+      - key: COMMUNITY_AUTO_POST_TOKEN
+        sync: false
       - key: ENCRYPTION_MASTER_KEY
         sync: false
       - key: ENCRYPTION_REQUIRED

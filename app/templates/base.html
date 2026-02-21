@@ -171,6 +171,36 @@
         background: #fdeceb;
         color: var(--error);
       }
+      .toast-stack {
+        position: fixed;
+        top: 14px;
+        right: 14px;
+        z-index: 1300;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        pointer-events: none;
+      }
+      .toast {
+        background: #067647;
+        color: #fff;
+        border-radius: 999px;
+        padding: 8px 12px;
+        font-size: 0.84rem;
+        font-weight: 600;
+        box-shadow: 0 8px 18px rgba(6, 118, 71, 0.25);
+        opacity: 0;
+        transform: translateY(-8px);
+        transition: opacity 220ms ease, transform 220ms ease;
+      }
+      .toast.show {
+        opacity: 1;
+        transform: translateY(0);
+      }
+      .toast.hide {
+        opacity: 0;
+        transform: translateY(-8px);
+      }
       ul {
         padding-left: 20px;
       }
@@ -388,8 +418,18 @@
 
       {% with messages = get_flashed_messages(with_categories=true) %}
         {% if messages %}
+          <div id="toast-stack" class="toast-stack" aria-live="polite" aria-atomic="true">
+            {% for category, message in messages %}
+              {% if category == "success" %}
+                {% set toast_text = "Saved" if ("saved" in message|lower or "logged" in message|lower or "updated" in message|lower) else message %}
+                <div class="toast js-auto-toast">{{ toast_text }}</div>
+              {% endif %}
+            {% endfor %}
+          </div>
           {% for category, message in messages %}
-            <div class="flash {{ category }}">{{ message }}</div>
+            {% if category != "success" %}
+              <div class="flash {{ category }}">{{ message }}</div>
+            {% endif %}
           {% endfor %}
         {% endif %}
       {% endwith %}
@@ -462,6 +502,22 @@
       </footer>
     </div>
     <script>
+      (function () {
+        const toasts = document.querySelectorAll(".js-auto-toast");
+        if (!toasts.length) return;
+
+        toasts.forEach((toast, index) => {
+          const showDelayMs = 60 + (index * 80);
+          const visibleMs = 1900;
+          window.setTimeout(() => toast.classList.add("show"), showDelayMs);
+          window.setTimeout(() => {
+            toast.classList.remove("show");
+            toast.classList.add("hide");
+          }, showDelayMs + visibleMs);
+          window.setTimeout(() => toast.remove(), showDelayMs + visibleMs + 260);
+        });
+      })();
+
       (function () {
         const openBtn = document.getElementById("contact-support-open");
         const modal = document.getElementById("contact-support-modal");

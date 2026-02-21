@@ -962,7 +962,6 @@
                 name="description"
                 value="{{ edit_meal_entry.description if edit_meal_entry else '' }}"
                 placeholder="e.g., Turkey sandwich"
-                required
               />
               <button id="meal_mim_toggle" class="mim-icon-btn" type="button" title="Ask MIM for help" aria-label="Ask MIM for meal help">
                 <img class="mim-icon-img" src="{{ mim_logo_url }}" alt="MIM" />
@@ -1173,7 +1172,6 @@
                 name="description"
                 value="{{ edit_drink_entry.description if edit_drink_entry else '' }}"
                 placeholder="e.g., Iced coffee, Diet soda"
-                required
               />
               <button id="drink_mim_toggle" class="mim-icon-btn" type="button" title="Ask MIM for help" aria-label="Ask MIM for drink help">
                 <img class="mim-icon-img" src="{{ mim_logo_url }}" alt="MIM" />
@@ -1867,6 +1865,17 @@
           const favoriteNameField = document.getElementById(favoriteNameInputId);
           if (favoriteNameField && !favoriteNameField.value && selectedOption && selectedOption.value) {
             favoriteNameField.value = selectedOption.textContent.trim();
+          }
+        }
+
+        const descriptionFieldId = fieldMap["data-description"];
+        if (descriptionFieldId) {
+          const descriptionField = document.getElementById(descriptionFieldId);
+          if (descriptionField && selectedOption && selectedOption.value) {
+            const fallbackName = (selectedOption.textContent || "").trim();
+            if (!sanitizePrompt(descriptionField.value) && fallbackName) {
+              descriptionField.value = fallbackName;
+            }
           }
         }
       });

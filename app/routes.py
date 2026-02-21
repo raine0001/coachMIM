@@ -5577,11 +5577,12 @@ def run_notifications_dispatch(*, trigger: str = "cron", force: bool = False):
 
 @bp.route("/internal/notifications-dispatch", methods=["GET", "POST"])
 def internal_notifications_dispatch():
-    token = (
+    raw_token = (
         request.headers.get("X-Notifications-Token")
         or request.args.get("token")
         or request.form.get("token")
     )
+    token = (raw_token or "").strip()
     expected = (
         (os.getenv("NOTIFICATION_AUTOMATION_TOKEN") or "").strip()
         or (os.getenv("COACHMIM_NOTIFICATIONS_TOKEN") or "").strip()
@@ -5599,6 +5600,8 @@ def internal_notifications_dispatch():
             ),
             503,
         )
+    if not token:
+        return jsonify({"ok": False, "error": "Missing token in request."}), 400
     if token != expected:
         return jsonify({"ok": False, "error": "Invalid token."}), 403
 

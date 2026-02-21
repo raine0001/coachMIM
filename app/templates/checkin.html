@@ -599,6 +599,97 @@
     </div>
   </div>
 
+  <script>
+    window.mimInlineAssist = async function (opts) {
+      const cfg = opts || {};
+      const panel = document.getElementById(cfg.panelId || "");
+      const promptInput = document.getElementById(cfg.promptId || "");
+      const sourceInput = document.getElementById(cfg.sourceId || "");
+      const statusEl = document.getElementById(cfg.statusId || "");
+      const loadingRow = document.getElementById(cfg.loadingId || "");
+      const endpoint = cfg.endpoint || "{{ url_for('main.ai_day_manager_assist') }}";
+      const context = String(cfg.context || "meal").trim().toLowerCase();
+      const fieldMap = cfg.fieldMap && typeof cfg.fieldMap === "object" ? cfg.fieldMap : {};
+
+      if (panel) {
+        panel.style.display = "";
+      }
+      if (statusEl) {
+        statusEl.textContent = "MIM is estimating...";
+      }
+
+      const sourceText = sourceInput ? String(sourceInput.value || "").trim() : "";
+      if (promptInput && !String(promptInput.value || "").trim() && sourceText) {
+        promptInput.value = sourceText;
+      }
+      const promptText = promptInput ? String(promptInput.value || "").trim() : "";
+      const text = promptText || sourceText;
+      if (!text) {
+        if (statusEl) {
+          statusEl.textContent = "Tell MIM what you had and include amounts if possible.";
+        }
+        if (promptInput) {
+          promptInput.focus();
+        }
+        return false;
+      }
+
+      if (loadingRow) {
+        loadingRow.style.display = "";
+      }
+
+      try {
+        const response = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ context: context, text: text }),
+        });
+        const raw = await response.text();
+        let data = {};
+        try {
+          data = raw ? JSON.parse(raw) : {};
+        } catch (error) {
+          data = {};
+        }
+        if (!response.ok || !data.ok) {
+          throw new Error(data.error || "MIM assist failed.");
+        }
+
+        const suggested = data.suggested_fields && typeof data.suggested_fields === "object"
+          ? data.suggested_fields
+          : {};
+        Object.entries(fieldMap).forEach(([suggestedKey, fieldId]) => {
+          if (!(suggestedKey in suggested)) {
+            return;
+          }
+          const field = document.getElementById(fieldId);
+          if (!field) {
+            return;
+          }
+          const value = suggested[suggestedKey];
+          if (value === null || value === undefined || value === "") {
+            return;
+          }
+          field.value = String(value);
+        });
+
+        if (statusEl) {
+          statusEl.textContent = data.reply || "MIM prefilled this form. Review and save.";
+        }
+      } catch (error) {
+        if (statusEl) {
+          statusEl.textContent = (error && error.message) ? error.message : "MIM assist failed.";
+        }
+      } finally {
+        if (loadingRow) {
+          loadingRow.style.display = "none";
+        }
+      }
+
+      return false;
+    };
+  </script>
+
   {% if manager_view == "checkin" %}
   <div class="card">
     {% if inline_saved_message %}
@@ -979,7 +1070,14 @@
                 value="{{ edit_meal_entry.description if edit_meal_entry else '' }}"
                 placeholder="e.g., Turkey sandwich"
               />
-              <button id="meal_mim_toggle" class="mim-icon-btn" type="button" title="Ask MIM for help" aria-label="Ask MIM for meal help">
+              <button
+                id="meal_mim_toggle"
+                class="mim-icon-btn"
+                type="button"
+                title="Ask MIM for help"
+                aria-label="Ask MIM for meal help"
+                onclick="return window.mimInlineAssist({context:'meal',panelId:'meal_mim_panel',promptId:'meal_mim_prompt',sourceId:'meal_description',statusId:'meal_mim_status',loadingId:'meal_mim_loading',fieldMap:{description:'meal_description',label:'meal_label',portion_notes:'meal_portion_notes',calories:'meal_calories',protein_g:'meal_protein_g',carbs_g:'meal_carbs_g',fat_g:'meal_fat_g'}});"
+              >
                 <img class="mim-icon-img" src="{{ mim_logo_url }}" alt="MIM" />
               </button>
             </div>
@@ -1192,7 +1290,14 @@
                 value="{{ edit_drink_entry.description if edit_drink_entry else '' }}"
                 placeholder="e.g., Iced coffee, Diet soda"
               />
-              <button id="drink_mim_toggle" class="mim-icon-btn" type="button" title="Ask MIM for help" aria-label="Ask MIM for drink help">
+              <button
+                id="drink_mim_toggle"
+                class="mim-icon-btn"
+                type="button"
+                title="Ask MIM for help"
+                aria-label="Ask MIM for drink help"
+                onclick="return window.mimInlineAssist({context:'drink',panelId:'drink_mim_panel',promptId:'drink_mim_prompt',sourceId:'drink_description',statusId:'drink_mim_status',loadingId:'drink_mim_loading',fieldMap:{description:'drink_description',portion_notes:'drink_portion_notes',calories:'drink_calories',sugar_g:'drink_sugar_g',caffeine_mg:'drink_caffeine_mg'}});"
+              >
                 <img class="mim-icon-img" src="{{ mim_logo_url }}" alt="MIM" />
               </button>
             </div>
@@ -1987,10 +2092,11 @@
 
       function setMode(mode) {
         const activeMode = mode === "manual" ? "manual" : "mim";
+        const keepManualVisible = Boolean(config.keepManualVisibleInMim);
         mimButton.classList.toggle("active", activeMode === "mim");
         manualButton.classList.toggle("active", activeMode === "manual");
         mimPanel.style.display = activeMode === "mim" ? "" : "none";
-        manualPanel.style.display = activeMode === "manual" ? "" : "none";
+        manualPanel.style.display = (activeMode === "manual" || (activeMode === "mim" && keepManualVisible)) ? "" : "none";
         hintEl.textContent =
           activeMode === "mim"
             ? (config.mimHint || "Describe once and let MIM estimate this entry.")
@@ -2117,7 +2223,10 @@
         }
       }
 
-      toggleButton.addEventListener("click", () => {
+      toggleButton.addEventListener("click", (event) => {
+        if (event && event.defaultPrevented) {
+          return;
+        }
         if (methodMimButton) {
           methodMimButton.click();
         }
@@ -2151,6 +2260,7 @@
       hintId: "meal_method_hint",
       sourceFieldId: "meal_description",
       promptId: "meal_mim_prompt",
+      keepManualVisibleInMim: true,
       defaultMode: {{ "'manual'" if edit_meal_entry else "'mim'" }},
       mimHint: "Describe your meal and MIM will estimate calories/macros, then you can save or adjust.",
       manualHint: "Type meal details directly, or load a favorite and save."
@@ -2164,6 +2274,7 @@
       hintId: "drink_method_hint",
       sourceFieldId: "drink_description",
       promptId: "drink_mim_prompt",
+      keepManualVisibleInMim: true,
       defaultMode: {{ "'manual'" if edit_drink_entry else "'mim'" }},
       mimHint: "Describe the drink and MIM will estimate caffeine/sugar/calories quickly.",
       manualHint: "Enter drink details manually, or load a drink favorite."

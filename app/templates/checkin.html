@@ -938,7 +938,6 @@
           <button id="meal_method_manual_btn" class="entry-method-btn" type="button">Manual</button>
         </div>
         <p id="meal_method_hint" class="entry-method-hint"></p>
-        <button id="meal_mim_toggle" type="button" style="display: none;">Open MIM</button>
       </div>
 
       <div id="meal_mim_panel" class="mim-assist-panel" style="display: none;">
@@ -957,13 +956,18 @@
         <div class="grid">
           <div>
             <label for="meal_description">Meal Name</label>
-            <input
-              id="meal_description"
-              name="description"
-              value="{{ edit_meal_entry.description if edit_meal_entry else '' }}"
-              placeholder="e.g., Turkey sandwich"
-              required
-            />
+            <div class="mim-field-row">
+              <input
+                id="meal_description"
+                name="description"
+                value="{{ edit_meal_entry.description if edit_meal_entry else '' }}"
+                placeholder="e.g., Turkey sandwich"
+                required
+              />
+              <button id="meal_mim_toggle" class="mim-icon-btn" type="button" title="Ask MIM for help" aria-label="Ask MIM for meal help">
+                <img class="mim-icon-img" src="{{ mim_logo_url }}" alt="MIM" />
+              </button>
+            </div>
           </div>
           <div>
             <label for="meal_portion_notes">Portion Notes</label>
@@ -1145,7 +1149,6 @@
           <button id="drink_method_manual_btn" class="entry-method-btn" type="button">Manual</button>
         </div>
         <p id="drink_method_hint" class="entry-method-hint"></p>
-        <button id="drink_mim_toggle" type="button" style="display: none;">Open MIM</button>
       </div>
 
       <div id="drink_mim_panel" class="mim-assist-panel" style="display: none;">
@@ -1164,13 +1167,18 @@
         <div class="grid">
           <div>
             <label for="drink_description">Drink Name</label>
-            <input
-              id="drink_description"
-              name="description"
-              value="{{ edit_drink_entry.description if edit_drink_entry else '' }}"
-              placeholder="e.g., Iced coffee, Diet soda"
-              required
-            />
+            <div class="mim-field-row">
+              <input
+                id="drink_description"
+                name="description"
+                value="{{ edit_drink_entry.description if edit_drink_entry else '' }}"
+                placeholder="e.g., Iced coffee, Diet soda"
+                required
+              />
+              <button id="drink_mim_toggle" class="mim-icon-btn" type="button" title="Ask MIM for help" aria-label="Ask MIM for drink help">
+                <img class="mim-icon-img" src="{{ mim_logo_url }}" alt="MIM" />
+              </button>
+            </div>
           </div>
           <div>
             <label for="drink_portion_notes">Volume / Portion</label>

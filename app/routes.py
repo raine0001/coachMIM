@@ -5576,17 +5576,30 @@ def run_notifications_dispatch(*, trigger: str = "cron", force: bool = False):
 
 
 @bp.route("/internal/notifications-dispatch", methods=["GET", "POST"])
+@bp.route("/internal/notifications", methods=["GET", "POST"])
 def internal_notifications_dispatch():
     raw_token = (
         request.headers.get("X-Notifications-Token")
+        or request.headers.get("X-Community-Auto-Token")
         or request.args.get("token")
+        or request.args.get("auth")
+        or request.args.get("key")
         or request.form.get("token")
+        or request.form.get("auth")
+        or request.form.get("key")
     )
     token = (raw_token or "").strip()
-    expected = (
-        (os.getenv("NOTIFICATION_AUTOMATION_TOKEN") or "").strip()
-        or (os.getenv("COACHMIM_NOTIFICATIONS_TOKEN") or "").strip()
-    )
+    expected = ""
+    for env_key in (
+        "NOTIFICATION_AUTOMATION_TOKEN",
+        "COACHMIM_NOTIFICATIONS_TOKEN",
+        "COMMUNITY_AUTO_POST_TOKEN",
+        "COACHMIM_COMMUNITY_TOKEN",
+    ):
+        env_val = (os.getenv(env_key) or "").strip()
+        if env_val:
+            expected = env_val
+            break
     if not expected:
         return (
             jsonify(

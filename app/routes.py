@@ -2569,6 +2569,18 @@ def build_home_scoreboard_context(user: User, *, local_today: date):
         .all()
     )
     goal_action_days = {row.day for row in done_goal_actions}
+    active_goals = (
+        UserGoal.query.filter(
+            UserGoal.user_id == user.id,
+            UserGoal.status == "active",
+        )
+        .order_by(
+            UserGoal.target_date.asc().nulls_last(),
+            UserGoal.created_at.asc(),
+        )
+        .limit(16)
+        .all()
+    )
 
     checkin_by_day = {entry.day: entry for entry in checkins}
     meals_by_day: dict[date, list[Meal]] = defaultdict(list)
@@ -2642,11 +2654,423 @@ def build_home_scoreboard_context(user: User, *, local_today: date):
         return float(record.sleep_hours) >= 7.0 and int(record.sleep_quality) >= 8
 
     def day_goal_action_done(day_value: date):
+        if not active_goals:
+            return False
         return day_value in goal_action_days
 
     weekly_window_days = min(7, (local_today - history_start).days + 1)
+    week_days_desc = [local_today - timedelta(days=offset) for offset in range(weekly_window_days)]
 
-    def make_item(key: str, label: str, goal_line: str, condition_fn):
+    def _day_label(day_value: date):
+        return day_value.strftime("%a, %b %d")
+
+    def _meal_name(meal: Meal):
+        label = normalize_text(meal.description) or normalize_text(meal.label)
+        if label:
+            return label
+        return "Drink entry" if meal.is_beverage else "Meal entry"
+
+    def _score_row(day_value: date, *, ok: bool, reason: str, url: str):
+        return {
+            "day": day_value.isoformat(),
+            "day_label": _day_label(day_value),
+            "ok": bool(ok),
+            "reason": reason,
+            "url": url,
+        }
+
+    def build_alcohol_detail():
+        rows = []
+        for day_value in week_days_desc:
+            day_url = url_for("main.checkin_form", day=day_value.isoformat(), view="substance")
+            if not day_has_signal(day_value):
+                rows.append(
+                    _score_row(
+                        day_value,
+                        ok=False,
+                        reason="No check-in/meal/substance data logged for this day yet.",
+                        url=day_url,
+                    )
+                )
+                continue
+
+            record = checkin_by_day.get(day_value)
+            day_substances = substances_by_day.get(day_value, [])
+            checkin_drinks = float(record.alcohol_drinks or 0.0) if record and record.alcohol_drinks is not None else 0.0
+            alcohol_sub_logs = [entry for entry in day_substances if (entry.kind or "").strip().lower() == "alcohol"]
+            if checkin_drinks > 0 or alcohol_sub_logs:
+                reason_bits = []
+                if checkin_drinks > 0:
+                    reason_bits.append(f"check-in alcohol {checkin_drinks:g} drinks")
+                if alcohol_sub_logs:
+                    reason_bits.append(f"{len(alcohol_sub_logs)} alcohol substance log(s)")
+                rows.append(
+                    _score_row(
+                        day_value,
+                        ok=False,
+                        reason=f"Alcohol logged: {', '.join(reason_bits)}.",
+                        url=day_url,
+                    )
+                )
+            else:
+                rows.append(
+                    _score_row(
+                        day_value,
+                        ok=True,
+                        reason="No alcohol logged.",
+                        url=day_url,
+                    )
+                )
+
+        return {
+            "rule": "Counts on days with any data when alcohol is not logged in check-in or substances.",
+            "guidance": "If this is low, open the day and confirm alcohol values are accurate.",
+            "factors": [
+                "Check-in alcohol drinks field",
+                "Substance entries with kind=alcohol",
+                "Only days with any data are evaluated",
+            ],
+            "rows": rows,
+            "links": [
+                {"label": "Open today's substance log", "url": url_for("main.checkin_form", day=local_today.isoformat(), view="substance")},
+            ],
+        }
+
+    def build_low_sugar_detail():
+        rows = []
+        for day_value in week_days_desc:
+            day_url = url_for("main.checkin_form", day=day_value.isoformat(), view="meal")
+            if not day_has_signal(day_value):
+                rows.append(
+                    _score_row(
+                        day_value,
+                        ok=False,
+                        reason="No day data logged yet.",
+                        url=day_url,
+                    )
+                )
+                continue
+
+            day_meals = meals_by_day.get(day_value, [])
+            if not day_meals:
+                rows.append(
+                    _score_row(
+                        day_value,
+                        ok=False,
+                        reason="No meals/drinks logged, so sugar target cannot be evaluated.",
+                        url=day_url,
+                    )
+                )
+                continue
+
+            sugar_entries = []
+            for entry in day_meals:
+                if entry.sugar_g is None:
+                    continue
+                sugar_entries.append((_meal_name(entry), float(entry.sugar_g)))
+
+            if not sugar_entries:
+                rows.append(
+                    _score_row(
+                        day_value,
+                        ok=False,
+                        reason="Meals logged but sugar grams are missing.",
+                        url=day_url,
+                    )
+                )
+                continue
+
+            sugar_total = sum(value for _, value in sugar_entries)
+            if sugar_total <= 35.0:
+                rows.append(
+                    _score_row(
+                        day_value,
+                        ok=True,
+                        reason=f"Total sugar {sugar_total:.1f}g (target <=35g).",
+                        url=day_url,
+                    )
+                )
+            else:
+                top_sources = sorted(sugar_entries, key=lambda pair: pair[1], reverse=True)[:2]
+                top_text = ", ".join(f"{name} ({grams:.1f}g)" for name, grams in top_sources)
+                rows.append(
+                    _score_row(
+                        day_value,
+                        ok=False,
+                        reason=f"Total sugar {sugar_total:.1f}g (above 35g). Highest sources: {top_text}.",
+                        url=day_url,
+                    )
+                )
+
+        return {
+            "rule": "Counts when total logged sugar for the day is <=35g on meal-logged days.",
+            "guidance": "35g is CoachMIM's default behavior target, not a medical diagnosis threshold.",
+            "factors": [
+                "Total sugar from meal/drink entries with sugar values",
+                "Days without meal logs do not qualify",
+                "Personal targets vary by calorie intake, activity, and medical context",
+                "If you have diabetes/prediabetes, follow your clinician's target first",
+            ],
+            "rows": rows,
+            "links": [
+                {"label": "Open today's meal log", "url": url_for("main.checkin_form", day=local_today.isoformat(), view="meal")},
+                {"label": "Open recipe calculator", "url": url_for("main.recipe_calculator_page", day=local_today.isoformat(), type="meal")},
+            ],
+        }
+
+    def build_activity_detail():
+        rows = []
+        for day_value in week_days_desc:
+            day_url = url_for("main.checkin_form", day=day_value.isoformat(), view="activity")
+            if not day_has_signal(day_value):
+                rows.append(
+                    _score_row(
+                        day_value,
+                        ok=False,
+                        reason="No day data logged yet.",
+                        url=day_url,
+                    )
+                )
+                continue
+
+            record = checkin_by_day.get(day_value)
+            day_substances = substances_by_day.get(day_value, [])
+            from_substance_log = any((entry.kind or "").strip().lower() == "activity" for entry in day_substances)
+            from_checkin = bool(
+                record
+                and (
+                    normalize_text(record.workout_timing) is not None
+                    or record.workout_intensity is not None
+                )
+            )
+
+            if from_substance_log or from_checkin:
+                reason_bits = []
+                if from_checkin:
+                    reason_bits.append("workout captured in check-in")
+                if from_substance_log:
+                    reason_bits.append("activity entry logged")
+                rows.append(
+                    _score_row(
+                        day_value,
+                        ok=True,
+                        reason=f"Activity recorded ({', '.join(reason_bits)}).",
+                        url=day_url,
+                    )
+                )
+            else:
+                rows.append(
+                    _score_row(
+                        day_value,
+                        ok=False,
+                        reason="No workout/activity logged for this day.",
+                        url=day_url,
+                    )
+                )
+
+        return {
+            "rule": "Counts when workout/activity exists in check-in or Activity log.",
+            "guidance": "Log at least one movement block each day to keep this metric moving.",
+            "factors": [
+                "Check-in workout timing/intensity",
+                "Activity entries in Day Manager",
+                "Only days with any data are evaluated",
+            ],
+            "rows": rows,
+            "links": [
+                {"label": "Open today's activity log", "url": url_for("main.checkin_form", day=local_today.isoformat(), view="activity")},
+            ],
+        }
+
+    def build_low_stress_detail():
+        rows = []
+        for day_value in week_days_desc:
+            day_url = url_for("main.checkin_form", day=day_value.isoformat(), view="checkin")
+            if not day_has_signal(day_value):
+                rows.append(
+                    _score_row(
+                        day_value,
+                        ok=False,
+                        reason="No day data logged yet.",
+                        url=day_url,
+                    )
+                )
+                continue
+
+            stress_avg = _day_stress_average(checkin_by_day.get(day_value))
+            if stress_avg is None:
+                rows.append(
+                    _score_row(
+                        day_value,
+                        ok=False,
+                        reason="Stress ratings are missing in check-in segments.",
+                        url=day_url,
+                    )
+                )
+                continue
+            if stress_avg <= 3.0:
+                rows.append(
+                    _score_row(
+                        day_value,
+                        ok=True,
+                        reason=f"Stress average {stress_avg:.1f} (target <=3).",
+                        url=day_url,
+                    )
+                )
+            else:
+                rows.append(
+                    _score_row(
+                        day_value,
+                        ok=False,
+                        reason=f"Stress average {stress_avg:.1f} (above target <=3).",
+                        url=day_url,
+                    )
+                )
+
+        return {
+            "rule": "Counts when daily stress average across check-in segments is <=3.",
+            "guidance": "This is trend coaching only. If stress symptoms feel severe, seek clinical support.",
+            "factors": [
+                "Morning, midday, evening, and overall stress fields",
+                "Average is computed from available stress entries for the day",
+            ],
+            "rows": rows,
+            "links": [
+                {"label": "Open check-in stress fields", "url": url_for("main.checkin_form", day=local_today.isoformat(), view="checkin", segment="morning")},
+            ],
+        }
+
+    def build_sleep_detail():
+        rows = []
+        for day_value in week_days_desc:
+            day_url = url_for("main.checkin_form", day=day_value.isoformat(), view="checkin", segment="sleep")
+            if not day_has_signal(day_value):
+                rows.append(
+                    _score_row(
+                        day_value,
+                        ok=False,
+                        reason="No day data logged yet.",
+                        url=day_url,
+                    )
+                )
+                continue
+
+            record = checkin_by_day.get(day_value)
+            if not record:
+                rows.append(
+                    _score_row(
+                        day_value,
+                        ok=False,
+                        reason="No check-in record for sleep fields.",
+                        url=day_url,
+                    )
+                )
+                continue
+            if record.sleep_hours is None or record.sleep_quality is None:
+                missing_bits = []
+                if record.sleep_hours is None:
+                    missing_bits.append("sleep hours")
+                if record.sleep_quality is None:
+                    missing_bits.append("sleep quality")
+                rows.append(
+                    _score_row(
+                        day_value,
+                        ok=False,
+                        reason=f"Missing {', '.join(missing_bits)}.",
+                        url=day_url,
+                    )
+                )
+                continue
+
+            sleep_hours = float(record.sleep_hours)
+            sleep_quality = int(record.sleep_quality)
+            if sleep_hours >= 7.0 and sleep_quality >= 8:
+                rows.append(
+                    _score_row(
+                        day_value,
+                        ok=True,
+                        reason=f"{sleep_hours:.1f}h sleep and quality {sleep_quality}/10.",
+                        url=day_url,
+                    )
+                )
+            else:
+                rows.append(
+                    _score_row(
+                        day_value,
+                        ok=False,
+                        reason=f"{sleep_hours:.1f}h sleep and quality {sleep_quality}/10 (target: >=7h and >=8/10).",
+                        url=day_url,
+                    )
+                )
+
+        return {
+            "rule": "Counts when sleep hours >=7 and sleep quality >=8/10.",
+            "guidance": "If this is low, improve consistency first: bedtime window, caffeine timing, and screen cutoff.",
+            "factors": [
+                "Sleep Hours field in Sleep segment",
+                "Sleep Quality field in Sleep segment",
+            ],
+            "rows": rows,
+            "links": [
+                {"label": "Open sleep segment", "url": url_for("main.checkin_form", day=local_today.isoformat(), view="checkin", segment="sleep")},
+            ],
+        }
+
+    def build_goal_action_detail():
+        rows = []
+        for day_value in week_days_desc:
+            day_url = url_for("main.goals_page")
+            if not active_goals:
+                rows.append(
+                    _score_row(
+                        day_value,
+                        ok=False,
+                        reason="No active goals configured.",
+                        url=day_url,
+                    )
+                )
+                continue
+            if day_value in goal_action_days:
+                rows.append(
+                    _score_row(
+                        day_value,
+                        ok=True,
+                        reason="At least one goal action marked done.",
+                        url=day_url,
+                    )
+                )
+            else:
+                rows.append(
+                    _score_row(
+                        day_value,
+                        ok=False,
+                        reason="No goal action marked done.",
+                        url=day_url,
+                    )
+                )
+
+        goal_actions_preview = []
+        for goal in active_goals[:4]:
+            title = normalize_text(goal.title) or goal_type_label(goal.goal_type)
+            today_action = normalize_text(goal.today_action) or "Complete one measurable action for this goal."
+            goal_actions_preview.append(f"{title}: {today_action}")
+
+        return {
+            "rule": "Counts when at least one active-goal daily action is marked done for that day.",
+            "guidance": "If this is 0, either no active goals exist or actions were not checked off in My Goals.",
+            "factors": [
+                "Active goals with status=active",
+                "UserGoalAction rows marked done",
+                "Completion is binary per day: at least one done action",
+            ],
+            "rows": rows,
+            "goal_actions_preview": goal_actions_preview,
+            "links": [
+                {"label": "Open My Goals", "url": url_for("main.goals_page")},
+            ],
+        }
+
+    def make_item(key: str, label: str, goal_line: str, condition_fn, detail: dict):
         streak = _compute_current_streak(
             start_day=history_start,
             end_day=local_today,
@@ -2678,16 +3102,66 @@ def build_home_scoreboard_context(user: User, *, local_today: date):
             "status": status,
             "tone": tone,
             "today_ok": bool(condition_fn(local_today)),
+            "detail": detail,
         }
 
     items = [
-        make_item("alcohol_free", "No Alcohol", "No alcohol entries/logs", day_alcohol_free),
-        make_item("low_sugar", "Low Sugar Days", "<=35g sugar on logged days", day_low_sugar),
-        make_item("activity", "Activity Logged", "Workout/activity recorded", day_activity_logged),
-        make_item("low_stress", "Low Stress Days", "Average stress <=3", day_low_stress),
-        make_item("great_sleep", "Great Sleep", ">=7h and sleep quality >=8", day_great_sleep),
-        make_item("goal_action", "Goal Actions Done", "Daily goal action completed", day_goal_action_done),
+        make_item(
+            "alcohol_free",
+            "No Alcohol",
+            "No alcohol entries/logs",
+            day_alcohol_free,
+            build_alcohol_detail(),
+        ),
+        make_item(
+            "low_sugar",
+            "Low Sugar Days",
+            "<=35g sugar on logged days",
+            day_low_sugar,
+            build_low_sugar_detail(),
+        ),
+        make_item(
+            "activity",
+            "Activity Logged",
+            "Workout/activity recorded",
+            day_activity_logged,
+            build_activity_detail(),
+        ),
+        make_item(
+            "low_stress",
+            "Low Stress Days",
+            "Average stress <=3",
+            day_low_stress,
+            build_low_stress_detail(),
+        ),
+        make_item(
+            "great_sleep",
+            "Great Sleep",
+            ">=7h and sleep quality >=8",
+            day_great_sleep,
+            build_sleep_detail(),
+        ),
+        make_item(
+            "goal_action",
+            "Goal Actions Done",
+            "Daily goal action completed",
+            day_goal_action_done,
+            build_goal_action_detail(),
+        ),
     ]
+
+    for item in items:
+        detail = item.get("detail") or {}
+        rows = detail.get("rows") if isinstance(detail.get("rows"), list) else []
+        failed_rows = [row for row in rows if not row.get("ok")]
+        if item["week_hits"] <= 0:
+            detail["current_reason"] = failed_rows[0]["reason"] if failed_rows else "No qualifying day yet."
+        elif item["week_hits"] < weekly_window_days and failed_rows:
+            detail["current_reason"] = f"Next gap: {failed_rows[0]['reason']}"
+        else:
+            detail["current_reason"] = f"On target for all {weekly_window_days} days this week."
+        detail["score_definition"] = f"Day counts when: {item['goal_line']}."
+        item["detail"] = detail
 
     top_item = max(items, key=lambda item: (item["streak_days"], item["week_hits"])) if items else None
     lag_item = min(items, key=lambda item: (item["streak_days"], item["week_hits"])) if items else None
@@ -2711,6 +3185,7 @@ def build_home_scoreboard_context(user: User, *, local_today: date):
 
     return {
         "cards": items,
+        "window_days": weekly_window_days,
         "summary": ". ".join(summary_parts) + ".",
         "next_action": next_action,
     }

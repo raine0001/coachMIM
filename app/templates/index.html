@@ -190,6 +190,16 @@
       padding: 10px;
       background: #fff;
     }
+    .score-card-link {
+      display: block;
+      color: inherit;
+      text-decoration: none;
+    }
+    .score-card-link:hover .score-card,
+    .score-card-link:focus .score-card {
+      border-color: #86c7bb;
+      box-shadow: 0 0 0 2px rgba(15, 118, 110, 0.08);
+    }
     .score-card.strong {
       border-color: #9ad7cb;
       background: #f4fcfa;
@@ -206,6 +216,62 @@
       font-weight: 600;
       color: var(--muted);
       margin-left: 4px;
+    }
+    .score-detail-hint {
+      margin-top: 8px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--accent);
+    }
+    .score-detail-list {
+      margin-top: 14px;
+      display: grid;
+      gap: 10px;
+    }
+    .score-detail-card {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #fff;
+      padding: 10px;
+    }
+    .score-detail-card:target {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px rgba(15, 118, 110, 0.08);
+    }
+    .score-detail-card h3 {
+      margin: 0 0 6px;
+      font-size: 1.02rem;
+    }
+    .score-day-list {
+      list-style: none;
+      margin: 8px 0 0;
+      padding: 0;
+      display: grid;
+      gap: 6px;
+    }
+    .score-day-row {
+      border: 1px solid #e4ecf4;
+      border-radius: 8px;
+      padding: 7px 8px;
+      font-size: 0.93rem;
+      background: #fbfdff;
+    }
+    .score-day-row.ok {
+      border-color: #bfe5dc;
+      background: #f6fcfa;
+    }
+    .score-day-row strong {
+      display: inline-block;
+      min-width: 92px;
+    }
+    .score-detail-links {
+      margin-top: 8px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 10px;
+    }
+    .score-detail-links a {
+      font-size: 0.9rem;
     }
     .tip-source {
       font-size: 0.82rem;
@@ -304,24 +370,71 @@
       <p class="muted">{{ scoreboard.summary }}</p>
       <div class="scoreboard-grid">
         {% for item in scoreboard.cards %}
-          <div class="score-card {{ item.status }}">
-            <div class="muted">{{ item.label }}</div>
-            <div class="score-value">{{ item.streak_days }}<span>days</span></div>
-            <div class="muted">{{ item.goal_line }}</div>
-            <div class="muted" style="margin-top: 6px;">
-              {{ item.week_hits }} / 7 this week
-              {% if item.today_ok %}
-                • today done
-              {% endif %}
+          <a class="score-card-link" href="#score-detail-{{ item.key }}">
+            <div class="score-card {{ item.status }}">
+              <div class="muted">{{ item.label }}</div>
+              <div class="score-value">{{ item.streak_days }}<span>days</span></div>
+              <div class="muted">{{ item.goal_line }}</div>
+              <div class="muted" style="margin-top: 6px;">
+                {{ item.week_hits }} / {{ scoreboard.window_days }} this week
+                {% if item.today_ok %}
+                  - today done
+                {% endif %}
+              </div>
+              <div class="score-detail-hint">View why and how to improve</div>
             </div>
-          </div>
+          </a>
         {% endfor %}
       </div>
       {% if scoreboard.next_action %}
         <p class="muted" style="margin: 10px 0 0;">{{ scoreboard.next_action }}</p>
       {% endif %}
+      <div class="score-detail-list">
+        {% for item in scoreboard.cards %}
+          <section id="score-detail-{{ item.key }}" class="score-detail-card">
+            <h3>{{ item.label }} Details</h3>
+            <p class="muted" style="margin: 0 0 6px;">{{ item.detail.score_definition }}</p>
+            <p style="margin: 0 0 6px;">{{ item.detail.current_reason }}</p>
+            {% if item.detail.guidance %}
+              <p class="muted" style="margin: 0 0 6px;">{{ item.detail.guidance }}</p>
+            {% endif %}
+            {% if item.detail.factors %}
+              <ul style="margin: 0 0 6px;">
+                {% for factor in item.detail.factors %}
+                  <li>{{ factor }}</li>
+                {% endfor %}
+              </ul>
+            {% endif %}
+            {% if item.detail.goal_actions_preview %}
+              <div class="muted" style="margin: 6px 0 4px;"><strong>Active goal actions being tracked:</strong></div>
+              <ul style="margin: 0 0 6px;">
+                {% for action_line in item.detail.goal_actions_preview %}
+                  <li>{{ action_line }}</li>
+                {% endfor %}
+              </ul>
+            {% endif %}
+            {% if item.detail.rows %}
+              <ul class="score-day-list">
+                {% for row in item.detail.rows %}
+                  <li class="score-day-row {{ 'ok' if row.ok else '' }}">
+                    <strong>{{ row.day_label }}</strong>
+                    {{ row.reason }}
+                    <a href="{{ row.url }}">Open</a>
+                  </li>
+                {% endfor %}
+              </ul>
+            {% endif %}
+            {% if item.detail.links %}
+              <div class="score-detail-links">
+                {% for link in item.detail.links %}
+                  <a href="{{ link.url }}">{{ link.label }}</a>
+                {% endfor %}
+              </div>
+            {% endif %}
+          </section>
+        {% endfor %}
+      </div>
     </div>
-
     <div class="card">
       <h2>MIM Goal Pulse</h2>
       {% if goals.top_goal %}

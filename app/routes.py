@@ -174,7 +174,23 @@ GENERIC_MEAL_NAMES = {
     "custom entry",
     "custom built meal",
 }
-SEARCH_STOPWORDS = {"and", "or", "the", "a", "an", "of", "with", "to", "for"}
+SEARCH_STOPWORDS = {
+    "and",
+    "or",
+    "the",
+    "a",
+    "an",
+    "of",
+    "with",
+    "to",
+    "for",
+    "pure",
+    "organic",
+    "fresh",
+    "raw",
+    "unsweetened",
+    "dash",
+}
 DAY_MANAGER_VIEWS = {"checkin", "meal", "drink", "substance", "activity", "medications"}
 DAY_MANAGER_FAVORITE_SCOPE_PREFIX = "__dmv:"
 GOAL_DRAFT_SESSION_KEY = "goal_coach_draft"
@@ -318,6 +334,8 @@ FOOD_NUTRIENT_FIELDS = (
 )
 FOOD_QUERY_PREFIX_STRIP_WORDS = {"sliced", "chopped", "diced", "minced"}
 FOOD_QUERY_ALIAS_PATTERNS = (
+    (re.compile(r"\bcyder\b"), "cider"),
+    (re.compile(r"\bacv\b"), "apple cider vinegar"),
     (re.compile(r"\bpeper\b"), "pepper"),
     (re.compile(r"\bextra virgin olive oil\b"), "olive oil"),
     (re.compile(r"\bvirgin olive oil\b"), "olive oil"),
@@ -8362,21 +8380,25 @@ def score_food_match(query: str, tokens: list[str], item: FoodItem) -> float:
     ratio_name = SequenceMatcher(None, query_norm, name_norm).ratio() if name_norm else 0.0
     ratio = max(ratio_full, ratio_name)
 
+    item_tokens = set(tokenize_search_text(merged))
     token_hits = 0.0
+    exact_token_hits = 0
     for token in tokens:
-        if token in merged:
+        if token in item_tokens:
             token_hits += 1.0
+            exact_token_hits += 1
             continue
-        if len(token) >= 3 and token[:3] in merged:
-            token_hits += 0.75
+        if len(token) >= 5 and any(item_token.startswith(token[:4]) for item_token in item_tokens):
+            token_hits += 0.35
 
     token_score = token_hits / max(len(tokens), 1)
     score = (ratio * 0.72) + (token_score * 0.28)
 
     if name_norm.startswith(query_norm):
         score += 0.18
-    elif len(query_norm) >= 3 and query_norm[:3] in name_norm:
-        score += 0.06
+    if len(tokens) >= 2 and exact_token_hits == 0:
+        # Guard against high SequenceMatcher similarity on unrelated terms.
+        score = min(score, 0.39)
 
     if item.source == "seed":
         score += 0.03
@@ -8545,10 +8567,46 @@ def _find_seed_fallback_for_query(query_norm: str) -> FoodItem | None:
     return None
 
 
+def _get_seed_food(name: str) -> FoodItem | None:
+    item = FoodItem.query.filter_by(name=name, source="seed").first()
+    if item and not _food_item_has_missing_nutrition(item):
+        return item
+    return None
+
+
+def _find_direct_ingredient_override(query_norm: str) -> FoodItem | None:
+    q = normalize_food_query_text(query_norm)
+    if not q:
+        return None
+    words = q.split()
+
+    if "apple cider vinegar" in q:
+        return _get_seed_food("Apple cider vinegar")
+    if "lemon juice" in q:
+        return _get_seed_food("Lemon juice")
+
+    water_like = {"water", "ice", "water ice", "ice water"}
+    if q in water_like:
+        return _get_seed_food("Water")
+
+    if (
+        q in {"salt", "sea salt", "table salt", "kosher salt", "pink salt", "dash salt"}
+        or (q.endswith(" salt") and len(words) <= 3 and "seasoning" not in q)
+    ):
+        return _get_seed_food("Salt")
+
+    return None
+
+
 def find_best_food_item_match(query: str, require_nutrition: bool = False) -> tuple[FoodItem | None, float]:
     q = normalize_food_query_text(query)
     if len(q) < 2:
         return (None, 0.0)
+
+    if require_nutrition:
+        direct_override = _find_direct_ingredient_override(q)
+        if direct_override is not None:
+            return (direct_override, 0.98)
 
     tokens = tokenize_search_text(q)
     if not tokens:
@@ -9089,6 +9147,8 @@ def ai_day_manager_assist():
                 "unmatched_ingredients": [],
             }
         )
+
+    seed_common_foods_if_needed()
 
     try:
         parsed = parse_meal_sentence(text)

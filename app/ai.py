@@ -464,6 +464,10 @@ def _fallback_parse_meal_sentence(text: str) -> dict:
         return {"meal_title": None, "meal_label": None, "is_beverage": False, "ingredients": [], "source": "regex"}
 
     working = sentence
+    working = re.sub(r"\bdash(?:es)?\s+of\b", "0.125 tsp", working, flags=re.IGNORECASE)
+    working = re.sub(r"\bdash(?:es)?\b", "0.125 tsp", working, flags=re.IGNORECASE)
+    working = re.sub(r"\bpinch(?:es)?\s+of\b", "0.0625 tsp", working, flags=re.IGNORECASE)
+    working = re.sub(r"\bpinch(?:es)?\b", "0.0625 tsp", working, flags=re.IGNORECASE)
     working = re.sub(r"\btable\s*spoons?\b", "tablespoon", working, flags=re.IGNORECASE)
     working = re.sub(r"\btea\s*spoons?\b", "teaspoon", working, flags=re.IGNORECASE)
     working = re.sub(r"\b(?:using|utilizing|with|plus)\b", ",", working, flags=re.IGNORECASE)

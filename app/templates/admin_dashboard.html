@@ -69,6 +69,70 @@
   </div>
 
   <div class="card">
+    <h2>Automation Diagnostics</h2>
+    <div class="grid">
+      <div class="card" style="margin: 0;">
+        <h3>Community Cron</h3>
+        <div class="muted">Endpoint: <code>{{ automation_diag.community.endpoint }}</code></div>
+        <div class="muted">Web token source: <code>{{ automation_diag.community.token_source }}</code></div>
+        <div class="muted">Token fingerprint: <code>{{ automation_diag.community.token_fingerprint }}</code></div>
+        <div class="muted">Expected cron env var: <code>{{ automation_diag.community.expected_cron_var }}</code></div>
+        <div class="muted">
+          Status:
+          {% if automation_diag.community.token_configured %}
+            <span style="color: #067647; font-weight: 600;">ready</span>
+          {% else %}
+            <span style="color: #b42318; font-weight: 600;">missing token on web service</span>
+          {% endif %}
+        </div>
+        <form method="post" action="{{ url_for('main.admin_community_automation_run') }}" style="margin-top: 10px;">
+          <button type="submit">Run Community Automation Now</button>
+        </form>
+        <label style="margin-top: 10px;">Render cron command</label>
+        <pre style="margin: 0; padding: 10px; border: 1px solid #d7dee7; border-radius: 8px; overflow-x: auto; white-space: pre-wrap;">{{ automation_diag.community.curl_command }}</pre>
+      </div>
+
+      <div class="card" style="margin: 0;">
+        <h3>Notifications Cron</h3>
+        <div class="muted">Endpoint: <code>{{ automation_diag.notifications.endpoint }}</code></div>
+        <div class="muted">Web token source: <code>{{ automation_diag.notifications.token_source }}</code></div>
+        <div class="muted">Token fingerprint: <code>{{ automation_diag.notifications.token_fingerprint }}</code></div>
+        <div class="muted">Expected cron env var: <code>{{ automation_diag.notifications.expected_cron_var }}</code></div>
+        <div class="muted">
+          Status:
+          {% if automation_diag.notifications.token_configured %}
+            <span style="color: #067647; font-weight: 600;">ready</span>
+          {% else %}
+            <span style="color: #b42318; font-weight: 600;">missing token on web service</span>
+          {% endif %}
+        </div>
+        {% if automation_diag.notifications.uses_fallback_token %}
+          <div class="muted" style="color: #b42318;">
+            Warning: notifications are using community token fallback. Set <code>NOTIFICATION_AUTOMATION_TOKEN</code>.
+          </div>
+        {% endif %}
+        <form method="post" action="{{ url_for('main.admin_notifications_dispatch_run') }}" style="margin-top: 10px;">
+          <button type="submit">Run Notifications Dispatch Now</button>
+        </form>
+        <label style="margin-top: 10px;">Render cron command</label>
+        <pre style="margin: 0; padding: 10px; border: 1px solid #d7dee7; border-radius: 8px; overflow-x: auto; white-space: pre-wrap;">{{ automation_diag.notifications.curl_command }}</pre>
+      </div>
+
+      <div class="card" style="margin: 0;">
+        <h3>Push Service</h3>
+        <div class="muted"><code>pywebpush</code> available: <strong>{{ "yes" if automation_diag.push.pywebpush_available else "no" }}</strong></div>
+        <div class="muted">VAPID public key: <strong>{{ "set" if automation_diag.push.public_key_configured else "missing" }}</strong></div>
+        <div class="muted">VAPID private key: <strong>{{ "set" if automation_diag.push.private_key_configured else "missing" }}</strong></div>
+        <div class="muted">Push enabled in app: <strong>{{ "yes" if automation_diag.push.push_enabled else "no" }}</strong></div>
+        <div class="muted">Claims sub: <code>{{ automation_diag.push.claims_sub }}</code></div>
+        <div class="muted" style="margin-top: 8px;">
+          If push is not enabled, set <code>PUSH_VAPID_PUBLIC_KEY</code> and <code>PUSH_VAPID_PRIVATE_KEY</code> on the web service.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
     <h2>Recent Support Messages</h2>
     {% if latest_support_messages %}
       <div style="overflow-x: auto;">

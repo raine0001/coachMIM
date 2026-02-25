@@ -5461,6 +5461,80 @@ def set_site_setting(key: str, value: str | None):
     return row
 
 
+def _resolve_env_token(*env_keys: str):
+    for key in env_keys:
+        raw_value = os.getenv(key)
+        if raw_value is None:
+            continue
+        value = str(raw_value).strip()
+        if value:
+            return (key, value)
+    return (None, "")
+
+
+def _token_fingerprint(value: str | None):
+    token = (value or "").strip()
+    if not token:
+        return "missing"
+    digest = hashlib.sha256(token.encode("utf-8", errors="ignore")).hexdigest()[:12]
+    return f"sha256:{digest} | len:{len(token)}"
+
+
+def _build_automation_diagnostics():
+    site_base = get_canonical_site_base_url()
+
+    community_token_key, community_token = _resolve_env_token(
+        "COMMUNITY_AUTO_POST_TOKEN",
+        "COACHMIM_COMMUNITY_TOKEN",
+    )
+    notification_token_key, notification_token = _resolve_env_token(
+        "NOTIFICATION_AUTOMATION_TOKEN",
+        "COACHMIM_NOTIFICATIONS_TOKEN",
+        "COMMUNITY_AUTO_POST_TOKEN",
+        "COACHMIM_COMMUNITY_TOKEN",
+    )
+
+    push_public = (current_app.config.get("PUSH_VAPID_PUBLIC_KEY") or "").strip()
+    push_private = (current_app.config.get("PUSH_VAPID_PRIVATE_KEY") or "").strip()
+    push_claims_sub = (current_app.config.get("PUSH_VAPID_CLAIMS_SUB") or "").strip()
+
+    community_command = (
+        'curl -fsS -X POST --get --data-urlencode "token=${COMMUNITY_AUTO_POST_TOKEN}" '
+        f'"{site_base}/internal/community-auto-post"'
+    )
+    notifications_command = (
+        'curl -fsS -X POST --get --data-urlencode "token=${NOTIFICATION_AUTOMATION_TOKEN}" '
+        f'"{site_base}/internal/notifications-dispatch"'
+    )
+
+    return {
+        "community": {
+            "endpoint": f"{site_base}/internal/community-auto-post",
+            "token_source": community_token_key or "missing",
+            "token_configured": bool(community_token),
+            "token_fingerprint": _token_fingerprint(community_token),
+            "expected_cron_var": "COMMUNITY_AUTO_POST_TOKEN",
+            "curl_command": community_command,
+        },
+        "notifications": {
+            "endpoint": f"{site_base}/internal/notifications-dispatch",
+            "token_source": notification_token_key or "missing",
+            "token_configured": bool(notification_token),
+            "token_fingerprint": _token_fingerprint(notification_token),
+            "expected_cron_var": "NOTIFICATION_AUTOMATION_TOKEN",
+            "uses_fallback_token": notification_token_key in {"COMMUNITY_AUTO_POST_TOKEN", "COACHMIM_COMMUNITY_TOKEN"},
+            "curl_command": notifications_command,
+        },
+        "push": {
+            "pywebpush_available": webpush is not None,
+            "public_key_configured": bool(push_public),
+            "private_key_configured": bool(push_private),
+            "push_enabled": push_notifications_enabled(),
+            "claims_sub": push_claims_sub or "mailto:support@coachmim.com",
+        },
+    }
+
+
 def _clean_inline_text(value: str | None, max_len: int = 220):
     if value is None:
         return None
@@ -7711,6 +7785,7 @@ def admin_dashboard():
         User.created_at >= datetime.utcnow() - timedelta(days=7),
     ).count()
     visitor_metrics = _build_homepage_visitor_metrics()
+    automation_diag = _build_automation_diagnostics()
 
     return render_template(
         "admin_dashboard.html",
@@ -7726,7 +7801,24 @@ def admin_dashboard():
         support_new_count=support_new_count,
         latest_support_messages=latest_support_messages,
         visitor_metrics=visitor_metrics,
+        automation_diag=automation_diag,
     )
+
+
+@bp.post("/dontcrash/notifications/dispatch/run")
+@admin_login_required
+def admin_notifications_dispatch_run():
+    payload = run_notifications_dispatch(trigger=f"admin:{g.admin_user.username}", force=True)
+    flash(
+        (
+            "Notifications dispatch complete: "
+            f"processed {payload.get('processed_users', 0)} users, "
+            f"created {payload.get('created_notifications', 0)} notifications, "
+            f"failures {payload.get('failures', 0)}."
+        ),
+        "success",
+    )
+    return redirect(url_for("main.admin_dashboard"))
 
 
 @bp.get("/dontcrash/users")

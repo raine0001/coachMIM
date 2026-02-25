@@ -598,6 +598,31 @@
             </ul>
           </div>
         {% endif %}
+        {% if day_manager_live_coach.signals %}
+          <div style="margin-top: 10px;">
+            <div class="muted"><strong>MIM Live Review</strong></div>
+            <ul class="inline-list">
+              {% for signal in day_manager_live_coach.signals %}
+                <li>
+                  <strong>{{ signal.title }}:</strong> {{ signal.message }}
+                  {% if signal.action_url %}
+                    <a href="{{ signal.action_url }}">{{ signal.action_label }}</a>
+                  {% endif %}
+                </li>
+              {% endfor %}
+            </ul>
+          </div>
+        {% endif %}
+        {% if day_manager_live_coach.questions %}
+          <div style="margin-top: 8px;">
+            <div class="muted"><strong>MIM Follow-Up Questions</strong></div>
+            <ul class="inline-list">
+              {% for question in day_manager_live_coach.questions %}
+                <li>{{ question }}</li>
+              {% endfor %}
+            </ul>
+          </div>
+        {% endif %}
       </div>
       <div class="brain-spark-box">
         <h3>Brain Spark</h3>

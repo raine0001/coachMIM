@@ -2183,6 +2183,288 @@ def checkin_total_minutes(record: DailyCheckIn, segment_fields: list[str]):
     return total if has_value else None
 
 
+def _collect_checkin_note_text(record: DailyCheckIn | None):
+    if not record:
+        return ""
+    parts = [
+        normalize_text(record.sleep_notes),
+        normalize_text(record.morning_notes),
+        normalize_text(record.midday_notes),
+        normalize_text(record.evening_notes),
+        normalize_text(record.notes),
+        normalize_text(record.accomplishments),
+    ]
+    return " ".join(part for part in parts if part).strip().lower()
+
+
+def _detect_checkin_health_flags(record: DailyCheckIn | None):
+    text = _collect_checkin_note_text(record)
+    symptoms = record.symptoms if record and isinstance(record.symptoms, dict) else {}
+    symptom_keys = {str(key).strip().lower() for key in symptoms.keys()}
+
+    def _has_keywords(keywords: tuple[str, ...]):
+        return any(keyword in text for keyword in keywords)
+
+    cold_like = _has_keywords(
+        (
+            "cold",
+            "flu",
+            "cough",
+            "sore throat",
+            "congestion",
+            "runny nose",
+            "chills",
+            "body ache",
+        )
+    ) or bool(symptom_keys.intersection({"cough", "sore_throat", "congestion", "chills"}))
+    fever_like = _has_keywords(("fever", "temperature", "temp", "hot and cold", "feverish")) or "fever" in symptom_keys
+    dizzy_like = _has_keywords(("dizzy", "lightheaded", "faint", "weak", "shaky")) or bool(
+        symptom_keys.intersection({"dizziness", "lightheaded"})
+    )
+    headache_like = _has_keywords(("headache", "migraine", "head pain")) or "headache" in symptom_keys
+    gi_like = _has_keywords(("nausea", "nauseous", "stomach", "vomit", "diarrhea", "cramp", "bloat")) or bool(
+        symptom_keys.intersection({"nausea", "stomach", "bloat", "diarrhea"})
+    )
+    return {
+        "cold_like": cold_like,
+        "fever_like": fever_like,
+        "dizzy_like": dizzy_like,
+        "headache_like": headache_like,
+        "gi_like": gi_like,
+    }
+
+
+def _meal_frequency_energy_correlation(*, checkins: list[DailyCheckIn], meals_by_day: dict[date, list[Meal]]):
+    low_meal_energy = []
+    regular_meal_energy = []
+    low_meal_focus = []
+    regular_meal_focus = []
+
+    for row in checkins:
+        day_meals = [meal for meal in meals_by_day.get(row.day, []) if not meal.is_beverage]
+        meal_count = len(day_meals)
+        energy_value = checkin_metric_value(
+            row,
+            "energy",
+            ["morning_energy", "midday_energy", "evening_energy"],
+        )
+        focus_value = checkin_metric_value(
+            row,
+            "focus",
+            ["morning_focus", "midday_focus", "evening_focus"],
+        )
+        if meal_count <= 1:
+            if energy_value is not None:
+                low_meal_energy.append(float(energy_value))
+            if focus_value is not None:
+                low_meal_focus.append(float(focus_value))
+        elif meal_count >= 2:
+            if energy_value is not None:
+                regular_meal_energy.append(float(energy_value))
+            if focus_value is not None:
+                regular_meal_focus.append(float(focus_value))
+
+    energy_delta = None
+    focus_delta = None
+    if len(low_meal_energy) >= 2 and len(regular_meal_energy) >= 2:
+        energy_delta = (sum(regular_meal_energy) / len(regular_meal_energy)) - (
+            sum(low_meal_energy) / len(low_meal_energy)
+        )
+    if len(low_meal_focus) >= 2 and len(regular_meal_focus) >= 2:
+        focus_delta = (sum(regular_meal_focus) / len(regular_meal_focus)) - (
+            sum(low_meal_focus) / len(low_meal_focus)
+        )
+
+    return {
+        "low_days": len(low_meal_energy),
+        "regular_days": len(regular_meal_energy),
+        "energy_delta": energy_delta,
+        "focus_delta": focus_delta,
+    }
+
+
+def build_day_manager_live_coaching_context(
+    *,
+    user: User,
+    selected_day: date,
+    local_today: date,
+    record: DailyCheckIn | None,
+    selected_segments: dict[str, bool],
+    day_food_entries: list[Meal],
+    day_drink_entries: list[Meal],
+    day_activity_entries: list[Substance],
+):
+    zone = get_user_zoneinfo(user)
+    local_now = datetime.now(zone)
+    is_today = selected_day == local_today
+    current_hour = local_now.hour if is_today else 23
+
+    lookback_days = 14
+    history_start = local_today - timedelta(days=lookback_days - 1)
+    history_checkins = (
+        DailyCheckIn.query.filter(
+            DailyCheckIn.user_id == user.id,
+            DailyCheckIn.day >= history_start,
+            DailyCheckIn.day <= local_today,
+        )
+        .order_by(DailyCheckIn.day.asc())
+        .all()
+    )
+    for row in history_checkins:
+        hydrate_checkin_secure_fields(user, row)
+
+    history_start_dt, _ = day_bounds(history_start)
+    _, history_end_dt = day_bounds(local_today)
+    history_meals = (
+        Meal.query.filter(
+            Meal.user_id == user.id,
+            Meal.eaten_at >= history_start_dt,
+            Meal.eaten_at < history_end_dt,
+        )
+        .order_by(Meal.eaten_at.asc())
+        .all()
+    )
+    for row in history_meals:
+        hydrate_meal_secure_fields(user, row)
+    meals_by_day: dict[date, list[Meal]] = defaultdict(list)
+    for row in history_meals:
+        meals_by_day[row.eaten_at.date()].append(row)
+
+    meal_pattern = _meal_frequency_energy_correlation(checkins=history_checkins, meals_by_day=meals_by_day)
+    signals = []
+
+    def add_signal(priority: int, title: str, message: str, action_label: str, action_url: str):
+        signals.append(
+            {
+                "priority": int(priority),
+                "title": title,
+                "message": message,
+                "action_label": action_label,
+                "action_url": action_url,
+            }
+        )
+
+    if is_today and current_hour >= 14 and not day_food_entries:
+        correlation_text = ""
+        energy_delta = meal_pattern.get("energy_delta")
+        if energy_delta is not None and energy_delta >= 0.6:
+            correlation_text = (
+                f" In your recent data, days with 2+ meals averaged about {energy_delta:.1f} higher energy."
+            )
+        add_signal(
+            100,
+            "No meals logged yet today",
+            "Not eating all day can cause fatigue, irritability, dizziness, and low concentration from low blood sugar."
+            f"{correlation_text}",
+            "Log a quick meal now",
+            url_for("main.checkin_form", day=selected_day.isoformat(), view="meal"),
+        )
+
+    if is_today and current_hour >= 16 and not day_drink_entries:
+        add_signal(
+            86,
+            "Hydration gap detected",
+            "No drinks are logged yet today. Low hydration can mimic low-energy and headache symptoms.",
+            "Log your next drink",
+            url_for("main.checkin_form", day=selected_day.isoformat(), view="drink"),
+        )
+
+    if is_today and current_hour >= 18 and not day_activity_entries:
+        add_signal(
+            84,
+            "Activity is low so far today",
+            "A short movement block can improve energy, mood, and evening sleep quality.",
+            "Log a 15-20 min walk",
+            url_for("main.checkin_form", day=selected_day.isoformat(), view="activity"),
+        )
+
+    expected_segments = expected_checkin_segments_for_day(
+        selected_day,
+        local_today=local_today,
+        local_hour=current_hour,
+    )
+    _, missing_segments = compute_expected_segment_completion(record, expected_segments)
+    if missing_segments:
+        first_missing = missing_segments[0]
+        add_signal(
+            82,
+            "Check-in segments still missing",
+            f"Missing segments reduce coaching precision. Next required segment: {CHECKIN_SEGMENT_LABELS[first_missing]}.",
+            f"Complete {CHECKIN_SEGMENT_LABELS[first_missing]}",
+            url_for("main.checkin_form", day=selected_day.isoformat(), view="checkin", segment=first_missing),
+        )
+
+    flags = _detect_checkin_health_flags(record)
+    follow_up_questions = []
+    if flags["cold_like"] or flags["fever_like"]:
+        add_signal(
+            96,
+            "You logged cold/fever-type symptoms",
+            (
+                "General coaching only: prioritize rest, fluids, and lighter meals. "
+                "If appropriate for you, common OTC symptom relief may help. "
+                "If symptoms are severe, worsening, or include breathing/chest issues, seek clinical care."
+            ),
+            "Update symptom notes",
+            url_for("main.checkin_form", day=selected_day.isoformat(), view="checkin", segment="overall"),
+        )
+        follow_up_questions.extend(
+            [
+                "Do you know your current temperature?",
+                "Are symptoms improving, stable, or worsening since yesterday?",
+                "Any breathing trouble, chest pain, or severe dehydration signs?",
+            ]
+        )
+
+    if flags["dizzy_like"] and (is_today and not day_food_entries):
+        add_signal(
+            97,
+            "Dizziness + no meals logged",
+            "Low intake can contribute to dizziness. Add a simple carb + protein snack and hydrate now.",
+            "Log a quick snack",
+            url_for("main.checkin_form", day=selected_day.isoformat(), view="meal"),
+        )
+
+    if flags["headache_like"]:
+        sleep_hours = float(record.sleep_hours) if record and record.sleep_hours is not None else None
+        headache_hint = "Hydration and meal timing often reduce headache volatility."
+        if sleep_hours is not None and sleep_hours < 6.5:
+            headache_hint = "You also logged lower sleep; sleep debt can amplify headache frequency/intensity."
+        add_signal(
+            78,
+            "Headache signal in notes",
+            headache_hint,
+            "Capture sleep + hydration details",
+            url_for("main.checkin_form", day=selected_day.isoformat(), view="checkin", segment="sleep"),
+        )
+
+    if flags["gi_like"]:
+        add_signal(
+            76,
+            "GI symptoms noted",
+            "Track meal timing, high-fat/high-sugar triggers, and hydration to isolate patterns.",
+            "Log meal details now",
+            url_for("main.checkin_form", day=selected_day.isoformat(), view="meal"),
+        )
+        follow_up_questions.append("Was this before or after a specific meal or drink?")
+
+    signals.sort(key=lambda row: row["priority"], reverse=True)
+    unique_questions = []
+    for question in follow_up_questions:
+        cleaned = normalize_text(question)
+        if not cleaned:
+            continue
+        if cleaned in unique_questions:
+            continue
+        unique_questions.append(cleaned)
+
+    return {
+        "signals": signals[:4],
+        "questions": unique_questions[:3],
+        "has_symptom_flags": any(flags.values()),
+    }
+
+
 CHECKIN_SEGMENT_ORDER = ["sleep", "morning", "midday", "evening", "overall"]
 CHECKIN_SEGMENT_LABELS = {
     "sleep": "Sleep",
@@ -4276,6 +4558,13 @@ def build_home_actionable_report(
     substances_by_day: dict[date, list[Substance]] = defaultdict(list)
     for entry in substances:
         substances_by_day[entry.taken_at.date()].append(entry)
+    local_now = datetime.now(get_user_zoneinfo(user))
+    today_food_entries = [meal for meal in meals_by_day.get(local_today, []) if not meal.is_beverage]
+    today_drink_entries = [meal for meal in meals_by_day.get(local_today, []) if meal.is_beverage]
+    today_activity_entries = [
+        entry for entry in substances_by_day.get(local_today, []) if (entry.kind or "").strip().lower() == "activity"
+    ]
+    today_record = checkin_by_day.get(local_today)
 
     def _focus_value(record: DailyCheckIn | None):
         if not record:
@@ -4318,6 +4607,64 @@ def build_home_actionable_report(
                 "action": action,
                 "url": url,
             }
+        )
+
+    meal_pattern = _meal_frequency_energy_correlation(checkins=checkins, meals_by_day=meals_by_day)
+    if local_now.hour >= 14 and not today_food_entries:
+        energy_delta = meal_pattern.get("energy_delta")
+        correlation_text = ""
+        if energy_delta is not None and energy_delta >= 0.6:
+            correlation_text = f" Your recent trend shows ~{energy_delta:.1f}/10 higher energy on days with 2+ meals."
+        add_insight(
+            101,
+            "No meals logged yet today",
+            (
+                "Not eating all day can cause fatigue, dizziness, irritability, and weaker concentration from low blood sugar."
+                f"{correlation_text}"
+            ),
+            "Log a quick meal now (carb + protein) and reassess energy 60-90 minutes later.",
+            url_for("main.checkin_form", day=local_today.isoformat(), view="meal"),
+        )
+
+    if local_now.hour >= 16 and not today_drink_entries:
+        add_insight(
+            87,
+            "Hydration gap this afternoon",
+            "No drinks are logged yet today. Hydration gaps can mimic low-energy and headache symptoms.",
+            "Log water now and track your next 2 drink entries today.",
+            url_for("main.checkin_form", day=local_today.isoformat(), view="drink"),
+        )
+
+    if local_now.hour >= 18 and not today_activity_entries:
+        add_insight(
+            85,
+            "No activity logged yet today",
+            "A short movement block often improves evening mood, stress, and sleep quality.",
+            "Complete and log a 15-20 minute walk today.",
+            url_for("main.checkin_form", day=local_today.isoformat(), view="activity"),
+        )
+
+    note_flags = _detect_checkin_health_flags(today_record)
+    if note_flags["cold_like"] or note_flags["fever_like"]:
+        add_insight(
+            99,
+            "You logged feeling sick today",
+            (
+                "General coaching only: rest, fluids, and lighter meals are usually helpful for cold-like symptoms. "
+                "OTC symptom relief can be considered if safe for you. "
+                "If symptoms are severe, worsening, or include breathing/chest issues, seek clinical care."
+            ),
+            "Update symptom notes and severity so MIM can track your recovery trend.",
+            url_for("main.checkin_form", day=local_today.isoformat(), view="checkin", segment="overall"),
+        )
+
+    if note_flags["dizzy_like"] and not today_food_entries and local_now.hour >= 12:
+        add_insight(
+            98,
+            "Dizziness noted with low intake",
+            "Dizziness can worsen when intake is very low. A simple snack + hydration can stabilize symptoms quickly.",
+            "Log a quick snack and hydration now, then re-check energy/focus in 1 hour.",
+            url_for("main.checkin_form", day=local_today.isoformat(), view="meal"),
         )
 
     low_sleep_focus = []
@@ -4414,6 +4761,30 @@ def build_home_actionable_report(
                 "Lower one high-sugar entry per day and re-check your energy trend next week.",
                 url_for("main.checkin_form", day=local_today.isoformat(), view="meal"),
             )
+
+    if meal_pattern.get("energy_delta") is not None and meal_pattern["energy_delta"] >= 0.6:
+        add_insight(
+            89,
+            "Meal frequency appears linked to energy",
+            (
+                f"In your recent data, days with 2+ meals show about {meal_pattern['energy_delta']:.1f}/10 higher energy "
+                "than days with 0-1 meal."
+            ),
+            "Keep consistent meal timing through midday and compare next-week energy trend.",
+            url_for("main.checkin_form", day=local_today.isoformat(), view="meal"),
+        )
+
+    if meal_pattern.get("focus_delta") is not None and meal_pattern["focus_delta"] >= 0.5:
+        add_insight(
+            83,
+            "Meal frequency appears linked to focus",
+            (
+                f"Your focus is about {meal_pattern['focus_delta']:.1f}/10 higher on days with 2+ meals "
+                "versus low-intake days."
+            ),
+            "Front-load one balanced meal before your main work block.",
+            url_for("main.checkin_form", day=local_today.isoformat(), view="meal"),
+        )
 
     workout_productivity = []
     non_workout_productivity = []
@@ -8418,6 +8789,16 @@ def checkin_form():
         fallback_tip=day_manager_tip,
         day_summary=day_summary,
     )
+    day_manager_live_coach = build_day_manager_live_coaching_context(
+        user=g.user,
+        selected_day=selected_day,
+        local_today=local_today,
+        record=record,
+        selected_segments=selected_segments,
+        day_food_entries=day_food_entries,
+        day_drink_entries=day_drink_entries,
+        day_activity_entries=day_activity_entries,
+    )
     brain_spark = build_brain_spark_context(selected_day=selected_day, manager_view=manager_view)
 
     prev_day = selected_day - timedelta(days=1)
@@ -8439,6 +8820,7 @@ def checkin_form():
         checkin_default_tab=checkin_default_tab,
         day_manager_tip=day_manager_tip,
         day_manager_tip_personalized=day_manager_tip_personalized,
+        day_manager_live_coach=day_manager_live_coach,
         brain_spark=brain_spark,
         history_rows=history_rows,
         prev_day=prev_day.isoformat(),

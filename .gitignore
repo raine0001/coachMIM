@@ -7,3 +7,8 @@ instance/
 app/static/uploads/*
 !app/static/uploads/.gitkeep
 migrations/__pycache__/
+
+# Local secrets / key material
+private_key.pem
+public_key.pem
+*vapid*.pem

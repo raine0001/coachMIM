@@ -271,6 +271,43 @@
     .inline-list li {
       margin-bottom: 6px;
     }
+    .coach-signal-list {
+      margin-top: 8px;
+      display: grid;
+      gap: 10px;
+    }
+    .coach-signal-card {
+      border: 1px solid #d7dee7;
+      border-radius: 8px;
+      padding: 9px 10px;
+      background: #fff;
+    }
+    .coach-signal-card p {
+      margin: 0 0 6px;
+      font-size: 0.94rem;
+      line-height: 1.35;
+    }
+    .coach-response-form {
+      display: grid;
+      grid-template-columns: 1fr 1fr auto;
+      gap: 8px;
+      align-items: center;
+      margin-top: 6px;
+    }
+    .coach-response-form select,
+    .coach-response-form input {
+      margin: 0;
+    }
+    .coach-response-form button {
+      white-space: nowrap;
+      padding: 8px 10px;
+    }
+    .coach-response-summary {
+      font-size: 0.88rem;
+      color: #0f766e;
+      font-weight: 600;
+      margin-top: 4px;
+    }
     .quick-open-link {
       margin-bottom: 10px;
     }
@@ -514,6 +551,9 @@
       .mim-icon-btn {
         min-width: 44px;
       }
+      .coach-response-form {
+        grid-template-columns: 1fr;
+      }
     }
   </style>
 
@@ -601,17 +641,38 @@
         {% if day_manager_live_coach.signals %}
           <div style="margin-top: 10px;">
             <div class="muted"><strong>MIM Live Review</strong></div>
-            <ul class="inline-list">
+            <div class="coach-signal-list">
               {% for signal in day_manager_live_coach.signals %}
-                <li>
-                  <strong>{{ signal.title }}:</strong> {{ signal.message }}
+                <div class="coach-signal-card" id="coach-signal-{{ signal.key }}">
+                  <p><strong>{{ signal.title }}:</strong> {{ signal.message }}</p>
                   {% if signal.action_url %}
-                    <a href="{{ signal.action_url }}">{{ signal.action_label }}</a>
+                    <p><a href="{{ signal.action_url }}">{{ signal.action_label }}</a></p>
                   {% endif %}
-                </li>
+                  {% if signal.latest_response %}
+                    <div class="coach-response-summary">Last response: {{ signal.latest_response }}</div>
+                  {% endif %}
+                  <form class="coach-response-form" method="post" action="{{ url_for('main.checkin_coach_feedback_save') }}">
+                    <input type="hidden" name="day" value="{{ selected_day }}" />
+                    <input type="hidden" name="view" value="{{ manager_view }}" />
+                    <input type="hidden" name="signal_key" value="{{ signal.key }}" />
+                    <input type="hidden" name="signal_title" value="{{ signal.title }}" />
+                    <input type="hidden" name="signal_message" value="{{ signal.message }}" />
+                    <select name="response_action" aria-label="Response action">
+                      <option value="done">Done</option>
+                      <option value="need_help">Need Help</option>
+                      <option value="not_now">Not Now</option>
+                      <option value="note">Just Note</option>
+                    </select>
+                    <input type="text" name="response_text" placeholder="Add context (optional)" />
+                    <button type="submit">Save</button>
+                  </form>
+                </div>
               {% endfor %}
-            </ul>
+            </div>
           </div>
+        {% endif %}
+        {% if day_manager_live_coach.response_summary %}
+          <p class="muted" style="margin: 8px 0 0;">{{ day_manager_live_coach.response_summary }}</p>
         {% endif %}
         {% if day_manager_live_coach.questions %}
           <div style="margin-top: 8px;">

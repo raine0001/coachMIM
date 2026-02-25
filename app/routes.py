@@ -71,6 +71,7 @@ from app.models import (
     Substance,
     SupportMessage,
     User,
+    UserCoachSignalResponse,
     UserNotification,
     UserNotificationPreference,
     UserPushSubscription,
@@ -457,6 +458,7 @@ NOTIFICATION_KIND_LABELS = {
     "motivation": "MIM motivation",
     "reengagement": "We miss you",
 }
+COACH_RESPONSE_ACTIONS = {"done", "need_help", "not_now", "note"}
 PUSH_SUBSCRIPTION_MAX_PER_USER = int(os.getenv("PUSH_SUBSCRIPTION_MAX_PER_USER", "8"))
 
 PROFILE_ENCRYPTED_FIELDS = [
@@ -549,6 +551,7 @@ FAVORITE_ENCRYPTED_FIELDS = [
 SUBSTANCE_ENCRYPTED_FIELDS = ["amount", "notes"]
 CHAT_ENCRYPTED_FIELDS = ["content"]
 COACH_INSIGHT_ENCRYPTED_FIELDS = ["tip_title", "tip_text", "next_action", "recommended_post_ids"]
+COACH_SIGNAL_RESPONSE_ENCRYPTED_FIELDS = ["signal_title", "signal_message", "response_text"]
 
 
 def hydrate_profile_secure_fields(user: User, profile: UserProfile | None):
@@ -702,6 +705,28 @@ def persist_coach_insight_secure_fields(user: User, insight: UserDailyCoachInsig
         encrypted_attr="encrypted_payload",
         fields=COACH_INSIGHT_ENCRYPTED_FIELDS,
         scope="daily_coach_insight",
+    )
+
+
+def hydrate_coach_signal_response_secure_fields(user: User, response: UserCoachSignalResponse | None):
+    if user is None or response is None:
+        return
+    hydrate_model_fields(
+        user=user,
+        model=response,
+        encrypted_attr="encrypted_payload",
+        fields=COACH_SIGNAL_RESPONSE_ENCRYPTED_FIELDS,
+        scope="coach_signal_response",
+    )
+
+
+def persist_coach_signal_response_secure_fields(user: User, response: UserCoachSignalResponse):
+    encrypt_model_fields(
+        user=user,
+        model=response,
+        encrypted_attr="encrypted_payload",
+        fields=COACH_SIGNAL_RESPONSE_ENCRYPTED_FIELDS,
+        scope="coach_signal_response",
     )
 
 
@@ -2286,6 +2311,7 @@ def _meal_frequency_energy_correlation(*, checkins: list[DailyCheckIn], meals_by
 def build_day_manager_live_coaching_context(
     *,
     user: User,
+    manager_view: str,
     selected_day: date,
     local_today: date,
     record: DailyCheckIn | None,
@@ -2333,14 +2359,50 @@ def build_day_manager_live_coaching_context(
     meal_pattern = _meal_frequency_energy_correlation(checkins=history_checkins, meals_by_day=meals_by_day)
     signals = []
 
-    def add_signal(priority: int, title: str, message: str, action_label: str, action_url: str):
+    response_rows = (
+        UserCoachSignalResponse.query.filter(
+            UserCoachSignalResponse.user_id == user.id,
+            UserCoachSignalResponse.day == selected_day,
+            UserCoachSignalResponse.context == manager_view,
+        )
+        .order_by(UserCoachSignalResponse.updated_at.desc(), UserCoachSignalResponse.id.desc())
+        .all()
+    )
+    response_map: dict[str, UserCoachSignalResponse] = {}
+    for row in response_rows:
+        hydrate_coach_signal_response_secure_fields(user, row)
+        key = normalize_text(row.signal_key)
+        if not key:
+            continue
+        if key not in response_map:
+            response_map[key] = row
+
+    def add_signal(key: str, priority: int, title: str, message: str, action_label: str, action_url: str):
+        signal_key = normalize_text(key) or re.sub(r"[^a-z0-9]+", "_", title.strip().lower()).strip("_")[:80]
+        last_response = response_map.get(signal_key)
+        response_summary = None
+        if last_response is not None:
+            action_text = normalize_text(last_response.response_action) or "note"
+            label_map = {
+                "done": "Marked done",
+                "need_help": "Asked for help",
+                "not_now": "Deferred",
+                "note": "Added note",
+            }
+            summary_bits = [label_map.get(action_text, "Responded")]
+            text = normalize_text(last_response.response_text)
+            if text:
+                summary_bits.append(text)
+            response_summary = " - ".join(summary_bits)
         signals.append(
             {
+                "key": signal_key,
                 "priority": int(priority),
                 "title": title,
                 "message": message,
                 "action_label": action_label,
                 "action_url": action_url,
+                "latest_response": response_summary,
             }
         )
 
@@ -2352,6 +2414,7 @@ def build_day_manager_live_coaching_context(
                 f" In your recent data, days with 2+ meals averaged about {energy_delta:.1f} higher energy."
             )
         add_signal(
+            "no_meals_today",
             100,
             "No meals logged yet today",
             "Not eating all day can cause fatigue, irritability, dizziness, and low concentration from low blood sugar."
@@ -2362,6 +2425,7 @@ def build_day_manager_live_coaching_context(
 
     if is_today and current_hour >= 16 and not day_drink_entries:
         add_signal(
+            "hydration_gap_today",
             86,
             "Hydration gap detected",
             "No drinks are logged yet today. Low hydration can mimic low-energy and headache symptoms.",
@@ -2371,6 +2435,7 @@ def build_day_manager_live_coaching_context(
 
     if is_today and current_hour >= 18 and not day_activity_entries:
         add_signal(
+            "activity_gap_today",
             84,
             "Activity is low so far today",
             "A short movement block can improve energy, mood, and evening sleep quality.",
@@ -2387,6 +2452,7 @@ def build_day_manager_live_coaching_context(
     if missing_segments:
         first_missing = missing_segments[0]
         add_signal(
+            f"missing_segment_{first_missing}",
             82,
             "Check-in segments still missing",
             f"Missing segments reduce coaching precision. Next required segment: {CHECKIN_SEGMENT_LABELS[first_missing]}.",
@@ -2398,6 +2464,7 @@ def build_day_manager_live_coaching_context(
     follow_up_questions = []
     if flags["cold_like"] or flags["fever_like"]:
         add_signal(
+            "sick_symptoms_today",
             96,
             "You logged cold/fever-type symptoms",
             (
@@ -2418,6 +2485,7 @@ def build_day_manager_live_coaching_context(
 
     if flags["dizzy_like"] and (is_today and not day_food_entries):
         add_signal(
+            "dizzy_low_intake",
             97,
             "Dizziness + no meals logged",
             "Low intake can contribute to dizziness. Add a simple carb + protein snack and hydrate now.",
@@ -2431,6 +2499,7 @@ def build_day_manager_live_coaching_context(
         if sleep_hours is not None and sleep_hours < 6.5:
             headache_hint = "You also logged lower sleep; sleep debt can amplify headache frequency/intensity."
         add_signal(
+            "headache_pattern",
             78,
             "Headache signal in notes",
             headache_hint,
@@ -2440,6 +2509,7 @@ def build_day_manager_live_coaching_context(
 
     if flags["gi_like"]:
         add_signal(
+            "gi_pattern",
             76,
             "GI symptoms noted",
             "Track meal timing, high-fat/high-sugar triggers, and hydration to isolate patterns.",
@@ -2458,10 +2528,21 @@ def build_day_manager_live_coaching_context(
             continue
         unique_questions.append(cleaned)
 
+    done_actions = [
+        row for row in response_rows if normalize_text(row.response_action) == "done"
+    ]
+    asked_help_count = sum(1 for row in response_rows if normalize_text(row.response_action) == "need_help")
+    response_summary = None
+    if done_actions:
+        response_summary = f"You completed {len(done_actions)} coaching action{'s' if len(done_actions) != 1 else ''} in this view today."
+    elif asked_help_count > 0:
+        response_summary = "MIM has your help requests logged and will adapt upcoming suggestions."
+
     return {
         "signals": signals[:4],
         "questions": unique_questions[:3],
         "has_symptom_flags": any(flags.values()),
+        "response_summary": response_summary,
     }
 
 
@@ -4549,6 +4630,17 @@ def build_home_actionable_report(
     )
     for entry in substances:
         hydrate_substance_secure_fields(user, entry)
+    coach_responses = (
+        UserCoachSignalResponse.query.filter(
+            UserCoachSignalResponse.user_id == user.id,
+            UserCoachSignalResponse.day >= start_day,
+            UserCoachSignalResponse.day <= local_today,
+        )
+        .order_by(UserCoachSignalResponse.day.desc(), UserCoachSignalResponse.updated_at.desc())
+        .all()
+    )
+    for entry in coach_responses:
+        hydrate_coach_signal_response_secure_fields(user, entry)
 
     checkin_by_day = {entry.day: entry for entry in checkins}
     meals_by_day: dict[date, list[Meal]] = defaultdict(list)
@@ -4607,6 +4699,24 @@ def build_home_actionable_report(
                 "action": action,
                 "url": url,
             }
+        )
+
+    coach_done_count = sum(1 for row in coach_responses if normalize_text(row.response_action) == "done")
+    coach_help_rows = [row for row in coach_responses if normalize_text(row.response_action) == "need_help"]
+    coach_not_now_count = sum(1 for row in coach_responses if normalize_text(row.response_action) == "not_now")
+
+    if coach_help_rows:
+        recent_help = coach_help_rows[0]
+        helped_topic = normalize_text(recent_help.signal_title) or "recent coaching blockers"
+        add_insight(
+            91,
+            "MIM saw your help request and adjusted coaching",
+            (
+                f"You asked for help on '{helped_topic}'. "
+                "MIM will keep prompts shorter and more task-based until consistency improves."
+            ),
+            "Open today's Day Manager and complete one of the live coaching actions.",
+            url_for("main.checkin_form", day=local_today.isoformat(), view="checkin"),
         )
 
     meal_pattern = _meal_frequency_energy_correlation(checkins=checkins, meals_by_day=meals_by_day)
@@ -4931,6 +5041,10 @@ def build_home_actionable_report(
 
     wins = []
     safe_weekly = weekly or {}
+    if coach_done_count > 0:
+        wins.append(
+            f"You completed {coach_done_count} MIM coaching action{'s' if coach_done_count != 1 else ''} in the last {lookback_days} days."
+        )
     if safe_weekly.get("today_completion_pct", 0) >= 99.9:
         wins.append("Today's required check-in segments are complete.")
     if safe_weekly.get("coverage_to_date_pct", 0) >= 85:
@@ -4941,6 +5055,8 @@ def build_home_actionable_report(
         wins.append(
             f"Training momentum is alive: {safe_weekly.get('workout_sessions', 0)} sessions this week."
         )
+    if coach_not_now_count >= 2:
+        wins.append("You are still checking in even on harder days. That consistency matters more than perfection.")
 
     signal_score = (
         min(len(checkins), 10)
@@ -8791,6 +8907,7 @@ def checkin_form():
     )
     day_manager_live_coach = build_day_manager_live_coaching_context(
         user=g.user,
+        manager_view=manager_view,
         selected_day=selected_day,
         local_today=local_today,
         record=record,
@@ -8995,6 +9112,65 @@ def checkin_brain_spark_submit():
     else:
         flash("Not quite. Try again.", "error")
 
+    return redirect(url_for("main.checkin_form", day=selected_day.isoformat(), view=manager_view))
+
+
+@bp.post("/checkin/coach-feedback")
+@login_required
+@profile_required
+def checkin_coach_feedback_save():
+    local_today = get_user_local_today(g.user)
+    selected_day_raw = request.form.get("day", local_today.isoformat())
+    manager_view = (request.form.get("view") or "checkin").strip().lower()
+    if manager_view not in DAY_MANAGER_VIEWS:
+        manager_view = "checkin"
+
+    try:
+        selected_day = date.fromisoformat(selected_day_raw)
+    except ValueError:
+        selected_day = local_today
+    if selected_day > local_today:
+        selected_day = local_today
+
+    signal_key = normalize_text(request.form.get("signal_key"))
+    if not signal_key:
+        flash("Missing coaching signal key.", "error")
+        return redirect(url_for("main.checkin_form", day=selected_day.isoformat(), view=manager_view))
+
+    response_action = normalize_text(request.form.get("response_action")) or "note"
+    if response_action not in COACH_RESPONSE_ACTIONS:
+        response_action = "note"
+    response_text = normalize_text(request.form.get("response_text"))
+
+    if response_action == "note" and not response_text:
+        flash("Add a note or choose an action before saving.", "error")
+        return redirect(url_for("main.checkin_form", day=selected_day.isoformat(), view=manager_view))
+
+    response_row = UserCoachSignalResponse.query.filter(
+        UserCoachSignalResponse.user_id == g.user.id,
+        UserCoachSignalResponse.day == selected_day,
+        UserCoachSignalResponse.context == manager_view,
+        UserCoachSignalResponse.signal_key == signal_key,
+    ).first()
+    if response_row is None:
+        response_row = UserCoachSignalResponse(
+            user_id=g.user.id,
+            day=selected_day,
+            context=manager_view,
+            signal_key=signal_key,
+        )
+    else:
+        hydrate_coach_signal_response_secure_fields(g.user, response_row)
+
+    response_row.signal_title = normalize_text(request.form.get("signal_title")) or None
+    response_row.signal_message = normalize_text(request.form.get("signal_message")) or None
+    response_row.response_action = response_action
+    response_row.response_text = response_text or None
+
+    persist_coach_signal_response_secure_fields(g.user, response_row)
+    db.session.add(response_row)
+    db.session.commit()
+    flash("MIM saved your response and will use it in future coaching.", "success")
     return redirect(url_for("main.checkin_form", day=selected_day.isoformat(), view=manager_view))
 
 

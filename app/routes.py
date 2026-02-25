@@ -4177,6 +4177,426 @@ def build_home_goal_context(user: User, *, local_today: date):
     }
 
 
+def _profile_activity_factor(profile: UserProfile | None):
+    level = (normalize_text(profile.fitness_level) or "").strip().lower() if profile else ""
+    mapping = {
+        "sedentary": 1.2,
+        "light": 1.35,
+        "moderate": 1.5,
+        "intense": 1.7,
+    }
+    return mapping.get(level, 1.4)
+
+
+def _estimate_weight_goal_targets(profile: UserProfile | None, *, current_weight_kg: float):
+    if not profile:
+        return None
+    if profile.age in (None, "") or profile.height_cm in (None, "") or current_weight_kg <= 0:
+        return None
+
+    sex = (normalize_text(profile.biological_sex) or "").strip().lower()
+    sex_adj = -78.0
+    min_kcal = 1300.0
+    if sex in {"male", "m"}:
+        sex_adj = 5.0
+        min_kcal = 1500.0
+    elif sex in {"female", "f"}:
+        sex_adj = -161.0
+        min_kcal = 1200.0
+
+    bmr = (10.0 * float(current_weight_kg)) + (6.25 * float(profile.height_cm)) - (5.0 * float(profile.age)) + sex_adj
+    activity_factor = _profile_activity_factor(profile)
+    maintenance_kcal = bmr * activity_factor
+    weight_loss_target_kcal = max(min_kcal, maintenance_kcal - 450.0)
+    protein_floor_g = 1.6 * float(current_weight_kg)
+    protein_target_g = 1.9 * float(current_weight_kg)
+
+    return {
+        "maintenance_kcal": int(round(maintenance_kcal)),
+        "weight_loss_target_kcal": int(round(weight_loss_target_kcal)),
+        "protein_floor_g": int(round(protein_floor_g)),
+        "protein_target_g": int(round(protein_target_g)),
+    }
+
+
+def build_home_actionable_report(
+    user: User,
+    profile: UserProfile | None,
+    *,
+    local_today: date,
+    weekly: dict | None = None,
+    goals: dict | None = None,
+):
+    lookback_days = 21
+    start_day = local_today - timedelta(days=lookback_days - 1)
+    start_dt, _ = day_bounds(start_day)
+    _, end_dt = day_bounds(local_today)
+
+    checkins = (
+        DailyCheckIn.query.filter(
+            DailyCheckIn.user_id == user.id,
+            DailyCheckIn.day >= start_day,
+            DailyCheckIn.day <= local_today,
+        )
+        .order_by(DailyCheckIn.day.asc())
+        .all()
+    )
+    for entry in checkins:
+        hydrate_checkin_secure_fields(user, entry)
+
+    meals = (
+        Meal.query.filter(
+            Meal.user_id == user.id,
+            Meal.eaten_at >= start_dt,
+            Meal.eaten_at < end_dt,
+        )
+        .order_by(Meal.eaten_at.asc())
+        .all()
+    )
+    for entry in meals:
+        hydrate_meal_secure_fields(user, entry)
+
+    substances = (
+        Substance.query.filter(
+            Substance.user_id == user.id,
+            Substance.taken_at >= start_dt,
+            Substance.taken_at < end_dt,
+        )
+        .order_by(Substance.taken_at.asc())
+        .all()
+    )
+    for entry in substances:
+        hydrate_substance_secure_fields(user, entry)
+
+    checkin_by_day = {entry.day: entry for entry in checkins}
+    meals_by_day: dict[date, list[Meal]] = defaultdict(list)
+    for entry in meals:
+        meals_by_day[entry.eaten_at.date()].append(entry)
+
+    substances_by_day: dict[date, list[Substance]] = defaultdict(list)
+    for entry in substances:
+        substances_by_day[entry.taken_at.date()].append(entry)
+
+    def _focus_value(record: DailyCheckIn | None):
+        if not record:
+            return None
+        return checkin_metric_value(record, "focus", ["morning_focus", "midday_focus", "evening_focus"])
+
+    def _energy_value(record: DailyCheckIn | None):
+        if not record:
+            return None
+        return checkin_metric_value(record, "energy", ["morning_energy", "midday_energy", "evening_energy"])
+
+    def _anxiety_value(record: DailyCheckIn | None):
+        if not record:
+            return None
+        return float(record.anxiety) if record.anxiety is not None else None
+
+    def _meal_name(meal: Meal):
+        return normalize_text(meal.description) or normalize_text(meal.label) or ("Drink entry" if meal.is_beverage else "Meal entry")
+
+    def _latest_meal_hour(day_meals: list[Meal]):
+        if not day_meals:
+            return None
+        latest = max(day_meals, key=lambda row: row.eaten_at)
+        return int(latest.eaten_at.hour)
+
+    def _day_sugar_total(day_meals: list[Meal]):
+        values = [float(row.sugar_g) for row in day_meals if row.sugar_g is not None]
+        if not values:
+            return None
+        return sum(values)
+
+    insight_candidates = []
+
+    def add_insight(priority: int, title: str, evidence: str, action: str, url: str):
+        insight_candidates.append(
+            {
+                "priority": int(priority),
+                "title": title,
+                "evidence": evidence,
+                "action": action,
+                "url": url,
+            }
+        )
+
+    low_sleep_focus = []
+    good_sleep_focus = []
+    for row in checkins:
+        if row.sleep_hours is None:
+            continue
+        focus_value = _focus_value(row)
+        if focus_value is None:
+            continue
+        sleep_hours = float(row.sleep_hours)
+        if sleep_hours < 6.5:
+            low_sleep_focus.append(focus_value)
+        elif sleep_hours >= 7.0:
+            good_sleep_focus.append(focus_value)
+    if len(low_sleep_focus) >= 2 and len(good_sleep_focus) >= 2:
+        low_avg = sum(low_sleep_focus) / len(low_sleep_focus)
+        good_avg = sum(good_sleep_focus) / len(good_sleep_focus)
+        focus_delta = good_avg - low_avg
+        if focus_delta >= 0.6:
+            add_insight(
+                96,
+                "Sleep appears to be affecting your focus",
+                (
+                    f"On {len(low_sleep_focus)} low-sleep days (<6.5h), focus averaged {low_avg:.1f}/10. "
+                    f"On {len(good_sleep_focus)} better-sleep days (>=7h), focus averaged {good_avg:.1f}/10."
+                ),
+                "Protect tonight's sleep window and complete Sleep + Morning segments tomorrow.",
+                url_for("main.checkin_form", day=local_today.isoformat(), view="checkin", segment="sleep"),
+            )
+
+    late_meal_next_sleep = []
+    early_meal_next_sleep = []
+    for day_offset in range(lookback_days - 1):
+        day_value = start_day + timedelta(days=day_offset)
+        next_day = day_value + timedelta(days=1)
+        latest_hour = _latest_meal_hour(meals_by_day.get(day_value, []))
+        next_record = checkin_by_day.get(next_day)
+        if latest_hour is None or not next_record or next_record.sleep_quality is None:
+            continue
+        target = late_meal_next_sleep if latest_hour >= 21 else early_meal_next_sleep
+        target.append(float(next_record.sleep_quality))
+    if len(late_meal_next_sleep) >= 2 and len(early_meal_next_sleep) >= 2:
+        late_avg = sum(late_meal_next_sleep) / len(late_meal_next_sleep)
+        early_avg = sum(early_meal_next_sleep) / len(early_meal_next_sleep)
+        sleep_delta = early_avg - late_avg
+        if sleep_delta >= 0.6:
+            add_insight(
+                90,
+                "Late meals may be reducing sleep quality",
+                (
+                    f"After days with food logged after 9pm, next-day sleep quality averaged {late_avg:.1f}/10. "
+                    f"When your last meal was earlier, next-day sleep quality averaged {early_avg:.1f}/10."
+                ),
+                "Try a 2-3 hour buffer between your final calories and bedtime.",
+                url_for("main.checkin_form", day=local_today.isoformat(), view="meal"),
+            )
+
+    high_sugar_next_energy = []
+    low_sugar_next_energy = []
+    for day_offset in range(lookback_days - 1):
+        day_value = start_day + timedelta(days=day_offset)
+        next_day = day_value + timedelta(days=1)
+        sugar_total = _day_sugar_total(meals_by_day.get(day_value, []))
+        if sugar_total is None:
+            continue
+        next_energy = _energy_value(checkin_by_day.get(next_day))
+        if next_energy is None:
+            continue
+        if sugar_total >= 40:
+            high_sugar_next_energy.append(next_energy)
+        elif sugar_total <= 25:
+            low_sugar_next_energy.append(next_energy)
+    if len(high_sugar_next_energy) >= 2 and len(low_sugar_next_energy) >= 2:
+        high_avg = sum(high_sugar_next_energy) / len(high_sugar_next_energy)
+        low_avg = sum(low_sugar_next_energy) / len(low_sugar_next_energy)
+        energy_delta = low_avg - high_avg
+        if energy_delta >= 0.6:
+            top_sugar_sources = []
+            for meal in meals:
+                if meal.sugar_g is None:
+                    continue
+                top_sugar_sources.append((float(meal.sugar_g), _meal_name(meal)))
+            top_sugar_sources.sort(key=lambda row: row[0], reverse=True)
+            top_text = ", ".join(f"{name} ({grams:.1f}g)" for grams, name in top_sugar_sources[:2]) if top_sugar_sources else "highest-sugar entries"
+            add_insight(
+                88,
+                "Higher sugar days may be flattening next-day energy",
+                (
+                    f"When daily sugar was >=40g, next-day energy averaged {high_avg:.1f}/10. "
+                    f"When daily sugar was <=25g, next-day energy averaged {low_avg:.1f}/10. "
+                    f"Top recent sugar sources: {top_text}."
+                ),
+                "Lower one high-sugar entry per day and re-check your energy trend next week.",
+                url_for("main.checkin_form", day=local_today.isoformat(), view="meal"),
+            )
+
+    workout_productivity = []
+    non_workout_productivity = []
+    for day_offset in range(lookback_days):
+        day_value = start_day + timedelta(days=day_offset)
+        record = checkin_by_day.get(day_value)
+        if not record or record.productivity is None:
+            continue
+        day_substances = substances_by_day.get(day_value, [])
+        has_activity = any((row.kind or "").strip().lower() == "activity" for row in day_substances)
+        has_workout = has_activity or bool(normalize_text(record.workout_timing)) or record.workout_intensity is not None
+        target = workout_productivity if has_workout else non_workout_productivity
+        target.append(float(record.productivity))
+    if len(workout_productivity) >= 2 and len(non_workout_productivity) >= 2:
+        workout_avg = sum(workout_productivity) / len(workout_productivity)
+        non_workout_avg = sum(non_workout_productivity) / len(non_workout_productivity)
+        prod_delta = workout_avg - non_workout_avg
+        if prod_delta >= 0.5:
+            add_insight(
+                80,
+                "Workout days are trending more productive",
+                (
+                    f"Productivity averaged {workout_avg:.1f}/10 on days with activity/workouts vs "
+                    f"{non_workout_avg:.1f}/10 on days without."
+                ),
+                "Schedule one short training block on lower-output days.",
+                url_for("main.checkin_form", day=local_today.isoformat(), view="activity"),
+            )
+
+    alcohol_next_anxiety = []
+    no_alcohol_next_anxiety = []
+    for day_offset in range(lookback_days - 1):
+        day_value = start_day + timedelta(days=day_offset)
+        next_day = day_value + timedelta(days=1)
+        record = checkin_by_day.get(day_value)
+        day_substances = substances_by_day.get(day_value, [])
+        alcohol_logged = bool(record and record.alcohol_drinks is not None and float(record.alcohol_drinks) > 0)
+        alcohol_logged = alcohol_logged or any((row.kind or "").strip().lower() == "alcohol" for row in day_substances)
+        next_anxiety = _anxiety_value(checkin_by_day.get(next_day))
+        if next_anxiety is None:
+            continue
+        if alcohol_logged:
+            alcohol_next_anxiety.append(next_anxiety)
+        else:
+            no_alcohol_next_anxiety.append(next_anxiety)
+    if len(alcohol_next_anxiety) >= 2 and len(no_alcohol_next_anxiety) >= 2:
+        alcohol_avg = sum(alcohol_next_anxiety) / len(alcohol_next_anxiety)
+        sober_avg = sum(no_alcohol_next_anxiety) / len(no_alcohol_next_anxiety)
+        anxiety_delta = alcohol_avg - sober_avg
+        if anxiety_delta >= 0.5:
+            add_insight(
+                84,
+                "Alcohol days may be linked to higher next-day anxiety",
+                (
+                    f"After alcohol-logged days, next-day anxiety averaged {alcohol_avg:.1f}/10 vs "
+                    f"{sober_avg:.1f}/10 after non-alcohol days."
+                ),
+                "Run a 7-day no-alcohol experiment and compare anxiety and sleep quality.",
+                url_for("main.checkin_form", day=local_today.isoformat(), view="substance"),
+            )
+
+    meal_entries_with_values = [row for row in meals if row.calories is not None or row.protein_g is not None]
+    meal_entries_missing = [
+        row
+        for row in meals
+        if row.calories is None or row.protein_g is None or row.carbs_g is None or row.fat_g is None
+    ]
+    if len(meals) >= 6 and len(meal_entries_missing) / max(len(meals), 1) >= 0.35:
+        missing_ratio = (len(meal_entries_missing) / max(len(meals), 1)) * 100.0
+        add_insight(
+            92,
+            "Missing nutrition values are limiting insight quality",
+            (
+                f"{len(meal_entries_missing)} of {len(meals)} entries ({missing_ratio:.0f}%) are missing calories/macros. "
+                "That blocks stronger pattern detection."
+            ),
+            "Use MIM Estimate or Recipe Calculator for one-click nutrition fill on each new entry.",
+            url_for("main.checkin_form", day=local_today.isoformat(), view="meal"),
+        )
+
+    active_weight_goal = False
+    if goals and isinstance(goals.get("goal_cards"), list):
+        active_weight_goal = any(
+            card.get("goal")
+            and (card["goal"].status == "active")
+            and ((card["goal"].goal_type or "") == "weight_loss")
+            for card in goals["goal_cards"]
+        )
+    goal_text = (normalize_text(profile.primary_goal) or "").lower() if profile else ""
+    if "weight" in goal_text or "lose" in goal_text or active_weight_goal:
+        weight_rows = [row for row in checkins if row.morning_weight_kg is not None]
+        if len(weight_rows) >= 3:
+            first_row = weight_rows[0]
+            last_row = weight_rows[-1]
+            first_kg = float(first_row.morning_weight_kg)
+            last_kg = float(last_row.morning_weight_kg)
+            delta_kg = last_kg - first_kg
+            span_days = max(1, (last_row.day - first_row.day).days)
+            weekly_rate_kg = (delta_kg / span_days) * 7.0
+            is_imperial = (profile.unit_system or "imperial") == "imperial" if profile else True
+            if is_imperial:
+                delta_value = kg_to_lb(delta_kg)
+                weekly_rate = kg_to_lb(weekly_rate_kg)
+                weight_unit = "lb"
+            else:
+                delta_value = delta_kg
+                weekly_rate = weekly_rate_kg
+                weight_unit = "kg"
+
+            targets = _estimate_weight_goal_targets(profile, current_weight_kg=last_kg)
+            trend_word = "down" if delta_value < 0 else "up"
+            evidence_line = (
+                f"Your morning weight trend is {trend_word} {abs(delta_value):.1f} {weight_unit} "
+                f"over {span_days} days ({weekly_rate:+.2f} {weight_unit}/week)."
+            )
+            if targets:
+                advice_line = (
+                    f"Estimated daily target: ~{targets['weight_loss_target_kcal']} kcal and "
+                    f"{targets['protein_floor_g']}-{targets['protein_target_g']}g protein."
+                )
+            else:
+                advice_line = "Log weight + meals daily this week so MIM can tighten calorie/protein guidance."
+            add_insight(
+                94,
+                "Weight-goal trend and target guidance",
+                evidence_line,
+                advice_line,
+                url_for("main.goals_page"),
+            )
+
+    insight_candidates.sort(key=lambda row: row["priority"], reverse=True)
+    insights = insight_candidates[:4]
+
+    if not insights:
+        insights = [
+            {
+                "priority": 10,
+                "title": "Your baseline is building",
+                "evidence": "Keep logging complete days. MIM needs more repeated days to produce high-confidence correlations.",
+                "action": "Finish today's required check-in segments and log all meals/drinks.",
+                "url": url_for("main.checkin_form", day=local_today.isoformat(), view="checkin"),
+            }
+        ]
+
+    wins = []
+    safe_weekly = weekly or {}
+    if safe_weekly.get("today_completion_pct", 0) >= 99.9:
+        wins.append("Today's required check-in segments are complete.")
+    if safe_weekly.get("coverage_to_date_pct", 0) >= 85:
+        wins.append(
+            f"Strong consistency: {safe_weekly.get('coverage_to_date_pct', 0):.1f}% check-in coverage to date this week."
+        )
+    if safe_weekly.get("workout_sessions", 0) >= 2:
+        wins.append(
+            f"Training momentum is alive: {safe_weekly.get('workout_sessions', 0)} sessions this week."
+        )
+
+    signal_score = (
+        min(len(checkins), 10)
+        + min(len(meals), 14)
+        + min(len(substances), 7)
+    )
+    if signal_score >= 20:
+        signal_quality = "High"
+    elif signal_score >= 12:
+        signal_quality = "Medium"
+    else:
+        signal_quality = "Early"
+
+    summary = (
+        "This is your direct coaching report from logged behavior, not generic advice. "
+        "Each point below is evidence + what to do next."
+    )
+
+    return {
+        "summary": summary,
+        "signal_quality": signal_quality,
+        "signal_score": signal_score,
+        "wins": wins[:3],
+        "insights": insights,
+    }
+
+
 def build_home_coach_overview(
     user: User,
     profile: UserProfile | None,
@@ -5846,6 +6266,13 @@ def index():
         profile_nudge=profile_nudge,
         scoreboard=scoreboard,
     )
+    actionable_report = build_home_actionable_report(
+        g.user,
+        profile,
+        local_today=local_today,
+        weekly=weekly,
+        goals=goals,
+    )
     home_fallback_tip = {
         "title": "Did You Know",
         "tip_text": "Consistent daily logs beat perfect days. Small repeatable wins create measurable momentum.",
@@ -5879,6 +6306,7 @@ def index():
             scoreboard=scoreboard,
             home_ai_tip=home_ai_tip,
             coach_overview=coach_overview,
+            actionable_report=actionable_report,
             public_content=public_content,
         )
     )

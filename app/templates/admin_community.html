@@ -64,6 +64,7 @@
     <h2>MIM Community Automation</h2>
     <p class="muted">
       Configure source URLs/news feeds. MIM can auto-create community posts from trending health/fitness items.
+      Automation now rotates themes (healthy recipe ideas, natural alternatives, and trend roundups).
       Use Render Cron to call <code>/internal/community-auto-post</code> 2-3 times daily.
     </p>
     <form method="post" action="{{ url_for('main.admin_community_automation_settings') }}">
@@ -111,6 +112,7 @@
     <div class="muted" style="margin-top: 10px;">
       <div>Last Run UTC: {{ automation.last_run_at or "not yet" }}</div>
       <div>Last Trigger: {{ automation.last_trigger or "n/a" }}</div>
+      <div>Last Theme: {{ automation.last_theme or "n/a" }}</div>
       <div>Runs Today (UTC): {{ automation.run_count }} / {{ automation.runs_per_day }}</div>
       <div>Status: {{ automation.last_status or "n/a" }}</div>
       {% if last_auto_post %}

@@ -262,12 +262,15 @@ SITE_SETTING_DEFAULTS = {
         "health | Google Health Trends | https://news.google.com/rss/search?q=health+fitness+wellness\n"
         "fitness | Google Fitness Trends | https://news.google.com/rss/search?q=fitness+training+exercise\n"
         "food | Google Nutrition Trends | https://news.google.com/rss/search?q=nutrition+healthy+food\n"
+        "recipes | Healthy Recipe Trends | https://news.google.com/rss/search?q=healthy+recipes+high+protein+meal+prep\n"
+        "supplements | Natural Remedy Trends | https://news.google.com/rss/search?q=garlic+honey+ginger+turmeric+health+benefits\n"
         "lifestyle | Google Mental Health Trends | https://news.google.com/rss/search?q=mental+health+sleep+stress"
     ),
     "community_auto_last_run_at": "",
     "community_auto_last_status": "",
     "community_auto_last_post_id": "",
     "community_auto_last_trigger": "",
+    "community_auto_last_theme": "",
     "community_auto_run_day": "",
     "community_auto_run_count": "0",
 }
@@ -321,6 +324,43 @@ AUTO_COMMUNITY_MAX_SOURCES = 24
 AUTO_COMMUNITY_MAX_ITEMS_PER_SOURCE = 6
 AUTO_COMMUNITY_TOTAL_ITEMS_CAP = 32
 AUTO_COMMUNITY_SOURCE_MAX_BYTES = int(os.getenv("AUTO_COMMUNITY_SOURCE_MAX_BYTES", "1200000"))
+AUTO_COMMUNITY_THEME_ROTATION = [
+    {
+        "key": "healthy_recipe_idea",
+        "label": "Healthy Recipe Idea",
+        "default_category": "recipes",
+        "preferred_categories": ["recipes", "food", "health", "lifestyle"],
+        "instructions": [
+            "Build one practical healthy recipe that most users can make in 20 minutes or less.",
+            "Include ingredients, step-by-step prep, and estimated nutrition per serving.",
+            "Include one swap to reduce sugar or sodium without killing taste.",
+            "Keep it mobile-friendly and concise.",
+        ],
+    },
+    {
+        "key": "natural_alternative_spotlight",
+        "label": "Natural Alternative Spotlight",
+        "default_category": "supplements",
+        "preferred_categories": ["supplements", "health", "food", "lifestyle"],
+        "instructions": [
+            "Focus on evidence-aware food/herb alternatives (garlic, honey, ginger, turmeric, green tea, etc.).",
+            "Explain what it may support, how to use it practically, and a simple daily range.",
+            "Include safety notes (interactions, who should be careful, when to ask a clinician).",
+            "Never present as a cure or replacement for prescribed treatment.",
+        ],
+    },
+    {
+        "key": "trend_roundup",
+        "label": "Trend Roundup",
+        "default_category": "health",
+        "preferred_categories": ["health", "fitness", "lifestyle", "food"],
+        "instructions": [
+            "Summarize current health/fitness trends into 3 clear takeaways and one action step.",
+            "Prioritize practical behavior change over hype.",
+            "Use plain language and avoid diagnosis/treatment claims.",
+        ],
+    },
+]
 FOOD_MATCH_CANDIDATE_LIMIT = int(os.getenv("FOOD_MATCH_CANDIDATE_LIMIT", "120"))
 FOOD_FUZZY_CANDIDATE_LIMIT = int(os.getenv("FOOD_FUZZY_CANDIDATE_LIMIT", "140"))
 FOOD_NUTRIENT_FIELDS = (
@@ -4741,6 +4781,7 @@ def _get_community_auto_settings():
         "community_auto_last_status",
         "community_auto_last_post_id",
         "community_auto_last_trigger",
+        "community_auto_last_theme",
         "community_auto_run_day",
         "community_auto_run_count",
     ]
@@ -4768,12 +4809,58 @@ def _get_community_auto_settings():
         "last_status": values.get("community_auto_last_status") or None,
         "last_post_id": last_post_id,
         "last_trigger": values.get("community_auto_last_trigger") or None,
+        "last_theme": values.get("community_auto_last_theme") or None,
         "run_day": run_day,
         "run_count": run_count,
     }
 
 
-def _build_auto_generation_prompt(*, category: str, source_items: list[dict]):
+def _pick_auto_theme(*, utc_day: str, run_count: int):
+    if not AUTO_COMMUNITY_THEME_ROTATION:
+        return {
+            "key": "default",
+            "label": "General",
+            "default_category": "general",
+            "preferred_categories": [],
+            "instructions": [],
+        }
+    try:
+        day_seed = date.fromisoformat(utc_day).toordinal()
+    except Exception:
+        day_seed = datetime.utcnow().toordinal()
+    index = (day_seed + max(run_count, 0)) % len(AUTO_COMMUNITY_THEME_ROTATION)
+    return AUTO_COMMUNITY_THEME_ROTATION[index]
+
+
+def _select_auto_items_for_theme(*, source_items: list[dict], theme: dict):
+    preferred = [normalize_community_category(item) for item in (theme.get("preferred_categories") or [])]
+    selected = []
+    seen = set()
+    for category in preferred:
+        for row in source_items:
+            row_category = normalize_community_category(row.get("category"))
+            if row_category != category:
+                continue
+            title_key = (normalize_text(row.get("title")) or "").lower()
+            if not title_key or title_key in seen:
+                continue
+            seen.add(title_key)
+            selected.append(row)
+            if len(selected) >= 8:
+                break
+        if len(selected) >= 8:
+            break
+
+    if not selected:
+        selected = source_items[:8]
+
+    selected_category = normalize_community_category(theme.get("default_category"))
+    if selected_category == "general" and selected:
+        selected_category = normalize_community_category(selected[0].get("category"))
+    return selected_category, selected[:8]
+
+
+def _build_auto_generation_prompt(*, category: str, source_items: list[dict], theme: dict | None = None):
     lines = []
     for row in source_items[:8]:
         title = normalize_text(row.get("title")) or "Untitled"
@@ -4790,14 +4877,24 @@ def _build_auto_generation_prompt(*, category: str, source_items: list[dict]):
     if not lines:
         lines.append("- Build one evidence-aware health/fitness coaching post from current trends.")
 
+    theme_label = normalize_text((theme or {}).get("label")) or "General"
+    theme_rules = (theme or {}).get("instructions") or []
+    theme_lines = [f"- {rule}" for rule in theme_rules if normalize_text(rule)]
+    if not theme_lines:
+        theme_lines = ["- Keep it practical and behavior-focused."]
+
     return (
         "Create one community post for CoachMIM from the trend items below.\n"
+        f"Theme: {theme_label}\n"
         f"Category: {category}\n"
         "Constraints:\n"
         "- Keep it practical and safe.\n"
         "- No diagnosis or treatment claims.\n"
         "- Include 3 concise takeaways and 1 action step.\n"
+        "- Plain text only. Do not output HTML tags.\n"
         "- Tone: motivating but factual.\n"
+        "Theme-specific guidance:\n"
+        f"{chr(10).join(theme_lines)}\n"
         "Output format exactly:\n"
         "Title: ...\n"
         "Body: ...\n\n"
@@ -4806,7 +4903,7 @@ def _build_auto_generation_prompt(*, category: str, source_items: list[dict]):
     )
 
 
-def _fallback_auto_post_content(*, category: str, source_items: list[dict]):
+def _fallback_auto_post_content(*, category: str, source_items: list[dict], theme: dict | None = None):
     highlights = []
     for row in source_items[:5]:
         title = normalize_text(row.get("title"))
@@ -4814,6 +4911,32 @@ def _fallback_auto_post_content(*, category: str, source_items: list[dict]):
             highlights.append(f"- {title}")
     if not highlights:
         highlights.append("- Keep your logging consistent and focus on one improvement today.")
+    theme_key = (theme or {}).get("key") or ""
+    if theme_key == "healthy_recipe_idea":
+        title = "MIM Healthy Recipe Idea: Fast Fuel Bowl"
+        body = (
+            "Quick recipe:\n"
+            "- Base: 1 cup cooked quinoa or brown rice\n"
+            "- Protein: 4 oz chicken/tofu/beans\n"
+            "- Veg: spinach + bell peppers + onion\n"
+            "- Sauce: olive oil + lemon + garlic\n\n"
+            "Estimated nutrition (per serving): 420-520 kcal, 25-35g protein.\n"
+            "Action step: prep one serving tonight and log it in CoachMIM."
+        )
+        return title, body
+
+    if theme_key == "natural_alternative_spotlight":
+        title = "MIM Natural Alternative Spotlight: Garlic, Honey, and Ginger"
+        body = (
+            "Evidence-aware alternatives to discuss with your care team:\n"
+            "- Garlic: may support heart health markers.\n"
+            "- Ginger: may help nausea and digestion.\n"
+            "- Honey: can soothe throat irritation (still counts as sugar).\n\n"
+            "Use practical portions and track response in CoachMIM.\n"
+            "Safety: these are not cures and can interact with medications (especially blood thinners)."
+        )
+        return title, body
+
     title = f"MIM Daily {category.capitalize()} Brief"
     body = (
         "Trending highlights for the CoachMIM community:\n"
@@ -4873,16 +4996,17 @@ def run_community_automation(*, trigger: str, force: bool = False):
         db.session.commit()
         return (False, "No source items were fetched from configured feeds.", None)
 
-    category_counts = defaultdict(int)
-    for row in deduped_items:
-        category_counts[row.get("category") or "general"] += 1
-    selected_category = max(category_counts.items(), key=lambda pair: pair[1])[0] if category_counts else "general"
-    selected_items = [row for row in deduped_items if (row.get("category") or "general") == selected_category][:8]
-    if not selected_items:
-        selected_items = deduped_items[:8]
-        selected_category = normalize_community_category(selected_items[0].get("category") if selected_items else "general")
+    theme = _pick_auto_theme(utc_day=utc_today, run_count=run_count)
+    selected_category, selected_items = _select_auto_items_for_theme(
+        source_items=deduped_items,
+        theme=theme,
+    )
 
-    prompt = _build_auto_generation_prompt(category=selected_category, source_items=selected_items)
+    prompt = _build_auto_generation_prompt(
+        category=selected_category,
+        source_items=selected_items,
+        theme=theme,
+    )
     title = None
     content = None
     try:
@@ -4896,7 +5020,11 @@ def run_community_automation(*, trigger: str, force: bool = False):
         current_app.logger.exception("community automation AI generation failed")
 
     if not title or not content:
-        title, content = _fallback_auto_post_content(category=selected_category, source_items=selected_items)
+        title, content = _fallback_auto_post_content(
+            category=selected_category,
+            source_items=selected_items,
+            theme=theme,
+        )
 
     blocked, reason = community_content_is_blocked(f"{title}\n{content}")
     if blocked:
@@ -4933,9 +5061,13 @@ def run_community_automation(*, trigger: str, force: bool = False):
     set_site_setting("community_auto_run_day", utc_today)
     set_site_setting("community_auto_run_count", str((run_count or 0) + 1))
     set_site_setting("community_auto_last_run_at", datetime.utcnow().isoformat())
-    set_site_setting("community_auto_last_status", f"Posted automatically from {len(selected_items)} source items.")
+    set_site_setting(
+        "community_auto_last_status",
+        f"Posted automatically ({theme.get('label', 'General')}) from {len(selected_items)} source items.",
+    )
     set_site_setting("community_auto_last_post_id", str(post.id))
     set_site_setting("community_auto_last_trigger", trigger)
+    set_site_setting("community_auto_last_theme", normalize_text(theme.get("label")) or "")
     db.session.commit()
     return (True, "Community automation post published.", post)
 

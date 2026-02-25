@@ -2612,6 +2612,19 @@ def build_home_weekly_context(user: User, profile: UserProfile):
     )
     for meal in meals:
         hydrate_meal_secure_fields(user, meal)
+    activity_entries = (
+        Substance.query.filter(
+            Substance.user_id == user.id,
+            Substance.kind == "activity",
+            Substance.taken_at >= datetime.combine(week_start, datetime.min.time()),
+            Substance.taken_at < datetime.combine(local_today + timedelta(days=1), datetime.min.time()),
+        )
+        .order_by(Substance.taken_at.asc())
+        .all()
+    )
+    for entry in activity_entries:
+        hydrate_substance_secure_fields(user, entry)
+
     substances = (
         Substance.query.filter(
             Substance.user_id == user.id,
@@ -2675,19 +2688,87 @@ def build_home_weekly_context(user: User, profile: UserProfile):
         for segment in today_missing_segments
     ]
 
-    workout_sessions = 0
+    # Dashboard workout signal uses one source of truth: Activity log entries.
+    workout_sessions = len(activity_entries)
     workout_minutes = 0
-    for entry in checkins:
-        has_workout = bool(normalize_text(entry.workout_timing)) or entry.workout_intensity is not None
-        if has_workout:
-            workout_sessions += 1
-        parsed_minutes = parse_workout_minutes(entry.workout_timing)
-        if parsed_minutes:
-            workout_minutes += parsed_minutes
+    activity_days = set()
+    activity_unknown_duration_count = 0
+    activity_rows = []
+    for entry in activity_entries:
+        activity_type, duration_min, intensity = parse_activity_amount_details(entry.amount)
+        if duration_min is not None and duration_min > 0:
+            workout_minutes += int(duration_min)
+        else:
+            activity_unknown_duration_count += 1
+        entry_day = entry.taken_at.date()
+        activity_days.add(entry_day)
+        activity_rows.append(
+            {
+                "entry_id": entry.id,
+                "day": entry_day,
+                "day_label": entry_day.strftime("%a %b %d"),
+                "time_label": entry.taken_at.strftime("%H:%M"),
+                "activity_type": activity_type or normalize_text(entry.amount) or "Activity",
+                "duration_min": duration_min,
+                "intensity": intensity,
+                "notes": normalize_text(entry.notes),
+                "day_url": url_for("main.checkin_form", day=entry_day.isoformat(), view="activity"),
+                "edit_url": url_for(
+                    "main.checkin_form",
+                    day=entry_day.isoformat(),
+                    view="activity",
+                    edit_entry_id=entry.id,
+                ),
+            }
+        )
 
-    calorie_values = [meal.calories for meal in meals if meal.calories is not None]
-    avg_calories_per_logged_day = average_or_none(calorie_values, digits=0)
-    total_calories_week = int(round(sum(float(v) for v in calorie_values))) if calorie_values else 0
+    calorie_totals_by_day = defaultdict(float)
+    for meal in meals:
+        if meal.calories is None:
+            continue
+        calorie_totals_by_day[meal.eaten_at.date()] += float(meal.calories)
+    calorie_day_totals = list(calorie_totals_by_day.values())
+    avg_calories_per_logged_day = average_or_none(calorie_day_totals, digits=0)
+    total_calories_week = int(round(sum(calorie_day_totals))) if calorie_day_totals else 0
+    calorie_logged_days = len(calorie_day_totals)
+
+    latest_weight_kg = None
+    for entry in reversed(checkins):
+        if entry.morning_weight_kg is not None:
+            latest_weight_kg = float(entry.morning_weight_kg)
+            break
+    if latest_weight_kg is None and profile and profile.weight_kg is not None:
+        latest_weight_kg = float(profile.weight_kg)
+
+    calorie_target_kcal = None
+    calorie_target_label = None
+    calorie_target_basis = None
+    calorie_delta_vs_target = None
+    target_estimate = (
+        _estimate_weight_goal_targets(profile, current_weight_kg=latest_weight_kg)
+        if latest_weight_kg is not None
+        else None
+    )
+    has_active_weight_goal = (
+        UserGoal.query.filter(
+            UserGoal.user_id == user.id,
+            UserGoal.status == "active",
+            UserGoal.goal_type.in_(["weight_loss", "weight_gain"]),
+        ).first()
+        is not None
+    )
+    goal_text = (normalize_text(profile.primary_goal) or "").lower() if profile else ""
+    if target_estimate:
+        if has_active_weight_goal or ("weight" in goal_text or "lose" in goal_text):
+            calorie_target_kcal = int(target_estimate["weight_loss_target_kcal"])
+            calorie_target_label = "Weight-loss target"
+            calorie_target_basis = "Estimated from profile and activity baseline"
+        else:
+            calorie_target_kcal = int(target_estimate["maintenance_kcal"])
+            calorie_target_label = "Estimated maintenance"
+            calorie_target_basis = "Estimated from profile and activity baseline"
+    if calorie_target_kcal is not None and avg_calories_per_logged_day is not None:
+        calorie_delta_vs_target = int(round(float(avg_calories_per_logged_day) - float(calorie_target_kcal)))
 
     avg_sleep = average_or_none([entry.sleep_hours for entry in checkins if entry.sleep_hours is not None], digits=2)
     avg_energy = average_or_none(
@@ -2772,24 +2853,24 @@ def build_home_weekly_context(user: User, profile: UserProfile):
         mim_notes.append("Excellent weekly consistency so far. Keep the day-by-day streak alive.")
 
     if workout_sessions == 0:
-        mim_notes.append("No workouts logged this week yet. Add one session to improve performance signal quality.")
+        mim_notes.append("No activity entries logged this week yet. Add one session to improve performance signal quality.")
     elif workout_sessions == 1:
         if workout_minutes > 0:
             mim_notes.append(
-                f"Workout signal started ({workout_minutes} min so far). Add one more session for better pattern confidence."
+                f"Activity signal started ({workout_minutes} min so far). Add one more session for better pattern confidence."
             )
         else:
-            mim_notes.append("Workout signal started (1 session logged). Add one more session this week.")
+            mim_notes.append("Activity signal started (1 session logged). Add duration to improve minute-level coaching.")
     elif workout_sessions < 3:
         if workout_minutes > 0:
             mim_notes.append(
-                f"Good momentum: {workout_sessions} workouts ({workout_minutes} min). One more session will strengthen insights."
+                f"Good momentum: {workout_sessions} activity entries ({workout_minutes} min). One more session will strengthen insights."
             )
         else:
-            mim_notes.append(f"Good momentum: {workout_sessions} workouts logged this week.")
+            mim_notes.append(f"Good momentum: {workout_sessions} activity entries logged this week.")
     elif workout_minutes >= 90:
         mim_notes.append(
-            f"Training consistency is strong this week ({workout_sessions} sessions, {workout_minutes} min)."
+            f"Training consistency is strong this week ({workout_sessions} activity entries, {workout_minutes} min)."
         )
 
     goal_text = primary_goal.lower()
@@ -2851,8 +2932,16 @@ def build_home_weekly_context(user: User, profile: UserProfile):
         "today_missing_items": today_missing_items,
         "workout_sessions": workout_sessions,
         "workout_minutes": workout_minutes,
+        "activity_days_count": len(activity_days),
+        "activity_unknown_duration_count": activity_unknown_duration_count,
+        "activity_rows": list(reversed(activity_rows))[:14],
         "avg_calories_per_logged_day": avg_calories_per_logged_day,
         "total_calories_week": total_calories_week,
+        "calorie_logged_days": calorie_logged_days,
+        "calorie_target_kcal": calorie_target_kcal,
+        "calorie_target_label": calorie_target_label,
+        "calorie_target_basis": calorie_target_basis,
+        "calorie_delta_vs_target": calorie_delta_vs_target,
         "meals_logged_week": len(meals),
         "substances_logged_week": len(substances),
         "checkins_logged_week": days_with_any_data,
@@ -3236,28 +3325,23 @@ def build_home_scoreboard_context(user: User, *, local_today: date):
                 )
                 continue
 
-            record = checkin_by_day.get(day_value)
             day_substances = substances_by_day.get(day_value, [])
-            from_substance_log = any((entry.kind or "").strip().lower() == "activity" for entry in day_substances)
-            from_checkin = bool(
-                record
-                and (
-                    normalize_text(record.workout_timing) is not None
-                    or record.workout_intensity is not None
-                )
-            )
+            from_substance_log = [entry for entry in day_substances if (entry.kind or "").strip().lower() == "activity"]
 
-            if from_substance_log or from_checkin:
-                reason_bits = []
-                if from_checkin:
-                    reason_bits.append("workout captured in check-in")
-                if from_substance_log:
-                    reason_bits.append("activity entry logged")
+            if from_substance_log:
+                total_minutes = 0
+                has_duration = False
+                for activity_entry in from_substance_log:
+                    _, duration_min, _ = parse_activity_amount_details(activity_entry.amount)
+                    if duration_min is not None and duration_min > 0:
+                        total_minutes += int(duration_min)
+                        has_duration = True
+                duration_text = f", {total_minutes} min" if has_duration else ""
                 rows.append(
                     _score_row(
                         day_value,
                         ok=True,
-                        reason=f"Activity recorded ({', '.join(reason_bits)}).",
+                        reason=f"Activity logged ({len(from_substance_log)} entr{'y' if len(from_substance_log) == 1 else 'ies'}{duration_text}).",
                         url=day_url,
                     )
                 )
@@ -3266,16 +3350,15 @@ def build_home_scoreboard_context(user: User, *, local_today: date):
                     _score_row(
                         day_value,
                         ok=False,
-                        reason="No workout/activity logged for this day.",
+                        reason="No activity entries logged for this day.",
                         url=day_url,
                     )
                 )
 
         return {
-            "rule": "Counts when workout/activity exists in check-in or Activity log.",
+            "rule": "Counts when at least one Activity entry is logged in Day Manager.",
             "guidance": "Log at least one movement block each day to keep this metric moving.",
             "factors": [
-                "Check-in workout timing/intensity",
                 "Activity entries in Day Manager",
                 "Only days with any data are evaluated",
             ],
@@ -4905,7 +4988,7 @@ def build_home_actionable_report(
             continue
         day_substances = substances_by_day.get(day_value, [])
         has_activity = any((row.kind or "").strip().lower() == "activity" for row in day_substances)
-        has_workout = has_activity or bool(normalize_text(record.workout_timing)) or record.workout_intensity is not None
+        has_workout = has_activity
         target = workout_productivity if has_workout else non_workout_productivity
         target.append(float(record.productivity))
     if len(workout_productivity) >= 2 and len(non_workout_productivity) >= 2:

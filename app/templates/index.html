@@ -307,6 +307,45 @@
     .actionable-list li {
       line-height: 1.35;
     }
+    .weekly-metric-link {
+      color: inherit;
+      text-decoration: none;
+      border-bottom: 1px dashed rgba(23, 33, 43, 0.35);
+    }
+    .weekly-metric-link:hover {
+      text-decoration: underline;
+    }
+    .home-table-wrap {
+      overflow-x: auto;
+      margin-top: 8px;
+    }
+    .home-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.92rem;
+      min-width: 640px;
+    }
+    .home-table th {
+      text-align: left;
+      border-bottom: 1px solid #d7dee7;
+      padding: 7px;
+      white-space: nowrap;
+    }
+    .home-table td {
+      border-bottom: 1px solid #eef3f8;
+      padding: 7px;
+      vertical-align: top;
+    }
+    .home-table-actions {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .home-table-actions a {
+      text-decoration: underline;
+      font-size: 0.9rem;
+    }
   </style>
 
   {% if is_authenticated %}
@@ -523,14 +562,25 @@
       </p>
       <div class="grid">
         <div>
-          <div class="muted">Workout Time This Week</div>
-          <div class="metric">{{ weekly.workout_minutes }} min</div>
-          <div class="muted">{{ weekly.workout_sessions }} session{{ "" if weekly.workout_sessions == 1 else "s" }}</div>
+          <div class="muted">Activity Time This Week</div>
+          <div class="metric"><a class="weekly-metric-link" href="#weekly-activity-detail">{{ weekly.workout_minutes }} min</a></div>
+          <div class="muted">{{ weekly.workout_sessions }} entr{{ "y" if weekly.workout_sessions == 1 else "ies" }} on {{ weekly.activity_days_count }} day{{ "" if weekly.activity_days_count == 1 else "s" }}</div>
+          {% if weekly.activity_unknown_duration_count > 0 %}
+            <div class="muted">{{ weekly.activity_unknown_duration_count }} entr{{ "y" if weekly.activity_unknown_duration_count == 1 else "ies" }} missing duration</div>
+          {% endif %}
         </div>
         <div>
           <div class="muted">Avg Calories / Logged Day</div>
           <div class="metric">{{ weekly.avg_calories_per_logged_day if weekly.avg_calories_per_logged_day is not none else "n/a" }}</div>
-          <div class="muted">{{ weekly.total_calories_week }} total this week</div>
+          <div class="muted">{{ weekly.total_calories_week }} total this week across {{ weekly.calorie_logged_days }} logged day{{ "" if weekly.calorie_logged_days == 1 else "s" }}</div>
+          {% if weekly.calorie_target_kcal is not none %}
+            <div class="muted">Suggested: {{ weekly.calorie_target_kcal }} kcal/day ({{ weekly.calorie_target_label }})</div>
+            {% if weekly.calorie_delta_vs_target is not none %}
+              <div class="muted">Difference: {{ "%+d"|format(weekly.calorie_delta_vs_target) }} kcal/day vs target</div>
+            {% endif %}
+          {% else %}
+            <div class="muted"><a href="{{ url_for('main.profile') }}">Complete profile metrics</a> to unlock your personalized calorie target.</div>
+          {% endif %}
         </div>
         <div>
           <div class="muted">Check-In Coverage To Date</div>
@@ -538,6 +588,48 @@
           <div class="muted">{{ weekly.completed_required_segments }} / {{ weekly.required_segments }} required segments</div>
           <div class="muted">{{ weekly.days_with_any_data }} / {{ weekly.days_elapsed }} days with any check-in data</div>
         </div>
+      </div>
+      <div id="weekly-activity-detail" style="margin-top: 12px;">
+        <div class="muted"><strong>Activity Details This Week</strong> (tap Edit to correct entries)</div>
+        {% if weekly.activity_rows %}
+          <div class="home-table-wrap">
+            <table class="home-table">
+              <thead>
+                <tr>
+                  <th>Day</th>
+                  <th>Time</th>
+                  <th>Activity</th>
+                  <th>Duration</th>
+                  <th>Intensity</th>
+                  <th>Notes</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in weekly.activity_rows %}
+                  <tr>
+                    <td>{{ row.day_label }}</td>
+                    <td>{{ row.time_label }}</td>
+                    <td>{{ row.activity_type }}</td>
+                    <td>{{ row.duration_min if row.duration_min is not none else "n/a" }}</td>
+                    <td>{{ row.intensity if row.intensity is not none else "-" }}</td>
+                    <td>{{ row.notes or "-" }}</td>
+                    <td>
+                      <div class="home-table-actions">
+                        <a href="{{ row.edit_url }}">Edit</a>
+                        <a href="{{ row.day_url }}">Open day</a>
+                      </div>
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% else %}
+          <p class="muted" style="margin: 6px 0 0;">
+            No activity entries logged this week yet. <a href="{{ url_for('main.checkin_form', day=local_today.isoformat(), view='activity') }}">Log one now</a>.
+          </p>
+        {% endif %}
       </div>
       {% if weekly.coverage_missing_count > 0 %}
         <div style="margin-top: 10px;">

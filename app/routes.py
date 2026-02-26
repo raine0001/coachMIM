@@ -207,6 +207,135 @@ GOAL_TYPE_DEFAULT_LABELS = {
     "skill": "Learn a skill",
     "custom": "Custom goal",
 }
+CHALLENGE_CONSTRAINT_PREFIX = "__challenge_program__:"
+CHALLENGE_PROGRAMS = {
+    "pushup_ladder": {
+        "title": "Push-Up Ladder",
+        "category": "Strength",
+        "goal_type": "activity",
+        "description": "Progressively build push-up volume with set-based targets.",
+        "value_label": "Total push-ups completed today",
+        "value_hint": "Log total reps across all sets (example: 3 sets x 30 = 90).",
+        "stages": [
+            {"name": "Foundation", "days": 3, "target_value": 90.0, "target_unit": "reps", "comparator": "min", "prescription": "3 sets x 30"},
+            {"name": "Build", "days": 3, "target_value": 120.0, "target_unit": "reps", "comparator": "min", "prescription": "3 sets x 40"},
+            {"name": "Strength", "days": 3, "target_value": 150.0, "target_unit": "reps", "comparator": "min", "prescription": "3 sets x 50"},
+            {"name": "Peak", "days": 4, "target_value": 200.0, "target_unit": "reps", "comparator": "min", "prescription": "2 sets x 100"},
+        ],
+    },
+    "pullup_builder": {
+        "title": "Pull-Up Builder",
+        "category": "Strength",
+        "goal_type": "activity",
+        "description": "Build pull-up capacity gradually without overloading recovery.",
+        "value_label": "Total pull-ups completed today",
+        "value_hint": "Log total reps across all sets.",
+        "stages": [
+            {"name": "Base", "days": 4, "target_value": 15.0, "target_unit": "reps", "comparator": "min", "prescription": "3 sets x 5"},
+            {"name": "Volume", "days": 4, "target_value": 21.0, "target_unit": "reps", "comparator": "min", "prescription": "3 sets x 7"},
+            {"name": "Density", "days": 4, "target_value": 32.0, "target_unit": "reps", "comparator": "min", "prescription": "4 sets x 8"},
+            {"name": "Performance", "days": 5, "target_value": 50.0, "target_unit": "reps", "comparator": "min", "prescription": "5 sets x 10"},
+        ],
+    },
+    "situp_ramp": {
+        "title": "Sit-Up Ramp",
+        "category": "Core",
+        "goal_type": "activity",
+        "description": "Scale core endurance with progressive daily sit-up targets.",
+        "value_label": "Total sit-ups completed today",
+        "value_hint": "Log total reps across all sets.",
+        "stages": [
+            {"name": "Foundation", "days": 3, "target_value": 90.0, "target_unit": "reps", "comparator": "min", "prescription": "3 sets x 30"},
+            {"name": "Build", "days": 3, "target_value": 120.0, "target_unit": "reps", "comparator": "min", "prescription": "3 sets x 40"},
+            {"name": "Strength", "days": 3, "target_value": 150.0, "target_unit": "reps", "comparator": "min", "prescription": "3 sets x 50"},
+            {"name": "Peak", "days": 4, "target_value": 200.0, "target_unit": "reps", "comparator": "min", "prescription": "2 sets x 100"},
+        ],
+    },
+    "plank_endurance": {
+        "title": "Plank Endurance",
+        "category": "Core",
+        "goal_type": "activity",
+        "description": "Improve trunk stability with progressive plank hold volume.",
+        "value_label": "Total plank hold time today (seconds)",
+        "value_hint": "Log total hold seconds across all sets.",
+        "stages": [
+            {"name": "Base Holds", "days": 3, "target_value": 90.0, "target_unit": "sec", "comparator": "min", "prescription": "3 sets x 30 sec"},
+            {"name": "Build Holds", "days": 3, "target_value": 135.0, "target_unit": "sec", "comparator": "min", "prescription": "3 sets x 45 sec"},
+            {"name": "Strong Holds", "days": 3, "target_value": 180.0, "target_unit": "sec", "comparator": "min", "prescription": "3 sets x 60 sec"},
+            {"name": "Endurance Holds", "days": 4, "target_value": 240.0, "target_unit": "sec", "comparator": "min", "prescription": "2 sets x 120 sec"},
+        ],
+    },
+    "walk_consistency": {
+        "title": "Walk Consistency",
+        "category": "Cardio",
+        "goal_type": "activity",
+        "description": "Build a durable walking habit one stage at a time.",
+        "value_label": "Walking minutes completed today",
+        "value_hint": "Log total walking minutes completed today.",
+        "stages": [
+            {"name": "Start", "days": 4, "target_value": 20.0, "target_unit": "min", "comparator": "min", "prescription": "20 minutes/day"},
+            {"name": "Build", "days": 4, "target_value": 30.0, "target_unit": "min", "comparator": "min", "prescription": "30 minutes/day"},
+            {"name": "Strong", "days": 4, "target_value": 40.0, "target_unit": "min", "comparator": "min", "prescription": "40 minutes/day"},
+            {"name": "Peak", "days": 5, "target_value": 50.0, "target_unit": "min", "comparator": "min", "prescription": "50 minutes/day"},
+        ],
+    },
+    "run_mileage": {
+        "title": "Run Mileage Build",
+        "category": "Cardio",
+        "goal_type": "activity",
+        "description": "Increase run distance progressively to avoid sudden load spikes.",
+        "value_label": "Miles run today",
+        "value_hint": "Log total miles run today.",
+        "stages": [
+            {"name": "Base", "days": 3, "target_value": 1.0, "target_unit": "miles", "comparator": "min", "prescription": "1.0 mile/day"},
+            {"name": "Build", "days": 3, "target_value": 1.5, "target_unit": "miles", "comparator": "min", "prescription": "1.5 miles/day"},
+            {"name": "Strong", "days": 4, "target_value": 2.0, "target_unit": "miles", "comparator": "min", "prescription": "2.0 miles/day"},
+            {"name": "Peak", "days": 4, "target_value": 3.0, "target_unit": "miles", "comparator": "min", "prescription": "3.0 miles/day"},
+        ],
+    },
+    "low_sugar_track": {
+        "title": "Low Sugar Track",
+        "category": "Nutrition",
+        "goal_type": "custom",
+        "description": "Tighten daily sugar intake in controlled stages.",
+        "value_label": "Total sugar today (grams)",
+        "value_hint": "Use your logged meals/drinks sugar total. Lower is better here.",
+        "stages": [
+            {"name": "Reset", "days": 4, "target_value": 45.0, "target_unit": "g sugar", "comparator": "max", "prescription": "<=45g/day"},
+            {"name": "Control", "days": 4, "target_value": 35.0, "target_unit": "g sugar", "comparator": "max", "prescription": "<=35g/day"},
+            {"name": "Discipline", "days": 5, "target_value": 30.0, "target_unit": "g sugar", "comparator": "max", "prescription": "<=30g/day"},
+            {"name": "Lean", "days": 5, "target_value": 25.0, "target_unit": "g sugar", "comparator": "max", "prescription": "<=25g/day"},
+        ],
+    },
+    "low_carb_track": {
+        "title": "Low Carb Track",
+        "category": "Nutrition",
+        "goal_type": "custom",
+        "description": "Reduce carb load in stages while maintaining consistency.",
+        "value_label": "Total carbs today (grams)",
+        "value_hint": "Use your logged meal carb total. Lower than target counts done.",
+        "stages": [
+            {"name": "Reset", "days": 4, "target_value": 150.0, "target_unit": "g carbs", "comparator": "max", "prescription": "<=150g/day"},
+            {"name": "Control", "days": 4, "target_value": 120.0, "target_unit": "g carbs", "comparator": "max", "prescription": "<=120g/day"},
+            {"name": "Discipline", "days": 5, "target_value": 100.0, "target_unit": "g carbs", "comparator": "max", "prescription": "<=100g/day"},
+            {"name": "Lean", "days": 5, "target_value": 80.0, "target_unit": "g carbs", "comparator": "max", "prescription": "<=80g/day"},
+        ],
+    },
+    "veggie_daily": {
+        "title": "Veggie Daily",
+        "category": "Nutrition",
+        "goal_type": "custom",
+        "description": "Increase vegetable servings progressively for better nutrient density.",
+        "value_label": "Vegetable servings today",
+        "value_hint": "Count servings: 1 cup raw or 1/2 cup cooked equals 1 serving.",
+        "stages": [
+            {"name": "Start", "days": 4, "target_value": 2.0, "target_unit": "servings", "comparator": "min", "prescription": ">=2 servings/day"},
+            {"name": "Build", "days": 4, "target_value": 3.0, "target_unit": "servings", "comparator": "min", "prescription": ">=3 servings/day"},
+            {"name": "Strong", "days": 5, "target_value": 4.0, "target_unit": "servings", "comparator": "min", "prescription": ">=4 servings/day"},
+            {"name": "Peak", "days": 5, "target_value": 5.0, "target_unit": "servings", "comparator": "min", "prescription": ">=5 servings/day"},
+        ],
+    },
+}
 PROFILE_MISSING_PROMPTS = {
     "age": "How old are you? Age helps me calibrate realistic daily load and recovery.",
     "biological_sex": "What is your biological sex? It helps with sleep and metabolism pattern interpretation.",
@@ -3052,11 +3181,14 @@ def build_home_scoreboard_context(user: User, *, local_today: date):
         hydrate_substance_secure_fields(user, entry)
 
     done_goal_actions = (
-        UserGoalAction.query.filter(
+        UserGoalAction.query.join(UserGoal, UserGoalAction.goal_id == UserGoal.id)
+        .filter(
             UserGoalAction.user_id == user.id,
             UserGoalAction.day >= history_start,
             UserGoalAction.day <= local_today,
             UserGoalAction.is_done.is_(True),
+            UserGoal.status == "active",
+            non_challenge_goal_filter_clause(),
         )
         .all()
     )
@@ -3065,6 +3197,7 @@ def build_home_scoreboard_context(user: User, *, local_today: date):
         UserGoal.query.filter(
             UserGoal.user_id == user.id,
             UserGoal.status == "active",
+            non_challenge_goal_filter_clause(),
         )
         .order_by(
             UserGoal.target_date.asc().nulls_last(),
@@ -4213,6 +4346,215 @@ def goal_type_label(goal_type: str):
     return GOAL_TYPE_DEFAULT_LABELS.get(goal_type, GOAL_TYPE_DEFAULT_LABELS["custom"])
 
 
+def challenge_constraint_value(program_key: str):
+    return f"{CHALLENGE_CONSTRAINT_PREFIX}{(program_key or '').strip().lower()}"
+
+
+def challenge_program_key_from_constraints(constraints_value: str | None):
+    normalized = normalize_text(constraints_value)
+    if not normalized:
+        return None
+    if not normalized.startswith(CHALLENGE_CONSTRAINT_PREFIX):
+        return None
+    program_key = normalized[len(CHALLENGE_CONSTRAINT_PREFIX) :].strip().lower()
+    if not program_key:
+        return None
+    if program_key not in CHALLENGE_PROGRAMS:
+        return None
+    return program_key
+
+
+def challenge_program_from_goal(goal: UserGoal | None):
+    if goal is None:
+        return None
+    program_key = challenge_program_key_from_constraints(goal.constraints)
+    if not program_key:
+        return None
+    return CHALLENGE_PROGRAMS.get(program_key)
+
+
+def is_challenge_goal(goal: UserGoal | None):
+    return challenge_program_from_goal(goal) is not None
+
+
+def non_challenge_goal_filter_clause():
+    prefix = challenge_constraint_value("")
+    return or_(
+        UserGoal.constraints.is_(None),
+        ~UserGoal.constraints.like(f"{prefix}%"),
+    )
+
+
+def challenge_goal_filter_clause():
+    prefix = challenge_constraint_value("")
+    return UserGoal.constraints.like(f"{prefix}%")
+
+
+def challenge_program_total_days(program: dict):
+    return int(sum(int(stage.get("days") or 0) for stage in program.get("stages", [])))
+
+
+def challenge_stage_for_success_count(program: dict, success_days: int):
+    stages = program.get("stages") or []
+    completed_days = max(0, int(success_days or 0))
+    carried = 0
+    for index, stage in enumerate(stages):
+        stage_days = max(1, int(stage.get("days") or 1))
+        if completed_days < carried + stage_days:
+            return {
+                "index": index,
+                "stage": stage,
+                "done_in_stage": completed_days - carried,
+                "days_in_stage": stage_days,
+            }
+        carried += stage_days
+    if not stages:
+        return None
+    last_stage = stages[-1]
+    last_days = max(1, int(last_stage.get("days") or 1))
+    return {
+        "index": len(stages) - 1,
+        "stage": last_stage,
+        "done_in_stage": last_days,
+        "days_in_stage": last_days,
+    }
+
+
+def parse_challenge_action_payload(note_value: str | None):
+    normalized = normalize_text(note_value)
+    if not normalized:
+        return {"value": None, "note": None, "source": None}
+    try:
+        parsed = json.loads(normalized)
+    except json.JSONDecodeError:
+        return {"value": parse_float(normalized), "note": normalized, "source": None}
+    if not isinstance(parsed, dict):
+        return {"value": None, "note": normalized, "source": None}
+    return {
+        "value": parse_float(parsed.get("value")),
+        "note": normalize_text(parsed.get("note")),
+        "source": normalize_text(parsed.get("source")),
+    }
+
+
+def serialize_challenge_action_payload(*, value: float | None, note_text: str | None, source: str | None = "manual"):
+    payload = {"value": value, "note": normalize_text(note_text), "source": normalize_text(source) or "manual"}
+    return json.dumps(payload)
+
+
+def estimate_daily_nutrition_value_for_challenge(user: User, target_day: date, program_key: str):
+    if program_key not in {"low_sugar_track", "low_carb_track"}:
+        return None
+    start_dt, end_dt = day_bounds(target_day)
+    meals = (
+        Meal.query.filter(
+            Meal.user_id == user.id,
+            Meal.eaten_at >= start_dt,
+            Meal.eaten_at < end_dt,
+        )
+        .all()
+    )
+    for meal in meals:
+        hydrate_meal_secure_fields(user, meal)
+    if program_key == "low_sugar_track":
+        values = [float(meal.sugar_g) for meal in meals if meal.sugar_g is not None]
+    else:
+        values = [float(meal.carbs_g) for meal in meals if meal.carbs_g is not None]
+    if not values:
+        return None
+    return round(sum(values), 2)
+
+
+def build_challenge_progress_card(user: User, goal: UserGoal, *, local_today: date):
+    program = challenge_program_from_goal(goal)
+    if not program:
+        return None
+
+    total_days_required = challenge_program_total_days(program)
+    actions = (
+        UserGoalAction.query.filter(
+            UserGoalAction.goal_id == goal.id,
+            UserGoalAction.user_id == user.id,
+            UserGoalAction.day >= goal.start_date,
+            UserGoalAction.day <= local_today,
+        )
+        .order_by(UserGoalAction.day.asc())
+        .all()
+    )
+    done_rows = [row for row in actions if row.is_done]
+    success_days = len(done_rows)
+    stage_meta = challenge_stage_for_success_count(program, success_days)
+    current_stage = stage_meta["stage"] if stage_meta else None
+    today_row = next((row for row in reversed(actions) if row.day == local_today), None)
+    today_payload = parse_challenge_action_payload(today_row.note if today_row else None)
+    estimated_value = estimate_daily_nutrition_value_for_challenge(
+        user,
+        local_today,
+        challenge_program_key_from_constraints(goal.constraints) or "",
+    )
+
+    if estimated_value is not None and today_payload.get("value") is None:
+        today_payload["value"] = estimated_value
+        today_payload["source"] = "auto-meal-log"
+
+    done_in_stage = stage_meta["done_in_stage"] if stage_meta else 0
+    days_in_stage = stage_meta["days_in_stage"] if stage_meta else 0
+    progress_pct = round((success_days / max(total_days_required, 1)) * 100.0, 1)
+
+    recent_rows = []
+    window = min(10, max(total_days_required, 7))
+    for offset in range(window):
+        day_value = local_today - timedelta(days=offset)
+        if day_value < goal.start_date:
+            continue
+        row = next((item for item in reversed(actions) if item.day == day_value), None)
+        payload = parse_challenge_action_payload(row.note if row else None)
+        recent_rows.append(
+            {
+                "day": day_value,
+                "day_label": day_value.strftime("%a %b %d"),
+                "is_done": bool(row and row.is_done),
+                "value": payload.get("value"),
+                "note": payload.get("note"),
+            }
+        )
+
+    return {
+        "goal": goal,
+        "program_key": challenge_program_key_from_constraints(goal.constraints),
+        "program": program,
+        "total_days_required": total_days_required,
+        "success_days": success_days,
+        "progress_pct": progress_pct,
+        "current_stage": current_stage,
+        "current_stage_index": stage_meta["index"] if stage_meta else None,
+        "done_in_stage": done_in_stage,
+        "days_in_stage": days_in_stage,
+        "today_done": bool(today_row and today_row.is_done),
+        "today_value": today_payload.get("value"),
+        "today_note": today_payload.get("note"),
+        "today_source": today_payload.get("source"),
+        "recent_rows": recent_rows,
+        "is_completed": success_days >= total_days_required,
+    }
+
+
+def challenge_stage_target_text(stage: dict | None):
+    if not stage:
+        return "n/a"
+    target_value = parse_float(stage.get("target_value"))
+    target_unit = normalize_text(stage.get("target_unit")) or ""
+    comparator = (normalize_text(stage.get("comparator")) or "min").lower()
+    comparator_symbol = ">=" if comparator == "min" else "<="
+    if target_value is None:
+        return stage.get("prescription") or "n/a"
+    if float(target_value).is_integer():
+        value_text = str(int(target_value))
+    else:
+        value_text = f"{float(target_value):.1f}".rstrip("0").rstrip(".")
+    return f"{comparator_symbol}{value_text} {target_unit}".strip()
+
+
 def build_goal_week_plan(goal_type: str):
     plans = {
         "weight_loss": [
@@ -4567,7 +4909,11 @@ def build_goal_progress_card(user: User, goal: UserGoal, *, local_today: date):
 
 def build_home_goal_context(user: User, *, local_today: date):
     goals = (
-        UserGoal.query.filter(UserGoal.user_id == user.id, UserGoal.status.in_(["active", "paused"]))
+        UserGoal.query.filter(
+            UserGoal.user_id == user.id,
+            UserGoal.status.in_(["active", "paused"]),
+            non_challenge_goal_filter_clause(),
+        )
         .order_by(
             case((UserGoal.status == "active", 0), else_=1),
             UserGoal.target_date.asc().nulls_last(),
@@ -4585,6 +4931,7 @@ def build_home_goal_context(user: User, *, local_today: date):
         .filter(
             UserGoal.user_id == user.id,
             UserGoal.status == "active",
+            non_challenge_goal_filter_clause(),
             UserGoalAction.user_id == user.id,
             UserGoalAction.day == local_today,
             UserGoalAction.is_done.is_(True),
@@ -8619,6 +8966,258 @@ def profile_nudge_settings():
     return redirect(next_url)
 
 
+@bp.get("/challenges")
+@login_required
+def challenges_page():
+    local_today = get_user_local_today(g.user)
+
+    active_or_paused_goals = (
+        UserGoal.query.filter(
+            UserGoal.user_id == g.user.id,
+            challenge_goal_filter_clause(),
+            UserGoal.status.in_(["active", "paused"]),
+        )
+        .order_by(
+            case((UserGoal.status == "active", 0), else_=1),
+            UserGoal.created_at.asc(),
+        )
+        .all()
+    )
+
+    active_cards = []
+    for goal in active_or_paused_goals:
+        card = build_challenge_progress_card(g.user, goal, local_today=local_today)
+        if card:
+            active_cards.append(card)
+
+    completed_goals = (
+        UserGoal.query.filter(
+            UserGoal.user_id == g.user.id,
+            challenge_goal_filter_clause(),
+            UserGoal.status.in_(["completed", "archived"]),
+        )
+        .order_by(UserGoal.updated_at.desc())
+        .limit(12)
+        .all()
+    )
+    completed_cards = []
+    for goal in completed_goals:
+        card = build_challenge_progress_card(g.user, goal, local_today=local_today)
+        if card:
+            completed_cards.append(card)
+
+    joined_active_keys = {
+        card["program_key"] for card in active_cards if card.get("program_key")
+    }
+    library_cards = []
+    category_order = {"Strength": 0, "Core": 1, "Cardio": 2, "Nutrition": 3}
+    for program_key, program in sorted(
+        CHALLENGE_PROGRAMS.items(),
+        key=lambda item: (
+            category_order.get(item[1].get("category"), 99),
+            str(item[1].get("title") or "").lower(),
+        ),
+    ):
+        stage_lines = []
+        for stage in program.get("stages", []):
+            stage_days = max(1, int(stage.get("days") or 1))
+            stage_lines.append(
+                f"{stage.get('name')}: {stage.get('prescription')} for {stage_days} day{'s' if stage_days != 1 else ''} ({challenge_stage_target_text(stage)})"
+            )
+        library_cards.append(
+            {
+                "key": program_key,
+                "title": program.get("title"),
+                "category": program.get("category"),
+                "description": program.get("description"),
+                "value_label": program.get("value_label"),
+                "value_hint": program.get("value_hint"),
+                "total_days": challenge_program_total_days(program),
+                "stage_lines": stage_lines,
+                "is_joined": program_key in joined_active_keys,
+            }
+        )
+
+    return render_template(
+        "challenges.html",
+        local_today=local_today,
+        active_cards=active_cards,
+        completed_cards=completed_cards,
+        library_cards=library_cards,
+    )
+
+
+@bp.post("/challenges/join")
+@login_required
+def challenges_join():
+    program_key = (request.form.get("program_key") or "").strip().lower()
+    program = CHALLENGE_PROGRAMS.get(program_key)
+    if not program:
+        flash("Invalid challenge program selected.", "error")
+        return redirect(url_for("main.challenges_page"))
+
+    existing_active = UserGoal.query.filter(
+        UserGoal.user_id == g.user.id,
+        UserGoal.constraints == challenge_constraint_value(program_key),
+        UserGoal.status.in_(["active", "paused"]),
+    ).first()
+    if existing_active:
+        flash("This challenge is already active. Continue from your existing program card.", "error")
+        return redirect(url_for("main.challenges_page"))
+
+    local_today = get_user_local_today(g.user)
+    total_days = challenge_program_total_days(program)
+    first_stage = (program.get("stages") or [{}])[0]
+    first_target = challenge_stage_target_text(first_stage)
+    week_plan = []
+    for stage in program.get("stages", [])[:7]:
+        stage_days = max(1, int(stage.get("days") or 1))
+        week_plan.append(
+            f"{stage.get('name')}: {stage.get('prescription')} for {stage_days} day{'s' if stage_days != 1 else ''}"
+        )
+
+    goal = UserGoal(
+        user_id=g.user.id,
+        title=f"{program.get('title')} Program",
+        goal_type=str(program.get("goal_type") or "custom"),
+        status="active",
+        priority="medium",
+        start_date=local_today,
+        target_date=local_today + timedelta(days=max(total_days - 1, 0)),
+        target_value=parse_float(first_stage.get("target_value")),
+        target_unit=normalize_text(first_stage.get("target_unit")) or None,
+        constraints=challenge_constraint_value(program_key),
+        daily_commitment_minutes=20,
+        coach_message=(
+            f"Challenge started: {program.get('title')}. "
+            f"Current target is {first_target}. Complete one day at a time."
+        ),
+        today_action=f"{first_stage.get('prescription')} ({first_target})",
+        week_plan=week_plan or None,
+    )
+    db.session.add(goal)
+    db.session.commit()
+    flash(f"Joined {program.get('title')} challenge.", "success")
+    return redirect(url_for("main.challenges_page"))
+
+
+@bp.post("/challenges/<int:goal_id>/log")
+@login_required
+def challenges_log_day(goal_id: int):
+    goal = UserGoal.query.filter_by(id=goal_id, user_id=g.user.id).first_or_404()
+    program = challenge_program_from_goal(goal)
+    if not program:
+        flash("Challenge program not found for this goal.", "error")
+        return redirect(url_for("main.challenges_page"))
+
+    local_today = get_user_local_today(g.user)
+    if goal.status not in {"active", "paused"}:
+        flash("Only active or paused challenge programs can be logged.", "error")
+        return redirect(url_for("main.challenges_page"))
+
+    if goal.status == "paused":
+        goal.status = "active"
+
+    value = parse_float(request.form.get("value"))
+    note_text = normalize_text(request.form.get("note"))
+
+    pre_card = build_challenge_progress_card(g.user, goal, local_today=local_today) or {}
+    current_stage = pre_card.get("current_stage")
+    if current_stage is None:
+        flash("Challenge stage is unavailable. Try rejoining this challenge.", "error")
+        return redirect(url_for("main.challenges_page"))
+
+    auto_used = False
+    if value is None and pre_card.get("today_value") is not None:
+        value = parse_float(pre_card.get("today_value"))
+        auto_used = True
+
+    if value is None:
+        flash("Enter today's value before logging this challenge day.", "error")
+        return redirect(url_for("main.challenges_page"))
+
+    comparator = (normalize_text(current_stage.get("comparator")) or "min").lower()
+    target_value = parse_float(current_stage.get("target_value")) or 0.0
+    if comparator == "max":
+        is_done = float(value) <= float(target_value)
+    else:
+        is_done = float(value) >= float(target_value)
+
+    action = UserGoalAction.query.filter_by(
+        goal_id=goal.id,
+        user_id=g.user.id,
+        day=local_today,
+    ).first()
+    if not action:
+        action = UserGoalAction(
+            goal_id=goal.id,
+            user_id=g.user.id,
+            day=local_today,
+        )
+    action.is_done = bool(is_done)
+    action.note = serialize_challenge_action_payload(
+        value=float(value),
+        note_text=note_text,
+        source=("auto-meal-log" if auto_used else "manual"),
+    )
+    db.session.add(action)
+
+    success_days = (
+        db.session.query(func.count(UserGoalAction.id))
+        .filter(
+            UserGoalAction.goal_id == goal.id,
+            UserGoalAction.user_id == g.user.id,
+            UserGoalAction.day >= goal.start_date,
+            UserGoalAction.day <= local_today,
+            UserGoalAction.is_done.is_(True),
+        )
+        .scalar()
+        or 0
+    )
+    total_days_required = challenge_program_total_days(program)
+    next_stage_meta = challenge_stage_for_success_count(program, int(success_days))
+    if int(success_days) >= int(total_days_required):
+        goal.status = "completed"
+        goal.today_action = "Program complete. Start another challenge or repeat this one at a higher standard."
+    elif next_stage_meta:
+        next_stage = next_stage_meta["stage"]
+        goal.target_value = parse_float(next_stage.get("target_value"))
+        goal.target_unit = normalize_text(next_stage.get("target_unit")) or goal.target_unit
+        goal.today_action = f"{next_stage.get('prescription')} ({challenge_stage_target_text(next_stage)})"
+    db.session.add(goal)
+    db.session.commit()
+
+    if is_done:
+        flash("Challenge day logged as complete.", "success")
+    else:
+        flash(
+            f"Logged value, but target not met ({challenge_stage_target_text(current_stage)} required).",
+            "error",
+        )
+    return redirect(url_for("main.challenges_page"))
+
+
+@bp.post("/challenges/<int:goal_id>/status")
+@login_required
+def challenges_update_status(goal_id: int):
+    goal = UserGoal.query.filter_by(id=goal_id, user_id=g.user.id).first_or_404()
+    program = challenge_program_from_goal(goal)
+    if not program:
+        flash("Challenge program not found for this goal.", "error")
+        return redirect(url_for("main.challenges_page"))
+
+    new_status = (request.form.get("status") or "").strip().lower()
+    if new_status not in {"active", "paused", "archived"}:
+        flash("Invalid challenge status.", "error")
+        return redirect(url_for("main.challenges_page"))
+
+    goal.status = new_status
+    db.session.add(goal)
+    db.session.commit()
+    flash(f"{program.get('title')} status updated to {new_status}.", "success")
+    return redirect(url_for("main.challenges_page"))
+
+
 @bp.get("/goals")
 @login_required
 def goals_page():
@@ -8629,7 +9228,10 @@ def goals_page():
     if status_filter not in allowed_filters:
         status_filter = "all"
 
-    query = UserGoal.query.filter_by(user_id=g.user.id)
+    query = UserGoal.query.filter(
+        UserGoal.user_id == g.user.id,
+        non_challenge_goal_filter_clause(),
+    )
     if status_filter != "all":
         query = query.filter_by(status=status_filter)
 
@@ -8645,7 +9247,10 @@ def goals_page():
 
     status_counts = dict(
         db.session.query(UserGoal.status, func.count(UserGoal.id))
-        .filter(UserGoal.user_id == g.user.id)
+        .filter(
+            UserGoal.user_id == g.user.id,
+            non_challenge_goal_filter_clause(),
+        )
         .group_by(UserGoal.status)
         .all()
     )

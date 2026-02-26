@@ -1,0 +1,236 @@
+{% extends "base.html" %}
+{% block content %}
+  <style>
+    .challenge-grid {
+      display: grid;
+      gap: 12px;
+    }
+    .challenge-program-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 10px;
+    }
+    .challenge-pill {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--muted);
+      font-size: 0.82rem;
+      font-weight: 600;
+      margin-right: 6px;
+      margin-bottom: 6px;
+    }
+    .challenge-track {
+      width: 100%;
+      height: 9px;
+      border-radius: 999px;
+      background: #e7edf4;
+      overflow: hidden;
+      margin: 8px 0;
+    }
+    .challenge-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #0f766e, #14b8a6);
+      border-radius: inherit;
+    }
+    .challenge-stage-list {
+      margin: 8px 0 0;
+      padding-left: 18px;
+    }
+    .challenge-stage-list li {
+      margin-bottom: 4px;
+      line-height: 1.35;
+    }
+    .challenge-log-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 8px;
+      align-items: end;
+    }
+    .challenge-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .subtle-btn {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      color: var(--text);
+      padding: 8px 10px;
+      font: inherit;
+      cursor: pointer;
+    }
+    .challenge-history {
+      margin: 8px 0 0;
+      padding-left: 18px;
+    }
+    .muted-small {
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+  </style>
+
+  <div class="challenge-grid">
+    <div class="card">
+      <h1>Challenges</h1>
+      <p class="muted">
+        Structured programs that escalate in stages. Day one starts now, and progress is logged one day at a time.
+      </p>
+      <p class="muted">Tracking day: <strong>{{ local_today.strftime("%A, %B %d, %Y") }}</strong></p>
+    </div>
+
+    <div class="card">
+      <h2>My Active Programs</h2>
+      {% if not active_cards %}
+        <p class="muted">No active challenge programs yet. Join one from the Program Library below.</p>
+      {% endif %}
+
+      {% for card in active_cards %}
+        <div class="card" style="margin-top: 10px;">
+          <h3 style="margin-bottom: 6px;">{{ card.program.title }}</h3>
+          <div>
+            <span class="challenge-pill">{{ card.program.category }}</span>
+            <span class="challenge-pill">Status: {{ card.goal.status|capitalize }}</span>
+            <span class="challenge-pill">{{ card.success_days }}/{{ card.total_days_required }} days complete</span>
+            {% if card.current_stage %}
+              <span class="challenge-pill">Stage: {{ card.current_stage.name }}</span>
+            {% endif %}
+          </div>
+          <div class="challenge-track">
+            <div class="challenge-fill" style="width: {{ card.progress_pct }}%;"></div>
+          </div>
+          {% if card.current_stage %}
+            <p class="muted-small" style="margin: 0;">
+              Current target:
+              <strong>{{ card.current_stage.prescription }}</strong>
+              ({{ ">=" if card.current_stage.comparator == "min" else "<=" }}{{ card.current_stage.target_value }} {{ card.current_stage.target_unit }})
+              - stage day {{ card.done_in_stage + 1 if card.done_in_stage < card.days_in_stage else card.days_in_stage }}/{{ card.days_in_stage }}
+            </p>
+          {% endif %}
+          {% if card.today_done %}
+            <p class="muted-small" style="margin: 6px 0 0;">Today is already marked complete.</p>
+          {% elif card.today_value is not none %}
+            <p class="muted-small" style="margin: 6px 0 0;">
+              Suggested value for today: {{ card.today_value }}{% if card.today_source == "auto-meal-log" %} (from meal logs){% endif %}
+            </p>
+          {% endif %}
+
+          {% if card.goal.status in ["active", "paused"] and not card.is_completed %}
+            <form method="post" action="{{ url_for('main.challenges_log_day', goal_id=card.goal.id) }}" style="margin-top: 10px;">
+              <div class="challenge-log-grid">
+                <div>
+                  <label for="challenge_value_{{ card.goal.id }}">{{ card.program.value_label }}</label>
+                  <input
+                    id="challenge_value_{{ card.goal.id }}"
+                    name="value"
+                    type="number"
+                    step="0.1"
+                    value="{{ card.today_value if card.today_value is not none else '' }}"
+                    required
+                  />
+                </div>
+                <div>
+                  <label for="challenge_note_{{ card.goal.id }}">Note (optional)</label>
+                  <input id="challenge_note_{{ card.goal.id }}" name="note" placeholder="Set splits, context, or friction..." />
+                </div>
+              </div>
+              <p class="muted-small">{{ card.program.value_hint }}</p>
+              <div class="challenge-actions">
+                <button type="submit">Log Today</button>
+              </div>
+            </form>
+          {% endif %}
+
+          <div class="challenge-actions">
+            {% if card.goal.status != "active" and not card.is_completed %}
+              <form method="post" action="{{ url_for('main.challenges_update_status', goal_id=card.goal.id) }}">
+                <input type="hidden" name="status" value="active" />
+                <button type="submit" class="subtle-btn">Resume</button>
+              </form>
+            {% endif %}
+            {% if card.goal.status == "active" and not card.is_completed %}
+              <form method="post" action="{{ url_for('main.challenges_update_status', goal_id=card.goal.id) }}">
+                <input type="hidden" name="status" value="paused" />
+                <button type="submit" class="subtle-btn">Pause</button>
+              </form>
+            {% endif %}
+            {% if card.goal.status != "archived" %}
+              <form method="post" action="{{ url_for('main.challenges_update_status', goal_id=card.goal.id) }}">
+                <input type="hidden" name="status" value="archived" />
+                <button type="submit" class="subtle-btn">Archive</button>
+              </form>
+            {% endif %}
+          </div>
+
+          {% if card.recent_rows %}
+            <div class="muted-small" style="margin-top: 8px;"><strong>Recent days</strong></div>
+            <ul class="challenge-history">
+              {% for row in card.recent_rows %}
+                <li>
+                  {{ row.day_label }}:
+                  {% if row.is_done %}
+                    done
+                  {% else %}
+                    not done
+                  {% endif %}
+                  {% if row.value is not none %}
+                    ({{ row.value }})
+                  {% endif %}
+                  {% if row.note %}
+                    - {{ row.note }}
+                  {% endif %}
+                </li>
+              {% endfor %}
+            </ul>
+          {% endif %}
+        </div>
+      {% endfor %}
+    </div>
+
+    <div class="card">
+      <h2>Program Library</h2>
+      <p class="muted">Join a staged challenge program. CoachMIM advances stages automatically as you complete days.</p>
+      <div class="challenge-program-grid">
+        {% for item in library_cards %}
+          <div class="card" style="margin: 0;">
+            <h3 style="margin-bottom: 6px;">{{ item.title }}</h3>
+            <div class="challenge-pill">{{ item.category }}</div>
+            <div class="challenge-pill">{{ item.total_days }} total days</div>
+            <p class="muted-small" style="margin-top: 6px;">{{ item.description }}</p>
+            <ul class="challenge-stage-list">
+              {% for line in item.stage_lines %}
+                <li>{{ line }}</li>
+              {% endfor %}
+            </ul>
+            <div class="challenge-actions">
+              {% if item.is_joined %}
+                <span class="challenge-pill">Already active</span>
+              {% else %}
+                <form method="post" action="{{ url_for('main.challenges_join') }}">
+                  <input type="hidden" name="program_key" value="{{ item.key }}" />
+                  <button type="submit">Join Program</button>
+                </form>
+              {% endif %}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    {% if completed_cards %}
+      <div class="card">
+        <h2>Completed Programs</h2>
+        <ul style="margin: 0; padding-left: 18px;">
+          {% for card in completed_cards %}
+            <li>{{ card.program.title }} - {{ card.success_days }}/{{ card.total_days_required }} days completed</li>
+          {% endfor %}
+        </ul>
+      </div>
+    {% endif %}
+  </div>
+{% endblock %}

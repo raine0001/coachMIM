@@ -119,6 +119,7 @@ flask run
 ## Notes
 
 - OpenAI is optional for MVP. If `OPENAI_API_KEY` is unset, weekly AI reflection shows a fallback message.
+- OpenAI calls default to `responses.stream` (with fallback to `responses.create`) for better first-token responsiveness. Set `OPENAI_USE_RESPONSES_STREAM=false` to disable.
 - Nutrition-label photo parsing also requires `OPENAI_API_KEY`.
 - Product link parsing works with direct page extraction; `OPENAI_API_KEY` enables AI fallback parsing for harder pages.
 - USDA food import is optional. Add `USDA_API_KEY` to enable search-time USDA imports into your local DB cache.
@@ -129,6 +130,7 @@ flask run
     - `.\.venv\Scripts\python.exe scripts\import_usda_dump.py "C:\Users\dave\Desktop\FoodData_Central_csv_2025-12-18\FoodData_Central_csv_2025-12-18" --max-foods 100000 --batch-size 2000`
   - Start without `--include-branded` to keep results cleaner and import size manageable.
   - If you want more coverage, run additional passes with higher `--max-foods` or targeted `--keywords`.
+- Optional latency benchmark: `.\.venv\Scripts\python.exe scripts\benchmark_openai_ttfb.py --runs 5`
 - Uploads are stored from `UPLOAD_FOLDER`:
   - local/dev default: `app/static/uploads`
   - Render with disk mount: set `UPLOAD_FOLDER=/var/data/uploads`

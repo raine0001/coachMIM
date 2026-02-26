@@ -16,6 +16,9 @@ PRODUCT_PAGE_MAX_BYTES = int(os.getenv("PRODUCT_PAGE_MAX_BYTES", "1800000"))
 OPENAI_REQUEST_TIMEOUT_SECONDS = float(os.getenv("OPENAI_REQUEST_TIMEOUT_SECONDS", "8"))
 OPENAI_CONNECT_TIMEOUT_SECONDS = float(os.getenv("OPENAI_CONNECT_TIMEOUT_SECONDS", "5"))
 OPENAI_MAX_RETRIES = max(0, int(os.getenv("OPENAI_MAX_RETRIES", "0")))
+OPENAI_USE_RESPONSES_STREAM = (
+    os.getenv("OPENAI_USE_RESPONSES_STREAM", "true").strip().lower() in {"1", "true", "yes", "on"}
+)
 
 from app.models import DailyCheckIn, Meal
 
@@ -44,6 +47,17 @@ def build_openai_client(api_key: str) -> OpenAI:
         pool=OPENAI_CONNECT_TIMEOUT_SECONDS,
     )
     return OpenAI(api_key=api_key, timeout=timeout, max_retries=OPENAI_MAX_RETRIES)
+
+
+def create_openai_response(client: OpenAI, **kwargs):
+    if not OPENAI_USE_RESPONSES_STREAM:
+        return client.responses.create(**kwargs)
+
+    try:
+        with client.responses.stream(**kwargs) as stream:
+            return stream.get_final_response()
+    except Exception:
+        return client.responses.create(**kwargs)
 
 
 def coach_prompt_missing_fields(user, meals: Sequence[Meal], checkins: Sequence[DailyCheckIn]):
@@ -91,7 +105,8 @@ def ai_reflection(summary_text: str) -> str:
     model = os.getenv("OPENAI_REFLECTION_MODEL", "gpt-4.1-mini")
     client = build_openai_client(api_key)
 
-    resp = client.responses.create(
+    resp = create_openai_response(
+        client,
         model=model,
         input=f"You're a helpful performance coach. Give a concise reflection and 1-2 next questions.\n\n{summary_text}",
     )
@@ -152,7 +167,7 @@ def ask_mim_general_chat(
         user_content.append({"type": "input_image", "image_url": f"data:{mime};base64,{image_b64}"})
 
     chat_input.append({"role": "user", "content": user_content})
-    response = client.responses.create(model=model, input=chat_input)
+    response = create_openai_response(client, model=model, input=chat_input)
     answer = (response.output_text or "").strip()
     return answer or "I couldn't generate a response. Please try rephrasing your question."
 
@@ -216,7 +231,7 @@ def generate_daily_personalized_tip(
     )
 
     try:
-        response = client.responses.create(model=model, input=prompt)
+        response = create_openai_response(client, model=model, input=prompt)
     except Exception:
         return {}
 
@@ -550,7 +565,7 @@ def _ai_parse_meal_sentence(text: str) -> dict:
     )
 
     client = build_openai_client(api_key)
-    response = client.responses.create(model=model, input=prompt)
+    response = create_openai_response(client, model=model, input=prompt)
     parsed = _extract_json_object(response.output_text or "")
     ingredients = _normalize_parsed_ingredients(parsed.get("ingredients"))
     if not ingredients:
@@ -784,7 +799,7 @@ def _ai_day_manager_assist(context: str, text: str, first_name: str) -> dict:
     )
 
     client = build_openai_client(api_key)
-    response = client.responses.create(model=model, input=prompt)
+    response = create_openai_response(client, model=model, input=prompt)
     parsed = _extract_json_object(response.output_text or "")
     if not isinstance(parsed, dict):
         return {}
@@ -897,7 +912,8 @@ def parse_nutrition_label_image(image_bytes: bytes, mime_type: str | None, hint_
     )
 
     client = build_openai_client(api_key)
-    response = client.responses.create(
+    response = create_openai_response(
+        client,
         model=model,
         input=[
             {
@@ -1224,7 +1240,7 @@ def _parse_product_with_ai(page_title: str | None, page_text: str, product_url: 
     )
 
     client = build_openai_client(api_key)
-    response = client.responses.create(model=model, input=prompt)
+    response = create_openai_response(client, model=model, input=prompt)
     parsed = _extract_json_object(response.output_text or "")
 
     return {

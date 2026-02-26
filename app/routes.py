@@ -10,6 +10,7 @@ from datetime import date, datetime, timedelta
 from difflib import SequenceMatcher
 from email.message import EmailMessage
 from functools import wraps
+from time import perf_counter
 from urllib.parse import quote_plus, urlencode, urlparse
 from uuid import uuid4
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError, available_timezones
@@ -106,6 +107,17 @@ HOMEPAGE_VISITOR_COOKIE_MAX_AGE = int(os.getenv("HOMEPAGE_VISITOR_COOKIE_MAX_AGE
 HOMEPAGE_TRACKING_ENABLED = (
     os.getenv("HOMEPAGE_TRACKING_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
 )
+AI_TIMING_LOG_ENABLED = (
+    os.getenv("AI_TIMING_LOG_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
+)
+AI_TIMING_LOG_MIN_MS = max(0, int(os.getenv("AI_TIMING_LOG_MIN_MS", "0")))
+AI_TIMING_PATH_PREFIXES = ("/ai/", "/nutrition/")
+AI_TIMING_PATHS = {
+    "/meal/parse-text",
+    "/recipe-calculator/calculate",
+    "/ask-mim/send",
+    "/internal/community-auto-post",
+}
 HOMEPAGE_REPORT_DEFAULT_HOSTS = {"coachmim.com", "www.coachmim.com"}
 HOMEPAGE_BOT_HINTS = (
     "bot",
@@ -7173,6 +7185,14 @@ def request_wants_json_response() -> bool:
     return requested_with == "xmlhttprequest"
 
 
+def _should_log_ai_timing(path: str) -> bool:
+    if not AI_TIMING_LOG_ENABLED:
+        return False
+    if path in AI_TIMING_PATHS:
+        return True
+    return any(path.startswith(prefix) for prefix in AI_TIMING_PATH_PREFIXES)
+
+
 @bp.before_app_request
 def load_logged_in_user():
     user_id = session.get("user_id")
@@ -7211,6 +7231,38 @@ def load_logged_in_user():
                 g.notification_unread_count = unread_notification_count_for_user(g.user.id)
             except Exception:
                 g.notification_unread_count = 0
+
+
+@bp.before_app_request
+def start_ai_request_timing():
+    if not _should_log_ai_timing(request.path):
+        return
+    g.ai_timing_start = perf_counter()
+
+
+@bp.after_app_request
+def log_ai_request_timing(response):
+    start = getattr(g, "ai_timing_start", None)
+    if start is None:
+        return response
+
+    elapsed_ms = int(round((perf_counter() - start) * 1000))
+    response.headers["X-AI-Elapsed-MS"] = str(elapsed_ms)
+
+    if elapsed_ms >= AI_TIMING_LOG_MIN_MS:
+        user_id = getattr(getattr(g, "user", None), "id", None)
+        if user_id is None:
+            user_id = session.get("user_id")
+        current_app.logger.info(
+            "ai_timing endpoint=%s path=%s method=%s status=%s elapsed_ms=%s user_id=%s",
+            request.endpoint,
+            request.path,
+            request.method,
+            response.status_code,
+            elapsed_ms,
+            user_id,
+        )
+    return response
 
 
 @bp.app_context_processor

@@ -4,6 +4,7 @@ import os
 import re
 import secrets
 import smtplib
+import base64
 import xml.etree.ElementTree as ET
 from collections import defaultdict
 from datetime import date, datetime, timedelta
@@ -42,6 +43,10 @@ try:
 except Exception:  # pragma: no cover - optional dependency fallback during partial installs
     WebPushException = Exception
     webpush = None
+try:
+    from cryptography.hazmat.primitives.asymmetric import ec
+except Exception:  # pragma: no cover - optional dependency fallback during partial installs
+    ec = None
 
 from app import db
 from app.ai import (
@@ -5936,8 +5941,14 @@ def _build_automation_diagnostics():
         "COACHMIM_COMMUNITY_TOKEN",
     )
 
-    push_public = (current_app.config.get("PUSH_VAPID_PUBLIC_KEY") or "").strip()
-    push_private = (current_app.config.get("PUSH_VAPID_PRIVATE_KEY") or "").strip()
+    push_public = _sanitize_vapid_key_value(
+        current_app.config.get("PUSH_VAPID_PUBLIC_KEY"),
+        key_name="PUSH_VAPID_PUBLIC_KEY",
+    )
+    push_private = _sanitize_vapid_key_value(
+        current_app.config.get("PUSH_VAPID_PRIVATE_KEY"),
+        key_name="PUSH_VAPID_PRIVATE_KEY",
+    )
     push_claims_sub = (current_app.config.get("PUSH_VAPID_CLAIMS_SUB") or "").strip()
 
     community_command = (
@@ -6590,6 +6601,66 @@ def _get_active_goal(user: User):
         .order_by(UserGoal.updated_at.desc(), UserGoal.id.desc())
         .first()
     )
+
+
+def _sanitize_vapid_key_value(raw_value: str | None, key_name: str | None = None):
+    value = (raw_value or "").strip().strip('"').strip("'")
+    if key_name:
+        prefix = f"{key_name}="
+        if value.startswith(prefix):
+            value = value[len(prefix) :].strip().strip('"').strip("'")
+    return value
+
+
+def _urlsafe_b64decode(value: str | None):
+    token = (value or "").strip()
+    if not token:
+        return None
+    padding = "=" * ((4 - (len(token) % 4)) % 4)
+    try:
+        return base64.urlsafe_b64decode(token + padding)
+    except Exception:
+        return None
+
+
+def _urlsafe_b64encode(value: bytes):
+    if not value:
+        return ""
+    return base64.urlsafe_b64encode(value).rstrip(b"=").decode("ascii")
+
+
+def _derive_vapid_public_key_from_private(private_key: str | None):
+    if ec is None:
+        return ""
+    normalized_private = _sanitize_vapid_key_value(private_key, key_name="PUSH_VAPID_PRIVATE_KEY")
+    private_bytes = _urlsafe_b64decode(normalized_private)
+    if not private_bytes or len(private_bytes) != 32:
+        return ""
+    try:
+        private_int = int.from_bytes(private_bytes, "big")
+        private_obj = ec.derive_private_key(private_int, ec.SECP256R1())
+        public_numbers = private_obj.public_key().public_numbers()
+        public_bytes = (
+            b"\x04"
+            + public_numbers.x.to_bytes(32, "big")
+            + public_numbers.y.to_bytes(32, "big")
+        )
+        return _urlsafe_b64encode(public_bytes)
+    except Exception:
+        return ""
+
+
+def _get_vapid_public_key_for_browser():
+    configured_public = _sanitize_vapid_key_value(
+        current_app.config.get("PUSH_VAPID_PUBLIC_KEY"),
+        key_name="PUSH_VAPID_PUBLIC_KEY",
+    )
+    configured_private = _sanitize_vapid_key_value(
+        current_app.config.get("PUSH_VAPID_PRIVATE_KEY"),
+        key_name="PUSH_VAPID_PRIVATE_KEY",
+    )
+    derived_public = _derive_vapid_public_key_from_private(configured_private)
+    return derived_public or configured_public
 
 
 def push_notifications_enabled():
@@ -7402,8 +7473,11 @@ def notifications_page():
             UserPushSubscription.is_active.is_(True),
         ).count()
     )
-    push_public_key = (current_app.config.get("PUSH_VAPID_PUBLIC_KEY") or "").strip()
-    push_private_key = (current_app.config.get("PUSH_VAPID_PRIVATE_KEY") or "").strip()
+    push_public_key = _get_vapid_public_key_for_browser()
+    push_private_key = _sanitize_vapid_key_value(
+        current_app.config.get("PUSH_VAPID_PRIVATE_KEY"),
+        key_name="PUSH_VAPID_PRIVATE_KEY",
+    )
     push_diag = {
         "pywebpush_available": webpush is not None,
         "public_key_configured": bool(push_public_key),
@@ -7585,7 +7659,7 @@ def _clamp_push_subscription_count(user_id: int):
 @bp.get("/notifications/push/public-key")
 @login_required
 def notifications_push_public_key():
-    public_key = (current_app.config.get("PUSH_VAPID_PUBLIC_KEY") or "").strip()
+    public_key = _get_vapid_public_key_for_browser()
     return jsonify(
         {
             "ok": bool(public_key),

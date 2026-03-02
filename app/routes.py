@@ -6623,6 +6623,45 @@ def _urlsafe_b64decode(value: str | None):
         return None
 
 
+def _base64_decode(value: str | None):
+    token = (value or "").strip()
+    if not token:
+        return None
+    padding = "=" * ((4 - (len(token) % 4)) % 4)
+    try:
+        return base64.b64decode(token + padding)
+    except Exception:
+        return None
+
+
+def _decode_key_bytes(value: str | None):
+    token = (value or "").strip()
+    if not token:
+        return None
+
+    candidates = []
+    decoded_urlsafe = _urlsafe_b64decode(token)
+    if decoded_urlsafe:
+        candidates.append(decoded_urlsafe)
+
+    decoded_std = _base64_decode(token)
+    if decoded_std and decoded_std not in candidates:
+        candidates.append(decoded_std)
+
+    hex_token = token.lower().strip()
+    if hex_token.startswith("0x"):
+        hex_token = hex_token[2:]
+    if re.fullmatch(r"[0-9a-f]+", hex_token or "") and len(hex_token) % 2 == 0:
+        try:
+            decoded_hex = bytes.fromhex(hex_token)
+            if decoded_hex and decoded_hex not in candidates:
+                candidates.append(decoded_hex)
+        except Exception:
+            pass
+
+    return candidates[0] if candidates else None
+
+
 def _urlsafe_b64encode(value: bytes):
     if not value:
         return ""
@@ -6633,7 +6672,7 @@ def _derive_vapid_public_key_from_private(private_key: str | None):
     if ec is None:
         return ""
     normalized_private = _sanitize_vapid_key_value(private_key, key_name="PUSH_VAPID_PRIVATE_KEY")
-    private_bytes = _urlsafe_b64decode(normalized_private)
+    private_bytes = _decode_key_bytes(normalized_private)
     if not private_bytes or len(private_bytes) != 32:
         return ""
     try:
@@ -6650,6 +6689,30 @@ def _derive_vapid_public_key_from_private(private_key: str | None):
         return ""
 
 
+def _normalize_vapid_public_key_for_browser(public_key: str | None):
+    if ec is None:
+        return ""
+    normalized_public = _sanitize_vapid_key_value(public_key, key_name="PUSH_VAPID_PUBLIC_KEY")
+    public_bytes = _decode_key_bytes(normalized_public)
+    if not public_bytes:
+        return ""
+
+    if len(public_bytes) == 64:
+        public_bytes = b"\x04" + public_bytes
+
+    try:
+        public_obj = ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256R1(), public_bytes)
+        public_numbers = public_obj.public_numbers()
+        uncompressed = (
+            b"\x04"
+            + public_numbers.x.to_bytes(32, "big")
+            + public_numbers.y.to_bytes(32, "big")
+        )
+        return _urlsafe_b64encode(uncompressed)
+    except Exception:
+        return ""
+
+
 def _get_vapid_public_key_for_browser():
     configured_public = _sanitize_vapid_key_value(
         current_app.config.get("PUSH_VAPID_PUBLIC_KEY"),
@@ -6659,8 +6722,9 @@ def _get_vapid_public_key_for_browser():
         current_app.config.get("PUSH_VAPID_PRIVATE_KEY"),
         key_name="PUSH_VAPID_PRIVATE_KEY",
     )
+    normalized_public = _normalize_vapid_public_key_for_browser(configured_public)
     derived_public = _derive_vapid_public_key_from_private(configured_private)
-    return derived_public or configured_public
+    return derived_public or normalized_public
 
 
 def push_notifications_enabled():

@@ -413,6 +413,9 @@
       line-height: 1.48;
       white-space: pre-wrap;
     }
+    .coach-chat-bubble.is-new {
+      animation: coach-bubble-in 220ms ease-out;
+    }
     .coach-chat-line {
       line-height: 1.45;
     }
@@ -432,6 +435,9 @@
       flex-wrap: wrap;
       gap: 8px;
       margin-top: 8px;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      padding-bottom: 2px;
     }
     .coach-quick-reply {
       border: 1px solid var(--line);
@@ -441,6 +447,17 @@
       color: var(--text);
       cursor: pointer;
       font-size: 0.88rem;
+      transition: transform 120ms ease, background-color 120ms ease, border-color 120ms ease;
+      white-space: nowrap;
+    }
+    .coach-quick-reply:hover,
+    .coach-quick-reply:focus-visible {
+      border-color: #86c7bb;
+      background: #f5fcfa;
+      transform: translateY(-1px);
+    }
+    .coach-quick-reply:active {
+      transform: translateY(0);
     }
     .coach-reply-grid {
       display: grid;
@@ -507,6 +524,26 @@
       .coach-action-link {
         padding: 6px 9px;
         font-size: 0.84rem;
+      }
+      .coach-quick-replies {
+        flex-wrap: nowrap;
+      }
+    }
+    @keyframes coach-bubble-in {
+      from {
+        opacity: 0;
+        transform: translateY(5px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .coach-chat-bubble.is-new,
+      .coach-quick-reply {
+        animation: none;
+        transition: none;
       }
     }
   </style>
@@ -1063,9 +1100,12 @@
 
         const appendBubble = (text, role) => {
           const bubble = document.createElement("div");
-          bubble.className = `coach-chat-bubble ${role === "user" ? "user" : ""}`.trim();
+          bubble.className = `coach-chat-bubble is-new ${role === "user" ? "user" : ""}`.trim();
           bubble.innerHTML = escapeHtml(text || "");
           chatShell.insertBefore(bubble, form);
+          bubble.addEventListener("animationend", () => {
+            bubble.classList.remove("is-new");
+          }, { once: true });
           bubble.scrollIntoView({ behavior: "smooth", block: "nearest" });
         };
 

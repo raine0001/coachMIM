@@ -78,6 +78,26 @@
       margin-bottom: 6px;
       font-size: 1.05rem;
     }
+    .challenge-mode-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 8px;
+      margin-bottom: 8px;
+    }
+    .challenge-mode-option {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.9rem;
+    }
+    .challenge-mode-option input[type="checkbox"] {
+      width: auto;
+      margin: 0;
+    }
+    .challenge-hidden {
+      display: none;
+    }
   </style>
 
   <div class="challenge-grid">
@@ -201,72 +221,59 @@
     <div class="card">
       <h2>Program Library</h2>
       <p class="muted">Choose a challenge group. Community uses the standard progression. Personal builds targets from your baseline + profile.</p>
-
-      <h3 class="challenge-group-head">Community Challenges</h3>
       <div class="challenge-program-grid">
         {% for item in library_cards %}
           <div class="card" style="margin: 0;">
             <h3 style="margin-bottom: 6px;">{{ item.title }}</h3>
             <div class="challenge-pill">{{ item.category }}</div>
             <div class="challenge-pill">{{ item.total_days }} total days</div>
+            {% if item.is_joined_community %}
+              <div class="challenge-pill">Community active</div>
+            {% endif %}
+            {% if item.is_joined_personal %}
+              <div class="challenge-pill">Personal active</div>
+            {% endif %}
             <p class="muted-small" style="margin-top: 6px;">{{ item.description }}</p>
             <ul class="challenge-stage-list">
               {% for line in item.stage_lines %}
                 <li>{{ line }}</li>
               {% endfor %}
             </ul>
-            <div class="challenge-actions">
-              {% if item.is_joined_community %}
-                <span class="challenge-pill">Already active</span>
-              {% else %}
-                <form method="post" action="{{ url_for('main.challenges_join') }}">
-                  <input type="hidden" name="program_key" value="{{ item.key }}" />
-                  <input type="hidden" name="challenge_group" value="community" />
-                  <button type="submit">Join Program</button>
-                </form>
-              {% endif %}
-            </div>
-          </div>
-        {% endfor %}
-      </div>
+            <form method="post" action="{{ url_for('main.challenges_join') }}" class="js-challenge-join-form" data-joined-community="{{ '1' if item.is_joined_community else '0' }}" data-joined-personal="{{ '1' if item.is_joined_personal else '0' }}">
+              <input type="hidden" name="program_key" value="{{ item.key }}" />
+              <input type="hidden" name="challenge_group" value="community" class="js-challenge-group" />
 
-      <h3 class="challenge-group-head">Personal Challenges</h3>
-      <div class="challenge-program-grid">
-        {% for item in library_cards %}
-          <div class="card" style="margin: 0;">
-            <h3 style="margin-bottom: 6px;">{{ item.title }}</h3>
-            <div class="challenge-pill">{{ item.category }}</div>
-            <div class="challenge-pill">{{ item.total_days }} total days</div>
-            <p class="muted-small" style="margin-top: 6px;">{{ item.description }}</p>
-            <ul class="challenge-stage-list">
-              {% for line in item.stage_lines %}
-                <li>{{ line }}</li>
-              {% endfor %}
-            </ul>
-            <div class="challenge-actions" style="display:block;">
-              {% if item.is_joined_personal %}
-                <span class="challenge-pill">Already active (personal)</span>
-              {% else %}
-                <form method="post" action="{{ url_for('main.challenges_join') }}">
-                  <input type="hidden" name="program_key" value="{{ item.key }}" />
-                  <input type="hidden" name="challenge_group" value="personal" />
-                  <label for="personal_baseline_{{ item.key }}">{{ item.personal_prompt }}</label>
-                  <input
-                    id="personal_baseline_{{ item.key }}"
-                    name="baseline_value"
-                    type="number"
-                    step="0.1"
-                    min="0"
-                    required
-                    placeholder="Enter your current baseline"
-                  />
-                  <p class="muted-small" style="margin: 6px 0 0;">We adjust stage targets using baseline + profile signals (sex, weight, height, fitness level).</p>
-                  <div class="challenge-actions" style="margin-top: 8px;">
-                    <button type="submit">Create Personal Program</button>
-                  </div>
-                </form>
-              {% endif %}
-            </div>
+              <div class="challenge-mode-row">
+                <label class="challenge-mode-option">
+                  <input type="checkbox" class="js-mode-choice" value="community" checked />
+                  Community challenge
+                </label>
+                <label class="challenge-mode-option">
+                  <input type="checkbox" class="js-mode-choice" value="personal" />
+                  Personal challenge
+                </label>
+              </div>
+
+              <div class="js-personal-setup challenge-hidden">
+                <label for="personal_baseline_{{ item.key }}">{{ item.personal_prompt }}</label>
+                <input
+                  id="personal_baseline_{{ item.key }}"
+                  name="baseline_value"
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  placeholder="Enter your current baseline"
+                />
+                <p class="muted-small" style="margin: 6px 0 0;">Personal mode adjusts targets using baseline + profile signals (sex, weight, height, fitness level).</p>
+              </div>
+
+              <div class="challenge-actions">
+                <button type="submit" class="js-community-btn">Join Program</button>
+                <button type="submit" class="js-personal-btn challenge-hidden">Let's Begin</button>
+                <span class="challenge-pill js-community-active-pill challenge-hidden">Community already active</span>
+                <span class="challenge-pill js-personal-active-pill challenge-hidden">Personal already active</span>
+              </div>
+            </form>
           </div>
         {% endfor %}
       </div>
@@ -283,4 +290,61 @@
       </div>
     {% endif %}
   </div>
+  <script>
+    (function () {
+      const forms = Array.from(document.querySelectorAll(".js-challenge-join-form"));
+      if (!forms.length) return;
+
+      forms.forEach((form) => {
+        const modeChoices = Array.from(form.querySelectorAll(".js-mode-choice"));
+        const groupInput = form.querySelector(".js-challenge-group");
+        const personalSetup = form.querySelector(".js-personal-setup");
+        const baselineInput = form.querySelector("input[name='baseline_value']");
+        const communityBtn = form.querySelector(".js-community-btn");
+        const personalBtn = form.querySelector(".js-personal-btn");
+        const communityActivePill = form.querySelector(".js-community-active-pill");
+        const personalActivePill = form.querySelector(".js-personal-active-pill");
+
+        const joinedCommunity = form.dataset.joinedCommunity === "1";
+        const joinedPersonal = form.dataset.joinedPersonal === "1";
+
+        const setMode = (mode) => {
+          modeChoices.forEach((choice) => {
+            choice.checked = choice.value === mode;
+          });
+          if (groupInput) groupInput.value = mode;
+
+          const isPersonal = mode === "personal";
+          if (personalSetup) personalSetup.classList.toggle("challenge-hidden", !isPersonal);
+          if (baselineInput) baselineInput.required = isPersonal;
+          if (communityBtn) communityBtn.classList.toggle("challenge-hidden", isPersonal);
+          if (personalBtn) personalBtn.classList.toggle("challenge-hidden", !isPersonal);
+
+          if (communityActivePill) {
+            communityActivePill.classList.toggle("challenge-hidden", !(mode === "community" && joinedCommunity));
+          }
+          if (personalActivePill) {
+            personalActivePill.classList.toggle("challenge-hidden", !(mode === "personal" && joinedPersonal));
+          }
+
+          const modeAlreadyActive = (mode === "community" && joinedCommunity) || (mode === "personal" && joinedPersonal);
+          if (communityBtn) communityBtn.disabled = modeAlreadyActive;
+          if (personalBtn) personalBtn.disabled = modeAlreadyActive;
+        };
+
+        modeChoices.forEach((choice) => {
+          choice.addEventListener("change", () => {
+            if (!choice.checked) {
+              const fallback = modeChoices.find((row) => row !== choice);
+              if (fallback) fallback.checked = true;
+            }
+            const selected = modeChoices.find((row) => row.checked) || modeChoices[0];
+            setMode((selected && selected.value) || "community");
+          });
+        });
+
+        setMode("community");
+      });
+    })();
+  </script>
 {% endblock %}

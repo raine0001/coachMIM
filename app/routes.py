@@ -7403,6 +7403,12 @@ def notifications_page():
         ).count()
     )
     push_public_key = (current_app.config.get("PUSH_VAPID_PUBLIC_KEY") or "").strip()
+    push_private_key = (current_app.config.get("PUSH_VAPID_PRIVATE_KEY") or "").strip()
+    push_diag = {
+        "pywebpush_available": webpush is not None,
+        "public_key_configured": bool(push_public_key),
+        "private_key_configured": bool(push_private_key),
+    }
 
     local_today = get_user_local_today(g.user)
     return render_template(
@@ -7417,6 +7423,7 @@ def notifications_page():
         local_today=local_today,
         push_enabled=push_notifications_enabled(),
         push_public_key=push_public_key,
+        push_diag=push_diag,
         active_push_subscriptions=active_push_subscriptions,
     )
 

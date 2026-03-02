@@ -187,6 +187,16 @@
     .push-status.error {
       color: #b42318;
     }
+    .push-diag-row {
+      margin-top: 6px;
+      font-size: 0.84rem;
+      color: #5a6b7d;
+    }
+    .push-diag-chip {
+      display: inline-block;
+      margin-right: 8px;
+      white-space: nowrap;
+    }
   </style>
 
   <div class="card">
@@ -275,6 +285,11 @@
             {% else %}
               Push service not configured on server. Add VAPID keys in env.
             {% endif %}
+          </div>
+          <div class="push-diag-row">
+            <span class="push-diag-chip">pywebpush: {{ "yes" if push_diag.pywebpush_available else "no" }}</span>
+            <span class="push-diag-chip">public key: {{ "yes" if push_diag.public_key_configured else "no" }}</span>
+            <span class="push-diag-chip">private key: {{ "yes" if push_diag.private_key_configured else "no" }}</span>
           </div>
         </div>
       </div>

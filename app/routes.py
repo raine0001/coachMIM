@@ -7489,6 +7489,57 @@ def notifications_action(notification_id: int):
     return redirect(redirect_url)
 
 
+@bp.post("/notifications/bulk-action")
+@login_required
+def notifications_bulk_action():
+    next_url = safe_next_path(request.form.get("next")) or url_for("main.notifications_page")
+    action = normalize_text(request.form.get("bulk_action")).lower()
+    if action not in {"read", "unread", "archive", "delete"}:
+        flash("Unknown bulk notification action.", "error")
+        return redirect(next_url)
+
+    selected_ids: list[int] = []
+    for raw_id in request.form.getlist("notification_ids"):
+        try:
+            selected_ids.append(int(raw_id))
+        except (TypeError, ValueError):
+            continue
+    selected_ids = list(dict.fromkeys(selected_ids))
+    if not selected_ids:
+        flash("No notifications selected.", "error")
+        return redirect(next_url)
+
+    notifications = (
+        UserNotification.query.filter(
+            UserNotification.user_id == g.user.id,
+            UserNotification.is_deleted.is_(False),
+            UserNotification.id.in_(selected_ids),
+        )
+        .order_by(UserNotification.id.desc())
+        .all()
+    )
+    if not notifications:
+        flash("No matching notifications found.", "error")
+        return redirect(next_url)
+
+    for notification in notifications:
+        if action == "read":
+            notification.is_read = True
+        elif action == "unread":
+            notification.is_read = False
+            notification.is_archived = False
+        elif action == "archive":
+            notification.is_archived = True
+            notification.is_read = True
+        elif action == "delete":
+            notification.is_deleted = True
+        db.session.add(notification)
+
+    db.session.commit()
+    flash(f"Updated {len(notifications)} notification(s).", "success")
+    return redirect(next_url)
+
+
 def _coerce_push_subscription_payload(raw_payload: dict):
     payload = raw_payload if isinstance(raw_payload, dict) else {}
     subscription = payload.get("subscription")

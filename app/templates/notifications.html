@@ -98,6 +98,40 @@
     .notification-actions form {
       margin: 0;
     }
+    .notification-bulk-toolbar {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+      padding: 10px;
+      border: 1px solid #d7dee7;
+      border-radius: 10px;
+      background: #fff;
+    }
+    .notification-bulk-select,
+    .notification-bulk-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+    .notification-selected-count {
+      font-size: 0.9rem;
+      color: #5a6b7d;
+      margin-right: 2px;
+      white-space: nowrap;
+    }
+    .notification-select-wrap {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .notification-select-wrap input[type="checkbox"] {
+      width: auto;
+      margin: 0;
+    }
     .btn-secondary {
       border: 1px solid #d7dee7;
       background: #fff;
@@ -274,11 +308,38 @@
     </div>
 
     {% if notifications %}
+      <form id="bulk-notifications-form" method="post" action="{{ url_for('main.notifications_bulk_action') }}">
+        <input type="hidden" name="next" value="{{ request.full_path.rstrip('?') }}" />
+        <div class="notification-bulk-toolbar">
+          <div class="notification-bulk-select">
+            <button type="button" class="btn-secondary" data-select-mode="all">Select All</button>
+            <button type="button" class="btn-secondary" data-select-mode="unread">Select Unread</button>
+            <button type="button" class="btn-secondary" data-select-mode="read">Select Read</button>
+          </div>
+          <div class="notification-bulk-actions">
+            <span id="notification-selected-count" class="notification-selected-count">0 selected</span>
+            <button type="submit" class="btn-secondary" name="bulk_action" value="delete">Delete Selected</button>
+            <button type="submit" class="btn-secondary" name="bulk_action" value="archive">Archive Selected</button>
+            <button type="submit" class="btn-secondary" name="bulk_action" value="read">Mark as Read</button>
+            <button type="submit" class="btn-secondary" name="bulk_action" value="unread">Mark as Unread</button>
+          </div>
+        </div>
+      </form>
       <div class="notification-list">
         {% for notification in notifications %}
           <article class="notification-item {% if not notification.is_read %}is-unread{% endif %}">
             <div class="notification-item-head">
-              <strong>{{ notification.title }}</strong>
+              <div class="notification-select-wrap">
+                <input
+                  type="checkbox"
+                  name="notification_ids"
+                  value="{{ notification.id }}"
+                  class="js-notification-select"
+                  data-read="{{ '1' if notification.is_read else '0' }}"
+                  form="bulk-notifications-form"
+                />
+                <strong>{{ notification.title }}</strong>
+              </div>
               <span class="notification-kind-chip">
                 {{ kind_labels.get(notification.kind, notification.kind.replace('_', ' ').title()) }}
               </span>
@@ -475,6 +536,52 @@
           }
         });
       }
+    })();
+  </script>
+  <script>
+    (function () {
+      const selectButtons = Array.from(document.querySelectorAll("[data-select-mode]"));
+      if (!selectButtons.length) return;
+
+      const checkboxes = Array.from(document.querySelectorAll(".js-notification-select"));
+      if (!checkboxes.length) return;
+      const selectedCountEl = document.getElementById("notification-selected-count");
+
+      const updateSelectedCount = () => {
+        const selectedCount = checkboxes.filter((checkbox) => checkbox.checked).length;
+        if (selectedCountEl) {
+          selectedCountEl.textContent = `${selectedCount} selected`;
+        }
+      };
+
+      const applySelection = (mode) => {
+        checkboxes.forEach((checkbox) => {
+          if (mode === "all") {
+            checkbox.checked = true;
+            return;
+          }
+          if (mode === "read") {
+            checkbox.checked = checkbox.dataset.read === "1";
+            return;
+          }
+          if (mode === "unread") {
+            checkbox.checked = checkbox.dataset.read === "0";
+          }
+        });
+        updateSelectedCount();
+      };
+
+      checkboxes.forEach((checkbox) => {
+        checkbox.addEventListener("change", updateSelectedCount);
+      });
+
+      selectButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+          applySelection(button.dataset.selectMode || "all");
+        });
+      });
+
+      updateSelectedCount();
     })();
   </script>
 {% endblock %}

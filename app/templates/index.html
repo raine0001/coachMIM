@@ -234,6 +234,36 @@
       background: #fff;
       padding: 10px;
     }
+    .score-detail-toggle {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      border: 0;
+      background: transparent;
+      padding: 0;
+      cursor: pointer;
+      text-align: left;
+    }
+    .score-detail-toggle::after {
+      content: "▾";
+      color: var(--accent);
+      font-size: 0.95rem;
+      line-height: 1;
+      transform: rotate(-90deg);
+      transition: transform 140ms ease;
+    }
+    .score-detail-card.is-open .score-detail-toggle::after {
+      transform: rotate(0deg);
+    }
+    .score-detail-content {
+      display: none;
+      margin-top: 6px;
+    }
+    .score-detail-card.is-open .score-detail-content {
+      display: block;
+    }
     .score-detail-card:target {
       border-color: var(--accent);
       box-shadow: 0 0 0 2px rgba(15, 118, 110, 0.08);
@@ -484,45 +514,49 @@
       <div class="score-detail-list">
         {% for item in scoreboard.cards %}
           <section id="score-detail-{{ item.key }}" class="score-detail-card">
-            <h3>{{ item.label }} Details</h3>
-            <p class="muted" style="margin: 0 0 6px;">{{ item.detail.score_definition }}</p>
-            <p style="margin: 0 0 6px;">{{ item.detail.current_reason }}</p>
-            {% if item.detail.guidance %}
-              <p class="muted" style="margin: 0 0 6px;">{{ item.detail.guidance }}</p>
-            {% endif %}
-            {% if item.detail.factors %}
-              <ul style="margin: 0 0 6px;">
-                {% for factor in item.detail.factors %}
-                  <li>{{ factor }}</li>
-                {% endfor %}
-              </ul>
-            {% endif %}
-            {% if item.detail.goal_actions_preview %}
-              <div class="muted" style="margin: 6px 0 4px;"><strong>Active goal actions being tracked:</strong></div>
-              <ul style="margin: 0 0 6px;">
-                {% for action_line in item.detail.goal_actions_preview %}
-                  <li>{{ action_line }}</li>
-                {% endfor %}
-              </ul>
-            {% endif %}
-            {% if item.detail.rows %}
-              <ul class="score-day-list">
-                {% for row in item.detail.rows %}
-                  <li class="score-day-row {{ 'ok' if row.ok else '' }}">
-                    <strong>{{ row.day_label }}</strong>
-                    {{ row.reason }}
-                    <a href="{{ row.url }}">Open</a>
-                  </li>
-                {% endfor %}
-              </ul>
-            {% endif %}
-            {% if item.detail.links %}
-              <div class="score-detail-links">
-                {% for link in item.detail.links %}
-                  <a href="{{ link.url }}">{{ link.label }}</a>
-                {% endfor %}
-              </div>
-            {% endif %}
+            <button type="button" class="score-detail-toggle" data-score-toggle>
+              <h3>{{ item.label }} Details</h3>
+            </button>
+            <div class="score-detail-content" data-score-content>
+              <p class="muted" style="margin: 0 0 6px;">{{ item.detail.score_definition }}</p>
+              <p style="margin: 0 0 6px;">{{ item.detail.current_reason }}</p>
+              {% if item.detail.guidance %}
+                <p class="muted" style="margin: 0 0 6px;">{{ item.detail.guidance }}</p>
+              {% endif %}
+              {% if item.detail.factors %}
+                <ul style="margin: 0 0 6px;">
+                  {% for factor in item.detail.factors %}
+                    <li>{{ factor }}</li>
+                  {% endfor %}
+                </ul>
+              {% endif %}
+              {% if item.detail.goal_actions_preview %}
+                <div class="muted" style="margin: 6px 0 4px;"><strong>Active goal actions being tracked:</strong></div>
+                <ul style="margin: 0 0 6px;">
+                  {% for action_line in item.detail.goal_actions_preview %}
+                    <li>{{ action_line }}</li>
+                  {% endfor %}
+                </ul>
+              {% endif %}
+              {% if item.detail.rows %}
+                <ul class="score-day-list">
+                  {% for row in item.detail.rows %}
+                    <li class="score-day-row {{ 'ok' if row.ok else '' }}">
+                      <strong>{{ row.day_label }}</strong>
+                      {{ row.reason }}
+                      <a href="{{ row.url }}">Open</a>
+                    </li>
+                  {% endfor %}
+                </ul>
+              {% endif %}
+              {% if item.detail.links %}
+                <div class="score-detail-links">
+                  {% for link in item.detail.links %}
+                    <a href="{{ link.url }}">{{ link.label }}</a>
+                  {% endfor %}
+                </div>
+              {% endif %}
+            </div>
           </section>
         {% endfor %}
       </div>
@@ -776,6 +810,47 @@
             preload((index + 1) % images.length);
           }, 220);
         }, 7000);
+      })();
+    </script>
+  {% else %}
+    <script>
+      (function () {
+        const cards = Array.from(document.querySelectorAll(".score-detail-card"));
+        if (!cards.length) return;
+
+        const closeAllCards = () => {
+          cards.forEach((entry) => entry.classList.remove("is-open"));
+        };
+
+        const openCard = (card) => {
+          if (!card) return;
+          closeAllCards();
+          card.classList.add("is-open");
+        };
+
+        cards.forEach((card) => {
+          const toggle = card.querySelector("[data-score-toggle]");
+          if (!toggle) return;
+          toggle.addEventListener("click", () => {
+            if (card.classList.contains("is-open")) {
+              card.classList.remove("is-open");
+              return;
+            }
+            openCard(card);
+          });
+        });
+
+        const openFromHash = () => {
+          const rawHash = (window.location.hash || "").trim();
+          if (!rawHash) return;
+          const card = document.querySelector(rawHash);
+          if (card && card.classList.contains("score-detail-card")) {
+            openCard(card);
+          }
+        };
+
+        openFromHash();
+        window.addEventListener("hashchange", openFromHash);
       })();
     </script>
   {% endif %}

@@ -5,6 +5,7 @@ import re
 import secrets
 import smtplib
 import base64
+import copy
 import xml.etree.ElementTree as ET
 from collections import defaultdict
 from datetime import date, datetime, timedelta
@@ -4363,8 +4364,52 @@ def goal_type_label(goal_type: str):
     return GOAL_TYPE_DEFAULT_LABELS.get(goal_type, GOAL_TYPE_DEFAULT_LABELS["custom"])
 
 
-def challenge_constraint_value(program_key: str):
-    return f"{CHALLENGE_CONSTRAINT_PREFIX}{(program_key or '').strip().lower()}"
+def challenge_constraint_value(program_key: str, *, mode: str = "community", metadata: dict | None = None):
+    normalized_key = (program_key or "").strip().lower()
+    base = f"{CHALLENGE_CONSTRAINT_PREFIX}{normalized_key}"
+    mode_value = (mode or "community").strip().lower()
+    if mode_value != "community":
+        base += f"|mode={mode_value}"
+    for key, value in (metadata or {}).items():
+        normalized_key_name = normalize_text(key)
+        normalized_value = normalize_text(value)
+        if not normalized_key_name or normalized_value is None:
+            continue
+        if normalized_key_name == "mode":
+            continue
+        safe_key = re.sub(r"[^a-z0-9_\-]", "", normalized_key_name.lower())
+        safe_value = re.sub(r"[^a-z0-9_\-\.]", "", str(normalized_value).lower())
+        if not safe_key or not safe_value:
+            continue
+        base += f"|{safe_key}={safe_value}"
+    return base
+
+
+def challenge_constraint_metadata(constraints_value: str | None):
+    normalized = normalize_text(constraints_value)
+    if not normalized or not normalized.startswith(CHALLENGE_CONSTRAINT_PREFIX):
+        return {}
+    raw_tail = normalized[len(CHALLENGE_CONSTRAINT_PREFIX) :]
+    parts = [part.strip() for part in raw_tail.split("|") if part and part.strip()]
+    metadata = {}
+    for part in parts[1:]:
+        if "=" not in part:
+            continue
+        key, value = part.split("=", 1)
+        safe_key = normalize_text(key)
+        safe_value = normalize_text(value)
+        if not safe_key or safe_value is None:
+            continue
+        metadata[safe_key.lower()] = safe_value
+    return metadata
+
+
+def challenge_mode_from_constraints(constraints_value: str | None):
+    metadata = challenge_constraint_metadata(constraints_value)
+    mode = (metadata.get("mode") or "community").strip().lower()
+    if mode not in {"community", "personal"}:
+        return "community"
+    return mode
 
 
 def challenge_program_key_from_constraints(constraints_value: str | None):
@@ -4373,12 +4418,138 @@ def challenge_program_key_from_constraints(constraints_value: str | None):
         return None
     if not normalized.startswith(CHALLENGE_CONSTRAINT_PREFIX):
         return None
-    program_key = normalized[len(CHALLENGE_CONSTRAINT_PREFIX) :].strip().lower()
+    raw_tail = normalized[len(CHALLENGE_CONSTRAINT_PREFIX) :].strip().lower()
+    program_key = raw_tail.split("|", 1)[0].strip().lower()
     if not program_key:
         return None
     if program_key not in CHALLENGE_PROGRAMS:
         return None
     return program_key
+
+
+def _round_challenge_target(value: float, *, target_unit: str | None):
+    unit = (target_unit or "").strip().lower()
+    if unit in {"miles"}:
+        return round(value, 1)
+    if unit in {"servings"}:
+        return round(value, 1)
+    return round(value, 0)
+
+
+def _build_personal_challenge_profile_factor(profile: UserProfile | None):
+    factor = 1.0
+    if profile is None:
+        return (factor, None)
+
+    sex = (normalize_text(getattr(profile, "biological_sex", None)) or "").lower()
+    if sex in {"male", "man", "m"}:
+        factor *= 1.1
+    elif sex in {"female", "woman", "f"}:
+        factor *= 0.92
+
+    weight_kg = parse_float(getattr(profile, "weight_kg", None))
+    height_cm = parse_float(getattr(profile, "height_cm", None))
+    bmi = None
+    if weight_kg and height_cm and height_cm > 0:
+        height_m = float(height_cm) / 100.0
+        if height_m > 0:
+            bmi = float(weight_kg) / (height_m * height_m)
+
+    if bmi is not None:
+        if bmi >= 35:
+            factor *= 0.68
+        elif bmi >= 30:
+            factor *= 0.78
+        elif bmi >= 27:
+            factor *= 0.88
+        elif bmi >= 25:
+            factor *= 0.94
+        elif bmi < 22:
+            factor *= 1.06
+
+    fitness = (normalize_text(getattr(profile, "fitness_level", None)) or "").lower()
+    fitness_map = {
+        "sedentary": 0.82,
+        "light": 0.9,
+        "moderate": 1.0,
+        "intense": 1.12,
+    }
+    if fitness in fitness_map:
+        factor *= fitness_map[fitness]
+
+    return (max(0.6, min(1.5, factor)), bmi)
+
+
+def build_personalized_challenge_program(program_key: str, base_program: dict, metadata: dict | None = None):
+    if not base_program:
+        return None
+    data = metadata or {}
+    scale = parse_float(data.get("scale")) or 1.0
+    pace_days_factor = parse_float(data.get("pace")) or 1.0
+    scale = max(0.45, min(2.5, float(scale)))
+    pace_days_factor = max(0.8, min(1.8, float(pace_days_factor)))
+
+    personalized = copy.deepcopy(base_program)
+    personalized["title"] = f"{base_program.get('title')} (Personal)"
+    personalized["description"] = (
+        f"{base_program.get('description')} Personalized from your setup baseline and profile signals."
+    )
+
+    stages = []
+    for stage in personalized.get("stages", []):
+        stage_copy = dict(stage)
+        target_value = parse_float(stage_copy.get("target_value"))
+        comparator = (normalize_text(stage_copy.get("comparator")) or "min").lower()
+        target_unit = normalize_text(stage_copy.get("target_unit")) or ""
+        if target_value is not None:
+            if comparator == "max":
+                adjusted = float(target_value) / scale
+            else:
+                adjusted = float(target_value) * scale
+            adjusted = max(1.0, adjusted)
+            stage_copy["target_value"] = _round_challenge_target(adjusted, target_unit=target_unit)
+
+        stage_days = max(1, int(stage_copy.get("days") or 1))
+        stage_copy["days"] = max(1, int(round(stage_days * pace_days_factor)))
+        stages.append(stage_copy)
+    personalized["stages"] = stages
+    return personalized
+
+
+def build_personal_challenge_metadata(*, user: User, profile: UserProfile | None, program_key: str, baseline_value: float):
+    base_program = CHALLENGE_PROGRAMS.get(program_key) or {}
+    first_stage = (base_program.get("stages") or [{}])[0]
+    first_target = parse_float(first_stage.get("target_value")) or 1.0
+
+    profile_factor, bmi = _build_personal_challenge_profile_factor(profile)
+    estimated_start = float(baseline_value)
+
+    category = (normalize_text(base_program.get("category")) or "").lower()
+    comparator = (normalize_text(first_stage.get("comparator")) or "min").lower()
+    if comparator == "min":
+        if category in {"strength", "core"}:
+            estimated_start = float(baseline_value) * 3.0
+        elif category in {"cardio"}:
+            estimated_start = float(baseline_value) * 1.15
+
+    adjusted_start = max(1.0, estimated_start * profile_factor)
+    scale = adjusted_start / max(1.0, float(first_target))
+    scale = max(0.45, min(2.5, scale))
+
+    pace = 1.0
+    if profile_factor < 0.9:
+        pace = 1.25
+    elif profile_factor > 1.15:
+        pace = 0.9
+
+    return {
+        "mode": "personal",
+        "baseline": f"{float(baseline_value):.2f}",
+        "scale": f"{float(scale):.4f}",
+        "pace": f"{float(pace):.3f}",
+        "pf": f"{float(profile_factor):.4f}",
+        "bmi": f"{float(bmi):.2f}" if bmi is not None else "",
+    }
 
 
 def challenge_program_from_goal(goal: UserGoal | None):
@@ -4387,7 +4558,14 @@ def challenge_program_from_goal(goal: UserGoal | None):
     program_key = challenge_program_key_from_constraints(goal.constraints)
     if not program_key:
         return None
-    return CHALLENGE_PROGRAMS.get(program_key)
+    base_program = CHALLENGE_PROGRAMS.get(program_key)
+    if not base_program:
+        return None
+    mode = challenge_mode_from_constraints(goal.constraints)
+    if mode != "personal":
+        return base_program
+    metadata = challenge_constraint_metadata(goal.constraints)
+    return build_personalized_challenge_program(program_key, base_program, metadata)
 
 
 def is_challenge_goal(goal: UserGoal | None):
@@ -4539,6 +4717,7 @@ def build_challenge_progress_card(user: User, goal: UserGoal, *, local_today: da
     return {
         "goal": goal,
         "program_key": challenge_program_key_from_constraints(goal.constraints),
+        "mode": challenge_mode_from_constraints(goal.constraints),
         "program": program,
         "total_days_required": total_days_required,
         "success_days": success_days,
@@ -9254,8 +9433,10 @@ def challenges_page():
         if card:
             completed_cards.append(card)
 
-    joined_active_keys = {
-        card["program_key"] for card in active_cards if card.get("program_key")
+    joined_active_pairs = {
+        (card.get("program_key"), card.get("mode", "community"))
+        for card in active_cards
+        if card.get("program_key")
     }
     library_cards = []
     category_order = {"Strength": 0, "Core": 1, "Cardio": 2, "Nutrition": 3}
@@ -9282,7 +9463,13 @@ def challenges_page():
                 "value_hint": program.get("value_hint"),
                 "total_days": challenge_program_total_days(program),
                 "stage_lines": stage_lines,
-                "is_joined": program_key in joined_active_keys,
+                "is_joined_community": (program_key, "community") in joined_active_pairs,
+                "is_joined_personal": (program_key, "personal") in joined_active_pairs,
+                "personal_prompt": (
+                    "How many pushups can you do right now?"
+                    if program_key == "pushup_ladder"
+                    else f"What's your current baseline for {program.get('value_label') or 'this challenge'}?"
+                ),
             }
         )
 
@@ -9299,53 +9486,96 @@ def challenges_page():
 @login_required
 def challenges_join():
     program_key = (request.form.get("program_key") or "").strip().lower()
+    challenge_group = (request.form.get("challenge_group") or "community").strip().lower()
     program = CHALLENGE_PROGRAMS.get(program_key)
     if not program:
         flash("Invalid challenge program selected.", "error")
         return redirect(url_for("main.challenges_page"))
+    if challenge_group not in {"community", "personal"}:
+        challenge_group = "community"
 
-    existing_active = UserGoal.query.filter(
-        UserGoal.user_id == g.user.id,
-        UserGoal.constraints == challenge_constraint_value(program_key),
-        UserGoal.status.in_(["active", "paused"]),
-    ).first()
-    if existing_active:
-        flash("This challenge is already active. Continue from your existing program card.", "error")
+    baseline_value = parse_float(request.form.get("baseline_value"))
+    if challenge_group == "personal" and (baseline_value is None or baseline_value <= 0):
+        flash("Enter your current baseline before starting a personal challenge.", "error")
         return redirect(url_for("main.challenges_page"))
 
+    existing_active_goals = UserGoal.query.filter(
+        UserGoal.user_id == g.user.id,
+        challenge_goal_filter_clause(),
+        UserGoal.status.in_(["active", "paused"]),
+    ).all()
+    for existing_goal in existing_active_goals:
+        existing_program_key = challenge_program_key_from_constraints(existing_goal.constraints)
+        existing_mode = challenge_mode_from_constraints(existing_goal.constraints)
+        if existing_program_key == program_key and existing_mode == challenge_group:
+            flash("This challenge is already active in that group. Continue from your existing program card.", "error")
+            return redirect(url_for("main.challenges_page"))
+
     local_today = get_user_local_today(g.user)
-    total_days = challenge_program_total_days(program)
-    first_stage = (program.get("stages") or [{}])[0]
+    program_for_goal = program
+    goal_constraints = challenge_constraint_value(program_key)
+    profile = None
+    personal_metadata = {}
+
+    if challenge_group == "personal":
+        profile = get_or_create_profile(g.user)
+        personal_metadata = build_personal_challenge_metadata(
+            user=g.user,
+            profile=profile,
+            program_key=program_key,
+            baseline_value=float(baseline_value or 0.0),
+        )
+        goal_constraints = challenge_constraint_value(
+            program_key,
+            mode="personal",
+            metadata=personal_metadata,
+        )
+        program_for_goal = build_personalized_challenge_program(program_key, program, personal_metadata) or program
+
+    total_days = challenge_program_total_days(program_for_goal)
+    first_stage = (program_for_goal.get("stages") or [{}])[0]
     first_target = challenge_stage_target_text(first_stage)
     week_plan = []
-    for stage in program.get("stages", [])[:7]:
+    for stage in program_for_goal.get("stages", [])[:7]:
         stage_days = max(1, int(stage.get("days") or 1))
         week_plan.append(
             f"{stage.get('name')}: {stage.get('prescription')} for {stage_days} day{'s' if stage_days != 1 else ''}"
         )
 
+    title_suffix = " Personal Program" if challenge_group == "personal" else " Program"
+    coach_message = (
+        f"Challenge started: {program_for_goal.get('title')}. "
+        f"Current target is {first_target}. Complete one day at a time."
+    )
+    if challenge_group == "personal":
+        coach_message += " Personal targets were adjusted from your baseline and profile signals."
+
     goal = UserGoal(
         user_id=g.user.id,
-        title=f"{program.get('title')} Program",
-        goal_type=str(program.get("goal_type") or "custom"),
+        title=f"{program.get('title')}{title_suffix}",
+        goal_type=str(program_for_goal.get("goal_type") or "custom"),
         status="active",
         priority="medium",
         start_date=local_today,
         target_date=local_today + timedelta(days=max(total_days - 1, 0)),
         target_value=parse_float(first_stage.get("target_value")),
         target_unit=normalize_text(first_stage.get("target_unit")) or None,
-        constraints=challenge_constraint_value(program_key),
+        baseline_value=(float(baseline_value) if baseline_value is not None and challenge_group == "personal" else None),
+        baseline_unit=(normalize_text(program_for_goal.get("value_label")) or None) if challenge_group == "personal" else None,
+        constraints=goal_constraints,
         daily_commitment_minutes=20,
-        coach_message=(
-            f"Challenge started: {program.get('title')}. "
-            f"Current target is {first_target}. Complete one day at a time."
-        ),
+        coach_message=coach_message,
         today_action=f"{first_stage.get('prescription')} ({first_target})",
         week_plan=week_plan or None,
     )
     db.session.add(goal)
     db.session.commit()
-    flash(f"Joined {program.get('title')} challenge.", "success")
+    flash(
+        (
+            f"Joined {program.get('title')} challenge ({'personal' if challenge_group == 'personal' else 'community'})."
+        ),
+        "success",
+    )
     return redirect(url_for("main.challenges_page"))
 
 

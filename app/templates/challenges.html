@@ -73,6 +73,11 @@
       color: var(--muted);
       font-size: 0.9rem;
     }
+    .challenge-group-head {
+      margin-top: 12px;
+      margin-bottom: 6px;
+      font-size: 1.05rem;
+    }
   </style>
 
   <div class="challenge-grid">
@@ -95,6 +100,7 @@
           <h3 style="margin-bottom: 6px;">{{ card.program.title }}</h3>
           <div>
             <span class="challenge-pill">{{ card.program.category }}</span>
+            <span class="challenge-pill">{{ card.mode|capitalize }}</span>
             <span class="challenge-pill">Status: {{ card.goal.status|capitalize }}</span>
             <span class="challenge-pill">{{ card.success_days }}/{{ card.total_days_required }} days complete</span>
             {% if card.current_stage %}
@@ -194,7 +200,9 @@
 
     <div class="card">
       <h2>Program Library</h2>
-      <p class="muted">Join a staged challenge program. CoachMIM advances stages automatically as you complete days.</p>
+      <p class="muted">Choose a challenge group. Community uses the standard progression. Personal builds targets from your baseline + profile.</p>
+
+      <h3 class="challenge-group-head">Community Challenges</h3>
       <div class="challenge-program-grid">
         {% for item in library_cards %}
           <div class="card" style="margin: 0;">
@@ -208,12 +216,54 @@
               {% endfor %}
             </ul>
             <div class="challenge-actions">
-              {% if item.is_joined %}
+              {% if item.is_joined_community %}
                 <span class="challenge-pill">Already active</span>
               {% else %}
                 <form method="post" action="{{ url_for('main.challenges_join') }}">
                   <input type="hidden" name="program_key" value="{{ item.key }}" />
+                  <input type="hidden" name="challenge_group" value="community" />
                   <button type="submit">Join Program</button>
+                </form>
+              {% endif %}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+
+      <h3 class="challenge-group-head">Personal Challenges</h3>
+      <div class="challenge-program-grid">
+        {% for item in library_cards %}
+          <div class="card" style="margin: 0;">
+            <h3 style="margin-bottom: 6px;">{{ item.title }}</h3>
+            <div class="challenge-pill">{{ item.category }}</div>
+            <div class="challenge-pill">{{ item.total_days }} total days</div>
+            <p class="muted-small" style="margin-top: 6px;">{{ item.description }}</p>
+            <ul class="challenge-stage-list">
+              {% for line in item.stage_lines %}
+                <li>{{ line }}</li>
+              {% endfor %}
+            </ul>
+            <div class="challenge-actions" style="display:block;">
+              {% if item.is_joined_personal %}
+                <span class="challenge-pill">Already active (personal)</span>
+              {% else %}
+                <form method="post" action="{{ url_for('main.challenges_join') }}">
+                  <input type="hidden" name="program_key" value="{{ item.key }}" />
+                  <input type="hidden" name="challenge_group" value="personal" />
+                  <label for="personal_baseline_{{ item.key }}">{{ item.personal_prompt }}</label>
+                  <input
+                    id="personal_baseline_{{ item.key }}"
+                    name="baseline_value"
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    required
+                    placeholder="Enter your current baseline"
+                  />
+                  <p class="muted-small" style="margin: 6px 0 0;">We adjust stage targets using baseline + profile signals (sex, weight, height, fitness level).</p>
+                  <div class="challenge-actions" style="margin-top: 8px;">
+                    <button type="submit">Create Personal Program</button>
+                  </div>
                 </form>
               {% endif %}
             </div>

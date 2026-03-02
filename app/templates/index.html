@@ -389,11 +389,27 @@
       padding: 10px;
       background: #fbfdff;
     }
+    .coach-chat-head {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 8px;
+      font-size: 0.83rem;
+      color: var(--muted);
+      font-weight: 600;
+    }
+    .coach-chat-head-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 999px;
+      background: #0f766e;
+      display: inline-block;
+    }
     .coach-chat-bubble {
       border: 1px solid var(--line);
       border-radius: 12px;
       padding: 12px;
-      background: #fff;
+      background: #f8fcff;
       line-height: 1.48;
       white-space: pre-wrap;
     }
@@ -510,6 +526,10 @@
     <div class="card">
       <h2>Coach MIM</h2>
       <div class="coach-chat-shell" id="coachChatShell">
+        <div class="coach-chat-head">
+          <span class="coach-chat-head-dot"></span>
+          <span>MIM • just now</span>
+        </div>
         <div class="coach-chat-bubble">
           {% for line in coach_overview.coach_message_blocks %}
             <div class="coach-chat-line">{{ line }}</div>

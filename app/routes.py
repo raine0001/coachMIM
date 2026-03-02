@@ -468,6 +468,82 @@ BRAIN_SPARK_PROMPTS = [
         "question": "Tiny math: 2.5 + 2.5 + 2.5 = ?",
         "answers": ["7.5", "7.50"],
     },
+    {
+        "question": "Mini math: 14 + 27 = ?",
+        "answers": ["41"],
+    },
+    {
+        "question": "Quick math: 90 - 37 = ?",
+        "answers": ["53"],
+    },
+    {
+        "question": "Focus check: 6 x 7 = ?",
+        "answers": ["42"],
+    },
+    {
+        "question": "Tiny fraction: Half of 18 is ?",
+        "answers": ["9"],
+    },
+    {
+        "question": "Speed check: 3 + 4 + 5 = ?",
+        "answers": ["12"],
+    },
+    {
+        "question": "Quick estimate: 1 hour + 35 minutes = how many minutes?",
+        "answers": ["95"],
+    },
+    {
+        "question": "Memory check: Name one healthy food you logged this week.",
+        "answers": [],
+        "accept_any_nonempty": True,
+    },
+    {
+        "question": "Recall check: Name one activity you did recently.",
+        "answers": [],
+        "accept_any_nonempty": True,
+    },
+    {
+        "question": "Stress reset: Write one word for your current energy level.",
+        "answers": [],
+        "accept_any_nonempty": True,
+    },
+    {
+        "question": "Breathing pause: Inhale 4 sec / exhale 6 sec for 4 rounds, then type 'done'.",
+        "answers": ["done"],
+    },
+    {
+        "question": "Hydration check: Type 'water' if you had water in the last 2 hours.",
+        "answers": ["water"],
+    },
+    {
+        "question": "Tiny logic: If sleep improves, focus often improves too. Type 'true' or 'false'.",
+        "answers": ["true"],
+    },
+    {
+        "question": "Quick logic: Which is usually better for trend quality — exact logging or rough memory?",
+        "answers": ["exact logging", "exact", "logging"],
+    },
+    {
+        "question": "Attention check: Type the word 'coach' backward.",
+        "answers": ["hcaoc"],
+    },
+    {
+        "question": "Micro challenge: Name one thing you can complete in the next 20 minutes.",
+        "answers": [],
+        "accept_any_nonempty": True,
+    },
+    {
+        "question": "Quick math: 11 x 11 = ?",
+        "answers": ["121"],
+    },
+    {
+        "question": "Tiny conversion: 2 hours = how many minutes?",
+        "answers": ["120"],
+    },
+    {
+        "question": "Consistency cue: Type 'locked in' if you are ready for one next action.",
+        "answers": ["locked in"],
+    },
 ]
 AUTO_COMMUNITY_ALLOWED_RUNS = {1, 2, 3, 4}
 AUTO_COMMUNITY_MAX_SOURCES = 24

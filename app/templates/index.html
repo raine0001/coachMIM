@@ -411,6 +411,9 @@
       padding: 12px;
       background: #f8fcff;
       line-height: 1.48;
+      white-space: normal;
+    }
+    .coach-chat-bubble.is-dynamic {
       white-space: pre-wrap;
     }
     .coach-chat-bubble.is-new {
@@ -1100,7 +1103,7 @@
 
         const appendBubble = (text, role) => {
           const bubble = document.createElement("div");
-          bubble.className = `coach-chat-bubble is-new ${role === "user" ? "user" : ""}`.trim();
+          bubble.className = `coach-chat-bubble is-new is-dynamic ${role === "user" ? "user" : ""}`.trim();
           bubble.innerHTML = escapeHtml(text || "");
           chatShell.insertBefore(bubble, form);
           bubble.addEventListener("animationend", () => {

@@ -8776,6 +8776,7 @@ def admin_logout():
 @admin_login_required
 def admin_dashboard():
     active_since = datetime.utcnow() - timedelta(minutes=15)
+    utc_today = datetime.utcnow().date()
 
     total_users = User.query.filter(~User.email.in_(SYSTEM_USER_EMAILS)).count()
     active_users = (
@@ -8802,6 +8803,25 @@ def admin_dashboard():
         ~User.email.in_(SYSTEM_USER_EMAILS),
         User.created_at >= datetime.utcnow() - timedelta(days=7),
     ).count()
+
+    home_chat_turns_today = (
+        UserCoachSignalResponse.query.filter(
+            UserCoachSignalResponse.day == utc_today,
+            UserCoachSignalResponse.context == "home",
+            UserCoachSignalResponse.signal_key.like("home_chat_%"),
+        ).count()
+    )
+    home_chat_fallback_today = (
+        UserCoachSignalResponse.query.filter(
+            UserCoachSignalResponse.day == utc_today,
+            UserCoachSignalResponse.context == "home",
+            UserCoachSignalResponse.signal_key.like("home_chat_fb_%"),
+        ).count()
+    )
+    home_chat_fallback_rate_today = 0.0
+    if home_chat_turns_today > 0:
+        home_chat_fallback_rate_today = round((home_chat_fallback_today / home_chat_turns_today) * 100.0, 1)
+
     visitor_metrics = _build_homepage_visitor_metrics()
     automation_diag = _build_automation_diagnostics()
 
@@ -8818,6 +8838,9 @@ def admin_dashboard():
         support_total_count=support_total_count,
         support_new_count=support_new_count,
         latest_support_messages=latest_support_messages,
+        home_chat_turns_today=home_chat_turns_today,
+        home_chat_fallback_today=home_chat_fallback_today,
+        home_chat_fallback_rate_today=home_chat_fallback_rate_today,
         visitor_metrics=visitor_metrics,
         automation_diag=automation_diag,
     )
@@ -12372,13 +12395,13 @@ def _fallback_home_coach_reply(*, first_name: str, user_prompt: str):
     )
 
 
-def _save_home_coach_exchange_for_analysis(*, user: User, user_text: str, assistant_text: str):
+def _save_home_coach_exchange_for_analysis(*, user: User, user_text: str, assistant_text: str, used_fallback: bool = False):
     selected_day = get_user_local_today(user)
     row = UserCoachSignalResponse(
         user_id=user.id,
         day=selected_day,
         context="home",
-        signal_key=f"home_chat_{uuid4().hex[:12]}",
+        signal_key=(f"home_chat_fb_{uuid4().hex[:12]}" if used_fallback else f"home_chat_ok_{uuid4().hex[:12]}"),
         signal_title="Home Coach Chat",
         signal_message=normalize_text(user_text) or None,
         response_action="note",
@@ -12494,6 +12517,7 @@ def ask_mim_send():
             user=g.user,
             user_text=user_prompt,
             assistant_text=answer,
+            used_fallback=used_fallback,
         )
     db.session.commit()
 

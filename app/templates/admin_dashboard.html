@@ -54,6 +54,13 @@
       <div class="muted">7d: {{ visitor_metrics.unique_7d }} | 30d: {{ visitor_metrics.unique_30d }}</div>
       <div class="muted">Views today: {{ visitor_metrics.views_today }}</div>
     </div>
+    <div class="card">
+      <h3>Home Chat Reliability (Today)</h3>
+      <div class="metric">{{ home_chat_turns_today }}</div>
+      <div class="muted">Turns today</div>
+      <div class="muted">Fallback turns: {{ home_chat_fallback_today }}</div>
+      <div class="muted">Fallback rate: {{ "%.1f"|format(home_chat_fallback_rate_today) }}%</div>
+    </div>
   </div>
 
   <div class="card">

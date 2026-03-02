@@ -12348,6 +12348,46 @@ def _chat_history_for_user(user: User, limit: int = 80):
     return rows
 
 
+def _fallback_home_coach_reply(*, first_name: str, user_prompt: str):
+    text = (user_prompt or "").strip().lower()
+    if any(keyword in text for keyword in ["strong", "great", "good", "better", "solid"]):
+        return (
+            f"Nice work, {first_name}. Strong sessions are a signal that your routine is working. "
+            "Let us lock in recovery: hydrate, get one protein-focused meal, and log how energy feels in 2-3 hours."
+        )
+    if any(keyword in text for keyword in ["low", "tired", "weak", "bad", "drained", "rough"]):
+        return (
+            f"Thanks for sharing that, {first_name}. Low energy days happen. "
+            "Keep today simple: one light movement block, one easy balanced meal, and protect bedtime. "
+            "If you want, tell me what felt hardest and I will break the next step into a smaller target."
+        )
+    if any(keyword in text for keyword in ["not hungry", "no appetite", "didn't eat", "didnt eat"]):
+        return (
+            f"Understood, {first_name}. If appetite is low, try a small snack with protein + carbs "
+            "(for example yogurt + fruit, or toast + eggs) to keep focus stable and reduce stress load."
+        )
+    return (
+        f"Got it, {first_name}. Thanks for the update. "
+        "Next best move: one small action now, then we reassess after you log it."
+    )
+
+
+def _save_home_coach_exchange_for_analysis(*, user: User, user_text: str, assistant_text: str):
+    selected_day = get_user_local_today(user)
+    row = UserCoachSignalResponse(
+        user_id=user.id,
+        day=selected_day,
+        context="home",
+        signal_key=f"home_chat_{uuid4().hex[:12]}",
+        signal_title="Home Coach Chat",
+        signal_message=normalize_text(user_text) or None,
+        response_action="note",
+        response_text=normalize_text(assistant_text) or None,
+    )
+    persist_coach_signal_response_secure_fields(user, row)
+    db.session.add(row)
+
+
 @bp.get("/ask-mim")
 @login_required
 def ask_mim_page():
@@ -12359,6 +12399,9 @@ def ask_mim_page():
 @login_required
 def ask_mim_send():
     message_text = normalize_text(request.form.get("message"))
+    context = normalize_text(request.form.get("context")) or "general"
+    if context not in {"general", "home", "checkin"}:
+        context = "general"
     image = request.files.get("image")
 
     has_image = bool(image and image.filename)
@@ -12394,11 +12437,15 @@ def ask_mim_send():
     for row in history_rows:
         if row.role not in {"user", "assistant"}:
             continue
+        row_context = normalize_text(row.context) or "general"
+        if context == "home" and row_context not in {"home", "general"}:
+            continue
         if row.content:
             history_payload.append({"role": row.role, "content": row.content})
 
     first_name = (normalize_text(g.user.full_name) or "there").split(" ", 1)[0]
     user_prompt = message_text or "What is this and what should I know about it?"
+    used_fallback = False
 
     try:
         answer = ask_mim_general_chat(
@@ -12410,17 +12457,25 @@ def ask_mim_send():
         )
     except Exception:
         current_app.logger.exception("ask-mim response generation failed for user_id=%s", g.user.id)
-        answer = (
-            "I couldn't process that request right now. "
-            "Try again in a moment, or ask with slightly more detail."
-        )
+        used_fallback = True
+        if context == "home":
+            answer = _fallback_home_coach_reply(first_name=first_name, user_prompt=user_prompt)
+        else:
+            answer = (
+                "I couldn't process that request right now. "
+                "Try again in a moment, or ask with slightly more detail."
+            )
+
+    if not normalize_text(answer):
+        used_fallback = True
+        answer = _fallback_home_coach_reply(first_name=first_name, user_prompt=user_prompt)
 
     user_message = MIMChatMessage(
         user_id=g.user.id,
         role="user",
         content=user_prompt,
         image_path=image_path,
-        context="general",
+        context=context,
     )
     persist_chat_secure_fields(g.user, user_message)
 
@@ -12428,12 +12483,18 @@ def ask_mim_send():
         user_id=g.user.id,
         role="assistant",
         content=answer,
-        context="general",
+        context=context,
     )
     persist_chat_secure_fields(g.user, assistant_message)
 
     db.session.add(user_message)
     db.session.add(assistant_message)
+    if context == "home":
+        _save_home_coach_exchange_for_analysis(
+            user=g.user,
+            user_text=user_prompt,
+            assistant_text=answer,
+        )
     db.session.commit()
 
     return jsonify(
@@ -12452,6 +12513,7 @@ def ask_mim_send():
                 "content": answer,
                 "created_at": assistant_message.created_at.isoformat(),
             },
+            "used_fallback": used_fallback,
         }
     )
 

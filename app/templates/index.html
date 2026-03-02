@@ -1146,6 +1146,7 @@
 
           const payload = new FormData();
           payload.append("message", message);
+          payload.append("context", "home");
 
           try {
             const response = await fetch("{{ url_for('main.ask_mim_send') }}", {

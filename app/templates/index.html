@@ -454,6 +454,15 @@
       font-size: 0.9rem;
       color: var(--muted);
     }
+    .coach-voice-details {
+      margin-top: 8px;
+    }
+    .coach-voice-details summary {
+      cursor: pointer;
+      color: var(--muted);
+      font-size: 0.9rem;
+      font-weight: 600;
+    }
     .coach-primary-actions {
       display: flex;
       flex-wrap: wrap;
@@ -528,12 +537,15 @@
             ></textarea>
             <button type="submit" id="coachInlineSend">Send</button>
           </div>
-          <div class="coach-voice-row">
-            <label><input type="checkbox" id="coachVoiceEnabled" /> Voice on</label>
-            <label><input type="checkbox" id="coachTtsEnabled" checked /> TTS on</label>
-            <button type="button" class="subtle-btn" id="coachClickToTalk">Click to Talk</button>
-            <button type="button" class="subtle-btn" id="coachStopTalk">Stop</button>
-          </div>
+          <details class="coach-voice-details">
+            <summary>Voice controls</summary>
+            <div class="coach-voice-row">
+              <label><input type="checkbox" id="coachVoiceEnabled" /> Voice on</label>
+              <label><input type="checkbox" id="coachTtsEnabled" checked /> TTS on</label>
+              <button type="button" class="subtle-btn" id="coachClickToTalk">Click to Talk</button>
+              <button type="button" class="subtle-btn" id="coachStopTalk">Stop</button>
+            </div>
+          </details>
           <div class="coach-status" id="coachInlineStatus"></div>
         </form>
       </div>

@@ -397,12 +397,11 @@
       line-height: 1.48;
       white-space: pre-wrap;
     }
-    .coach-chat-message {
-      margin: 0;
-      line-height: 1.48;
+    .coach-chat-line {
+      line-height: 1.45;
     }
-    .coach-chat-message + .coach-chat-message {
-      margin-top: 8px;
+    .coach-chat-line + .coach-chat-line {
+      margin-top: 10px;
     }
     .coach-chat-bubble + .coach-chat-bubble {
       margin-top: 8px;
@@ -513,10 +512,10 @@
       <div class="coach-chat-shell" id="coachChatShell">
         <div class="coach-chat-bubble">
           {% for line in coach_overview.coach_message_blocks %}
-            <p class="coach-chat-message">{{ line }}</p>
+            <div class="coach-chat-line">{{ line }}</div>
           {% endfor %}
           {% if coach_overview.coach_prompt %}
-            <p class="coach-chat-message"><strong>{{ coach_overview.coach_prompt }}</strong></p>
+            <div class="coach-chat-line"><strong>{{ coach_overview.coach_prompt }}</strong></div>
           {% endif %}
         </div>
 

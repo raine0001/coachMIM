@@ -46,8 +46,10 @@ except Exception:  # pragma: no cover - optional dependency fallback during part
     webpush = None
 try:
     from cryptography.hazmat.primitives.asymmetric import ec
+    from cryptography.hazmat.primitives import serialization
 except Exception:  # pragma: no cover - optional dependency fallback during partial installs
     ec = None
+    serialization = None
 
 from app import db
 from app.ai import (
@@ -6851,9 +6853,45 @@ def _derive_vapid_public_key_from_private(private_key: str | None):
     if ec is None:
         return ""
     normalized_private = _sanitize_vapid_key_value(private_key, key_name="PUSH_VAPID_PRIVATE_KEY")
+
+    if "BEGIN" in normalized_private and serialization is not None:
+        try:
+            private_obj = serialization.load_pem_private_key(
+                normalized_private.encode("utf-8"),
+                password=None,
+            )
+            if isinstance(private_obj, ec.EllipticCurvePrivateKey):
+                public_numbers = private_obj.public_key().public_numbers()
+                public_bytes = (
+                    b"\x04"
+                    + public_numbers.x.to_bytes(32, "big")
+                    + public_numbers.y.to_bytes(32, "big")
+                )
+                return _urlsafe_b64encode(public_bytes)
+        except Exception:
+            pass
+
     private_bytes = _decode_key_bytes(normalized_private)
-    if not private_bytes or len(private_bytes) != 32:
+    if not private_bytes:
         return ""
+
+    if len(private_bytes) != 32 and serialization is not None:
+        try:
+            private_obj = serialization.load_der_private_key(private_bytes, password=None)
+            if isinstance(private_obj, ec.EllipticCurvePrivateKey):
+                public_numbers = private_obj.public_key().public_numbers()
+                public_bytes = (
+                    b"\x04"
+                    + public_numbers.x.to_bytes(32, "big")
+                    + public_numbers.y.to_bytes(32, "big")
+                )
+                return _urlsafe_b64encode(public_bytes)
+        except Exception:
+            return ""
+
+    if len(private_bytes) != 32:
+        return ""
+
     try:
         private_int = int.from_bytes(private_bytes, "big")
         private_obj = ec.derive_private_key(private_int, ec.SECP256R1())
@@ -6909,9 +6947,14 @@ def _get_vapid_public_key_for_browser():
 def push_notifications_enabled():
     if webpush is None:
         return False
+    private_key = _sanitize_vapid_key_value(
+        current_app.config.get("PUSH_VAPID_PRIVATE_KEY"),
+        key_name="PUSH_VAPID_PRIVATE_KEY",
+    )
+    browser_public = _get_vapid_public_key_for_browser()
     return bool(
-        current_app.config.get("PUSH_VAPID_PUBLIC_KEY")
-        and current_app.config.get("PUSH_VAPID_PRIVATE_KEY")
+        browser_public
+        and private_key
     )
 
 

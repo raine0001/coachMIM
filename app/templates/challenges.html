@@ -81,7 +81,7 @@
     .challenge-mode-row {
       display: flex;
       flex-wrap: wrap;
-      gap: 10px;
+      gap: 8px;
       margin-top: 8px;
       margin-bottom: 8px;
     }
@@ -90,10 +90,30 @@
       align-items: center;
       gap: 6px;
       font-size: 0.9rem;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 5px 10px;
+      background: #fff;
+      cursor: pointer;
+      user-select: none;
+    }
+    .challenge-mode-option.is-active {
+      border-color: #0f766e;
+      background: #f0fbf8;
+      color: #0f766e;
     }
     .challenge-mode-option input[type="checkbox"] {
       width: auto;
       margin: 0;
+    }
+    .challenge-stage-details {
+      margin-top: 8px;
+    }
+    .challenge-stage-details summary {
+      cursor: pointer;
+      color: var(--muted);
+      font-size: 0.9rem;
+      font-weight: 600;
     }
     .challenge-hidden {
       display: none;
@@ -234,11 +254,14 @@
               <div class="challenge-pill">Personal active</div>
             {% endif %}
             <p class="muted-small" style="margin-top: 6px;">{{ item.description }}</p>
-            <ul class="challenge-stage-list">
-              {% for line in item.stage_lines %}
-                <li>{{ line }}</li>
-              {% endfor %}
-            </ul>
+            <details class="challenge-stage-details">
+              <summary>View stage plan</summary>
+              <ul class="challenge-stage-list">
+                {% for line in item.stage_lines %}
+                  <li>{{ line }}</li>
+                {% endfor %}
+              </ul>
+            </details>
             <form method="post" action="{{ url_for('main.challenges_join') }}" class="js-challenge-join-form" data-joined-community="{{ '1' if item.is_joined_community else '0' }}" data-joined-personal="{{ '1' if item.is_joined_personal else '0' }}">
               <input type="hidden" name="program_key" value="{{ item.key }}" />
               <input type="hidden" name="challenge_group" value="community" class="js-challenge-group" />
@@ -297,6 +320,7 @@
 
       forms.forEach((form) => {
         const modeChoices = Array.from(form.querySelectorAll(".js-mode-choice"));
+        const modeOptionLabels = modeChoices.map((choice) => choice.closest(".challenge-mode-option")).filter(Boolean);
         const groupInput = form.querySelector(".js-challenge-group");
         const personalSetup = form.querySelector(".js-personal-setup");
         const baselineInput = form.querySelector("input[name='baseline_value']");
@@ -311,6 +335,10 @@
         const setMode = (mode) => {
           modeChoices.forEach((choice) => {
             choice.checked = choice.value === mode;
+          });
+          modeOptionLabels.forEach((labelEl) => {
+            const input = labelEl.querySelector(".js-mode-choice");
+            labelEl.classList.toggle("is-active", Boolean(input && input.checked));
           });
           if (groupInput) groupInput.value = mode;
 

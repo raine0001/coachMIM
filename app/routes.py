@@ -5803,6 +5803,44 @@ def build_home_coach_overview(
     if not suggestions:
         suggestions.append("Keep current consistency. The next win is to complete every required check-in segment today.")
 
+    first_name = (normalize_text(user.full_name) or "there").split(" ", 1)[0]
+    opening = f"Hi {first_name}, quick check-in."
+
+    if today_meals == 0:
+        nutrition_line = (
+            "You have not logged a meal yet today. Everything okay? "
+            "If appetite is low or you are pushing hard on fat-loss goals, a small healthy snack can still protect energy and focus."
+        )
+    else:
+        nutrition_line = (
+            f"You already logged {today_meals} meal{'' if today_meals == 1 else 's'} today. "
+            "Nice start—steady meal timing will support consistent energy and focus."
+        )
+
+    if weekly.get("workout_sessions", 0) > 0:
+        movement_line = (
+            f"You have {weekly.get('workout_sessions', 0)} workout session"
+            f"{'' if weekly.get('workout_sessions', 0) == 1 else 's'} this week."
+        )
+        coach_prompt = "How did your workout feel today—during it and after it?"
+    else:
+        movement_line = "No workouts logged yet this week, which is okay—we can restart momentum with one doable block today."
+        coach_prompt = "Want a lightweight plan for a first workout block today?"
+
+    top_goal_obj = goals.get("top_goal") or {}
+    goal_title = normalize_text((top_goal_obj.get("goal") or {}).title if top_goal_obj.get("goal") else None)
+    if goal_title:
+        goal_line = f"This supports your goal: {goal_title}."
+    else:
+        goal_line = "This keeps your momentum moving while lowering unnecessary stress load."
+
+    coach_message_blocks = [opening, nutrition_line, movement_line, goal_line]
+    coach_quick_replies = [
+        "I have not eaten yet; appetite is low.",
+        "Workout felt strong today.",
+        "Energy was low after workout.",
+    ]
+
     progress_statement = (
         f"Check-in to-date: {weekly.get('coverage_to_date_pct', 0):.1f}% | "
         f"Today: {weekly.get('today_completed_segments', 0)}/{weekly.get('today_required_segments', 0)} segments | "
@@ -5814,6 +5852,9 @@ def build_home_coach_overview(
         "progress_statement": progress_statement,
         "missing_links": missing_links,
         "suggestions": suggestions,
+        "coach_message_blocks": coach_message_blocks,
+        "coach_prompt": coach_prompt,
+        "coach_quick_replies": coach_quick_replies,
     }
 
 
@@ -6790,6 +6831,7 @@ def _sanitize_vapid_key_value(raw_value: str | None, key_name: str | None = None
         prefix = f"{key_name}="
         if value.startswith(prefix):
             value = value[len(prefix) :].strip().strip('"').strip("'")
+    value = value.replace("\\r", "").replace("\\n", "\n")
     return value
 
 

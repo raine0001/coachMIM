@@ -383,6 +383,70 @@
       text-decoration: underline;
       font-size: 0.9rem;
     }
+    .coach-chat-shell {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 10px;
+      background: #fbfdff;
+    }
+    .coach-chat-bubble {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 10px 12px;
+      background: #fff;
+      line-height: 1.4;
+      white-space: pre-wrap;
+    }
+    .coach-chat-bubble + .coach-chat-bubble {
+      margin-top: 8px;
+    }
+    .coach-chat-bubble.user {
+      background: #e8f7f5;
+      border-color: #b9e7e2;
+      margin-top: 10px;
+    }
+    .coach-quick-replies {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .coach-quick-reply {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #fff;
+      padding: 6px 10px;
+      color: var(--text);
+      cursor: pointer;
+      font-size: 0.88rem;
+    }
+    .coach-reply-grid {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+      margin-top: 10px;
+      align-items: start;
+    }
+    .coach-voice-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      margin-top: 8px;
+    }
+    .coach-voice-row label {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.9rem;
+      color: var(--muted);
+    }
+    .coach-status {
+      margin-top: 6px;
+      min-height: 18px;
+      font-size: 0.9rem;
+      color: var(--muted);
+    }
   </style>
 
   {% if is_authenticated %}
@@ -399,29 +463,71 @@
 
     <div class="card">
       <h2>Coach MIM</h2>
-      <p>{{ coach_overview.summary }}</p>
-      <p class="muted">{{ coach_overview.progress_statement }}</p>
-      <div class="coach-overview-grid">
-        <div>
-          <h3>What Needs Attention</h3>
-          {% if coach_overview.missing_links %}
+      <div class="coach-chat-shell" id="coachChatShell">
+        {% for line in coach_overview.coach_message_blocks %}
+          <div class="coach-chat-bubble">{{ line }}</div>
+        {% endfor %}
+        {% if coach_overview.coach_prompt %}
+          <div class="coach-chat-bubble">{{ coach_overview.coach_prompt }}</div>
+        {% endif %}
+
+        {% if coach_overview.coach_quick_replies %}
+          <div class="coach-quick-replies">
+            {% for reply in coach_overview.coach_quick_replies %}
+              <button type="button" class="coach-quick-reply" data-coach-quick-reply="{{ reply }}">{{ reply }}</button>
+            {% endfor %}
+          </div>
+        {% endif %}
+
+        <form id="coachInlineReplyForm">
+          <div class="coach-reply-grid">
+            <textarea
+              id="coachInlineMessage"
+              rows="3"
+              placeholder="Reply to MIM..."
+            ></textarea>
+            <button type="submit" id="coachInlineSend">Send</button>
+          </div>
+          <div class="coach-voice-row">
+            <label><input type="checkbox" id="coachVoiceEnabled" /> Voice on</label>
+            <label><input type="checkbox" id="coachTtsEnabled" checked /> TTS on</label>
+            <button type="button" class="subtle-btn" id="coachClickToTalk">Click to Talk</button>
+            <button type="button" class="subtle-btn" id="coachStopTalk">Stop</button>
+          </div>
+          <div class="coach-status" id="coachInlineStatus"></div>
+        </form>
+      </div>
+
+      <details style="margin-top: 10px;">
+        <summary class="muted" style="cursor: pointer;">Show data details</summary>
+        <p style="margin: 8px 0 0;">{{ coach_overview.summary }}</p>
+        <p class="muted">{{ coach_overview.progress_statement }}</p>
+        <div class="coach-overview-grid">
+          <div>
+            <h3>What Needs Attention</h3>
+            {% if coach_overview.missing_links %}
+              <ul style="margin: 0;">
+                {% for item in coach_overview.missing_links %}
+                  <li><a href="{{ item.url }}">{{ item.label }}</a></li>
+                {% endfor %}
+              </ul>
+            {% else %}
+              <p class="muted" style="margin: 0;">No critical gaps right now. Keep current cadence.</p>
+            {% endif %}
+          </div>
+          <div>
+            <h3>Suggestions Right Now</h3>
             <ul style="margin: 0;">
-              {% for item in coach_overview.missing_links %}
-                <li><a href="{{ item.url }}">{{ item.label }}</a></li>
+              {% for suggestion in coach_overview.suggestions %}
+                <li>{{ suggestion }}</li>
               {% endfor %}
             </ul>
-          {% else %}
-            <p class="muted" style="margin: 0;">No critical gaps right now. Keep current cadence.</p>
-          {% endif %}
+          </div>
         </div>
-        <div>
-          <h3>Suggestions Right Now</h3>
-          <ul style="margin: 0;">
-            {% for suggestion in coach_overview.suggestions %}
-              <li>{{ suggestion }}</li>
-            {% endfor %}
-          </ul>
-        </div>
+      </details>
+
+      <div class="goal-action-row">
+        <a class="home-quick-link" href="{{ url_for('main.ask_mim_page') }}">Open Full MIM Chat</a>
       </div>
       <div class="goal-action-row">
         <a class="home-quick-link" href="{{ url_for('main.checkin_form', day=local_today.isoformat(), view='checkin') }}">Open Daily Check-In</a>
@@ -858,6 +964,144 @@
 
         openFromHash();
         window.addEventListener("hashchange", openFromHash);
+      })();
+
+      (function () {
+        const form = document.getElementById("coachInlineReplyForm");
+        const messageInput = document.getElementById("coachInlineMessage");
+        const sendBtn = document.getElementById("coachInlineSend");
+        const statusEl = document.getElementById("coachInlineStatus");
+        const chatShell = document.getElementById("coachChatShell");
+        const quickReplyButtons = Array.from(document.querySelectorAll("[data-coach-quick-reply]"));
+        const voiceEnabled = document.getElementById("coachVoiceEnabled");
+        const ttsEnabled = document.getElementById("coachTtsEnabled");
+        const clickToTalkBtn = document.getElementById("coachClickToTalk");
+        const stopTalkBtn = document.getElementById("coachStopTalk");
+
+        if (!form || !messageInput || !sendBtn || !statusEl || !chatShell) return;
+
+        let recognition = null;
+
+        const escapeHtml = (input) => String(input || "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/\"/g, "&quot;")
+          .replace(/'/g, "&#039;");
+
+        const appendBubble = (text, role) => {
+          const bubble = document.createElement("div");
+          bubble.className = `coach-chat-bubble ${role === "user" ? "user" : ""}`.trim();
+          bubble.innerHTML = escapeHtml(text || "");
+          chatShell.insertBefore(bubble, form);
+          bubble.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        };
+
+        const speak = (text) => {
+          if (!ttsEnabled || !ttsEnabled.checked) return;
+          if (!("speechSynthesis" in window)) return;
+          if (!text) return;
+          const utterance = new SpeechSynthesisUtterance(text);
+          window.speechSynthesis.cancel();
+          window.speechSynthesis.speak(utterance);
+        };
+
+        const setBusy = (busy, text) => {
+          sendBtn.disabled = busy;
+          statusEl.textContent = text || "";
+        };
+
+        quickReplyButtons.forEach((btn) => {
+          btn.addEventListener("click", () => {
+            messageInput.value = btn.dataset.coachQuickReply || "";
+            messageInput.focus();
+          });
+        });
+
+        form.addEventListener("submit", async (event) => {
+          event.preventDefault();
+          const message = (messageInput.value || "").trim();
+          if (!message) {
+            statusEl.textContent = "Type a response first.";
+            return;
+          }
+
+          appendBubble(message, "user");
+          setBusy(true, "MIM is thinking...");
+
+          const payload = new FormData();
+          payload.append("message", message);
+
+          try {
+            const response = await fetch("{{ url_for('main.ask_mim_send') }}", {
+              method: "POST",
+              body: payload,
+            });
+            const data = await response.json();
+            if (!response.ok || !data.ok) {
+              throw new Error((data && data.error) || "Could not get MIM response.");
+            }
+
+            const assistantText = (data.assistant_message && data.assistant_message.content) || "";
+            appendBubble(assistantText, "assistant");
+            speak(assistantText);
+            messageInput.value = "";
+            setBusy(false, "");
+          } catch (error) {
+            setBusy(false, error.message || "Could not send message.");
+          }
+        });
+
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (SpeechRecognition) {
+          recognition = new SpeechRecognition();
+          recognition.continuous = false;
+          recognition.interimResults = true;
+          recognition.lang = "en-US";
+
+          recognition.onresult = (event) => {
+            const text = Array.from(event.results)
+              .map((result) => result[0] && result[0].transcript ? result[0].transcript : "")
+              .join(" ")
+              .trim();
+            messageInput.value = text;
+          };
+          recognition.onstart = () => {
+            statusEl.textContent = "Listening...";
+          };
+          recognition.onend = () => {
+            if (!sendBtn.disabled) {
+              statusEl.textContent = "";
+            }
+          };
+          recognition.onerror = () => {
+            statusEl.textContent = "Voice input had an issue. You can type instead.";
+          };
+        } else {
+          if (clickToTalkBtn) clickToTalkBtn.disabled = true;
+          if (stopTalkBtn) stopTalkBtn.disabled = true;
+          if (voiceEnabled) voiceEnabled.checked = false;
+        }
+
+        if (clickToTalkBtn) {
+          clickToTalkBtn.addEventListener("click", () => {
+            if (!voiceEnabled || !voiceEnabled.checked) {
+              statusEl.textContent = "Turn Voice on first.";
+              return;
+            }
+            if (recognition) recognition.start();
+          });
+        }
+
+        if (stopTalkBtn) {
+          stopTalkBtn.addEventListener("click", () => {
+            if (recognition) recognition.stop();
+            if ("speechSynthesis" in window) {
+              window.speechSynthesis.cancel();
+            }
+            statusEl.textContent = "Stopped.";
+          });
+        }
       })();
     </script>
   {% endif %}

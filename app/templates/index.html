@@ -392,10 +392,17 @@
     .coach-chat-bubble {
       border: 1px solid var(--line);
       border-radius: 12px;
-      padding: 10px 12px;
+      padding: 12px;
       background: #fff;
-      line-height: 1.4;
+      line-height: 1.48;
       white-space: pre-wrap;
+    }
+    .coach-chat-message {
+      margin: 0;
+      line-height: 1.48;
+    }
+    .coach-chat-message + .coach-chat-message {
+      margin-top: 8px;
     }
     .coach-chat-bubble + .coach-chat-bubble {
       margin-top: 8px;
@@ -430,7 +437,7 @@
     .coach-voice-row {
       display: flex;
       flex-wrap: wrap;
-      gap: 10px;
+      gap: 8px;
       align-items: center;
       margin-top: 8px;
     }
@@ -446,6 +453,37 @@
       min-height: 18px;
       font-size: 0.9rem;
       color: var(--muted);
+    }
+    .coach-primary-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .coach-action-link {
+      text-decoration: none;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #fff;
+      color: var(--text);
+      padding: 7px 10px;
+      font-size: 0.88rem;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    @media (max-width: 640px) {
+      .coach-reply-grid {
+        grid-template-columns: 1fr;
+      }
+      .coach-primary-actions {
+        gap: 6px;
+      }
+      .coach-action-link {
+        padding: 6px 9px;
+        font-size: 0.84rem;
+      }
     }
   </style>
 
@@ -464,12 +502,14 @@
     <div class="card">
       <h2>Coach MIM</h2>
       <div class="coach-chat-shell" id="coachChatShell">
-        {% for line in coach_overview.coach_message_blocks %}
-          <div class="coach-chat-bubble">{{ line }}</div>
-        {% endfor %}
-        {% if coach_overview.coach_prompt %}
-          <div class="coach-chat-bubble">{{ coach_overview.coach_prompt }}</div>
-        {% endif %}
+        <div class="coach-chat-bubble">
+          {% for line in coach_overview.coach_message_blocks %}
+            <p class="coach-chat-message">{{ line }}</p>
+          {% endfor %}
+          {% if coach_overview.coach_prompt %}
+            <p class="coach-chat-message"><strong>{{ coach_overview.coach_prompt }}</strong></p>
+          {% endif %}
+        </div>
 
         {% if coach_overview.coach_quick_replies %}
           <div class="coach-quick-replies">
@@ -529,10 +569,11 @@
       <div class="goal-action-row">
         <a class="home-quick-link" href="{{ url_for('main.ask_mim_page') }}">Open Full MIM Chat</a>
       </div>
-      <div class="goal-action-row">
-        <a class="home-quick-link" href="{{ url_for('main.checkin_form', day=local_today.isoformat(), view='checkin') }}">Open Daily Check-In</a>
-        <a class="home-quick-link" href="{{ url_for('main.checkin_form', day=local_today.isoformat(), view='meal') }}">Log Meal</a>
-        <a class="home-quick-link" href="{{ url_for('main.checkin_form', day=local_today.isoformat(), view='drink') }}">Log Drink</a>
+      <div class="coach-primary-actions">
+        <a class="coach-action-link" href="{{ url_for('main.checkin_form', day=local_today.isoformat(), view='checkin') }}">🧭 Check-In</a>
+        <a class="coach-action-link" href="{{ url_for('main.checkin_form', day=local_today.isoformat(), view='meal') }}">🍽️ Log Meal</a>
+        <a class="coach-action-link" href="{{ url_for('main.checkin_form', day=local_today.isoformat(), view='drink') }}">🥤 Log Drink</a>
+        <a class="coach-action-link" href="{{ url_for('main.checkin_form', day=local_today.isoformat(), view='activity') }}">🏃 Log Activity</a>
       </div>
       {% if profile_nudge %}
         <p class="muted">

@@ -545,6 +545,109 @@ BRAIN_SPARK_PROMPTS = [
         "question": "Consistency cue: Type 'locked in' if you are ready for one next action.",
         "answers": ["locked in"],
     },
+    {
+        "question": "Trivia: If 4 sisters have 1 brother, how many brothers does each sister have?",
+        "answers": ["1", "one"],
+    },
+    {
+        "question": "Logic: What comes once in a minute, twice in a moment, and never in a thousand years?",
+        "answers": ["m", "the letter m", "letter m"],
+    },
+    {
+        "question": "Quick math: 15% of 200 = ?",
+        "answers": ["30"],
+    },
+    {
+        "question": "Pattern: 2, 4, 8, 16, ?",
+        "answers": ["32"],
+    },
+    {
+        "question": "Word puzzle: Unscramble 'LEPA'",
+        "answers": ["pale", "peal", "leap", "plea"],
+    },
+    {
+        "question": "Speed check: 125 - 49 = ?",
+        "answers": ["76"],
+    },
+    {
+        "question": "Time math: 2 hours 15 minutes + 45 minutes = how many minutes?",
+        "answers": ["180"],
+    },
+    {
+        "question": "Riddle: I get wetter as I dry. What am I?",
+        "answers": ["towel", "a towel"],
+    },
+    {
+        "question": "Quick multiply: 9 x 12 = ?",
+        "answers": ["108"],
+    },
+    {
+        "question": "Tiny puzzle: Rearrange 'RACE' to mean a place where books are kept.",
+        "answers": ["care"],
+    },
+    {
+        "question": "Math warmup: (8 + 4) / 3 = ?",
+        "answers": ["4"],
+    },
+    {
+        "question": "Memory spark: Type the first letter of the day of the week.",
+        "answers": [],
+        "accept_any_nonempty": True,
+    },
+    {
+        "question": "Trivia: How many sides does a hexagon have?",
+        "answers": ["6", "six"],
+    },
+    {
+        "question": "Logic: Which is heavier, 1 kg of steel or 1 kg of feathers?",
+        "answers": ["same", "they are the same", "equal", "both are the same"],
+    },
+    {
+        "question": "Quick subtraction: 1000 - 333 = ?",
+        "answers": ["667"],
+    },
+    {
+        "question": "Mini sequence: 5, 10, 20, 40, ?",
+        "answers": ["80"],
+    },
+    {
+        "question": "Word check: Type 'focus' in uppercase.",
+        "answers": ["focus", "FOCUS"],
+    },
+    {
+        "question": "Riddle: What has keys but cannot open locks?",
+        "answers": ["piano", "a piano"],
+    },
+    {
+        "question": "Math sprint: 7 + 8 + 9 = ?",
+        "answers": ["24"],
+    },
+    {
+        "question": "Brain flex: If today is Thursday, what day is 3 days later?",
+        "answers": ["sunday"],
+    },
+    {
+        "question": "Quick estimate: Half of 3/4 is ? (decimal)",
+        "answers": ["0.375", ".375"],
+    },
+    {
+        "question": "Fun check: Name one country you would like to visit.",
+        "answers": [],
+        "accept_any_nonempty": True,
+    },
+    {
+        "question": "Puzzle: If you overtake the person in 2nd place, what place are you in?",
+        "answers": ["second", "2nd", "2"],
+    },
+    {
+        "question": "Quick compare: Which is larger, 0.8 or 0.78?",
+        "answers": ["0.8"],
+    },
+    {
+        "question": "Tiny challenge: Type any 4-letter word.",
+        "answers": [],
+        "accept_any_nonempty": True,
+    },
 ]
 AUTO_COMMUNITY_ALLOWED_RUNS = {1, 2, 3, 4}
 AUTO_COMMUNITY_MAX_SOURCES = 24
@@ -10328,16 +10431,56 @@ def checkin_brain_spark_submit():
 
     spark_context = build_brain_spark_context(selected_day=selected_day, manager_view=manager_view)
     answer = request.form.get("brain_answer")
-    if brain_spark_answer_is_correct(spark_context=spark_context, answer=answer):
+    elapsed_ms = parse_int(request.form.get("brain_elapsed_ms"))
+    if elapsed_ms is not None:
+        elapsed_ms = max(0, min(elapsed_ms, 60 * 60 * 1000))
+
+    is_correct = brain_spark_answer_is_correct(spark_context=spark_context, answer=answer)
+
+    analysis_row = UserCoachSignalResponse.query.filter(
+        UserCoachSignalResponse.user_id == g.user.id,
+        UserCoachSignalResponse.day == selected_day,
+        UserCoachSignalResponse.context == manager_view,
+        UserCoachSignalResponse.signal_key == spark_context["spark_id"],
+    ).first()
+    if analysis_row is None:
+        analysis_row = UserCoachSignalResponse(
+            user_id=g.user.id,
+            day=selected_day,
+            context=manager_view,
+            signal_key=spark_context["spark_id"],
+        )
+    else:
+        hydrate_coach_signal_response_secure_fields(g.user, analysis_row)
+
+    analysis_row.signal_title = "Brain Spark"
+    analysis_row.signal_message = spark_context.get("question")
+    analysis_row.response_action = "done" if is_correct else "note"
+    answer_text = normalize_text(answer)
+    response_bits = [f"result={'correct' if is_correct else 'incorrect'}"]
+    if elapsed_ms is not None:
+        response_bits.append(f"elapsed_ms={elapsed_ms}")
+    if answer_text:
+        response_bits.append(f"answer={answer_text[:80]}")
+    analysis_row.response_text = " | ".join(response_bits)
+    persist_coach_signal_response_secure_fields(g.user, analysis_row)
+    db.session.add(analysis_row)
+
+    if is_correct:
         done_map = session.get(BRAIN_SPARK_SESSION_KEY)
         if not isinstance(done_map, dict):
             done_map = {}
         done_map[spark_context["spark_id"]] = True
         session[BRAIN_SPARK_SESSION_KEY] = done_map
         session.modified = True
-        flash("Brain Spark complete. Nice mental rep.", "success")
+        if elapsed_ms is not None:
+            flash(f"Brain Spark complete in {elapsed_ms / 1000.0:.1f}s. Nice mental rep.", "success")
+        else:
+            flash("Brain Spark complete. Nice mental rep.", "success")
     else:
         flash("Not quite. Try again.", "error")
+
+    db.session.commit()
 
     return redirect(url_for("main.checkin_form", day=selected_day.isoformat(), view=manager_view))
 

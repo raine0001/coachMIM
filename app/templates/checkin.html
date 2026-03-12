@@ -518,6 +518,60 @@
       color: #067647;
       font-weight: 600;
     }
+    .brain-spark-launch-btn {
+      margin-top: 6px;
+      background: #0f766e;
+      border-color: #0f766e;
+      color: #fff;
+    }
+    .brain-spark-modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(8, 15, 30, 0.55);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 14px;
+      z-index: 1200;
+    }
+    .brain-spark-modal {
+      width: min(520px, 100%);
+      background: #fff;
+      border: 1px solid #d7dee7;
+      border-radius: 14px;
+      box-shadow: 0 18px 38px rgba(15, 22, 35, 0.24);
+      padding: 14px;
+    }
+    .brain-spark-modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+    .brain-spark-modal-title {
+      margin: 0;
+      font-size: 1.05rem;
+      font-weight: 700;
+    }
+    .brain-spark-modal-close {
+      padding: 4px 10px;
+      border: 1px solid #d7dee7;
+      border-radius: 8px;
+      background: #fff;
+      cursor: pointer;
+    }
+    .brain-spark-modal-form {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+    .brain-spark-modal-form input[type="text"] {
+      flex: 1 1 220px;
+      min-width: 0;
+    }
     .loading-row {
       display: flex;
       align-items: center;
@@ -764,23 +818,41 @@
       </div>
       <div class="brain-spark-box">
         <h3>Brain Spark</h3>
-        <p>{{ brain_spark.question }}</p>
+        <p>Open a quick brain spark challenge in a popup.</p>
         {% if brain_spark.is_done %}
           <p class="brain-spark-complete">Completed for this day/view.</p>
         {% endif %}
-        <form class="brain-spark-form" method="post" action="{{ url_for('main.checkin_brain_spark_submit') }}">
-          <input type="hidden" name="day" value="{{ selected_day }}" />
-          <input type="hidden" name="view" value="{{ manager_view }}" />
-          <input
-            type="text"
-            name="brain_answer"
-            placeholder="Your answer"
-            autocomplete="off"
-            {% if brain_spark.is_done %}value="done"{% endif %}
-          />
-          <button type="submit">Check</button>
-        </form>
+        <button type="button" class="brain-spark-launch-btn" id="brain_spark_open_btn">
+          {{ "Review Brain Spark" if brain_spark.is_done else "Start Brain Spark" }}
+        </button>
       </div>
+    </div>
+  </div>
+
+  <div class="brain-spark-modal-backdrop" id="brain_spark_modal_backdrop" aria-hidden="true">
+    <div class="brain-spark-modal" role="dialog" aria-modal="true" aria-labelledby="brain_spark_modal_title">
+      <div class="brain-spark-modal-header">
+        <h3 class="brain-spark-modal-title" id="brain_spark_modal_title">Brain Spark</h3>
+        <button type="button" class="brain-spark-modal-close" id="brain_spark_close_btn">Close</button>
+      </div>
+      <p>{{ brain_spark.question }}</p>
+      {% if brain_spark.is_done %}
+        <p class="brain-spark-complete">Completed for this day/view.</p>
+      {% endif %}
+      <form class="brain-spark-modal-form" method="post" action="{{ url_for('main.checkin_brain_spark_submit') }}" id="brain_spark_form">
+        <input type="hidden" name="day" value="{{ selected_day }}" />
+        <input type="hidden" name="view" value="{{ manager_view }}" />
+        <input type="hidden" name="brain_elapsed_ms" id="brain_elapsed_ms" value="" />
+        <input
+          type="text"
+          id="brain_answer_input"
+          name="brain_answer"
+          placeholder="Your answer"
+          autocomplete="off"
+          {% if brain_spark.is_done %}value="done"{% endif %}
+        />
+        <button type="submit">Check</button>
+      </form>
     </div>
   </div>
 
@@ -2001,6 +2073,59 @@
   </div>
 
   <script>
+    (function wireBrainSparkModal() {
+      const openBtn = document.getElementById("brain_spark_open_btn");
+      const closeBtn = document.getElementById("brain_spark_close_btn");
+      const backdrop = document.getElementById("brain_spark_modal_backdrop");
+      const form = document.getElementById("brain_spark_form");
+      const answerInput = document.getElementById("brain_answer_input");
+      const elapsedInput = document.getElementById("brain_elapsed_ms");
+      if (!openBtn || !closeBtn || !backdrop || !form || !answerInput || !elapsedInput) {
+        return;
+      }
+
+      const isDone = {{ 'true' if brain_spark.is_done else 'false' }};
+      let openedAt = null;
+
+      function openModal() {
+        backdrop.style.display = "flex";
+        backdrop.setAttribute("aria-hidden", "false");
+        openedAt = Date.now();
+        window.setTimeout(() => answerInput.focus(), 20);
+      }
+
+      function closeModal() {
+        backdrop.style.display = "none";
+        backdrop.setAttribute("aria-hidden", "true");
+      }
+
+      openBtn.addEventListener("click", openModal);
+      closeBtn.addEventListener("click", closeModal);
+      backdrop.addEventListener("click", (event) => {
+        if (event.target === backdrop) {
+          closeModal();
+        }
+      });
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && backdrop.style.display === "flex") {
+          closeModal();
+        }
+      });
+
+      form.addEventListener("submit", () => {
+        if (!openedAt) {
+          elapsedInput.value = "";
+          return;
+        }
+        const elapsed = Math.max(0, Date.now() - openedAt);
+        elapsedInput.value = String(elapsed);
+      });
+
+      if (!isDone) {
+        window.setTimeout(openModal, 300);
+      }
+    })();
+
     (function wireDayManagerMoreToggle() {
       const card = document.getElementById("day_manager_card");
       const toggle = document.getElementById("day_manager_more_toggle");

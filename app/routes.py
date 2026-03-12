@@ -4198,11 +4198,114 @@ def _normalize_brain_answer(value: str | None):
     return text, compact
 
 
-def build_brain_spark_context(*, selected_day: date, manager_view: str):
+def _brain_spark_prompt_difficulty(prompt_row: dict):
+    raw = (prompt_row.get("difficulty") or "").strip().lower()
+    if raw in {"easy", "medium", "hard"}:
+        return raw
+
+    question = (prompt_row.get("question") or "").strip().lower()
+    if prompt_row.get("accept_any_nonempty"):
+        return "easy"
+    if any(token in question for token in ["riddle", "logic", "pattern", "sequence", "puzzle", "decimal"]):
+        return "hard"
+    if any(token in question for token in ["estimate", "multiply", "math", "fraction", "%", "conversion"]):
+        return "medium"
+    return "medium"
+
+
+def _parse_brain_spark_response_metrics(response_text: str | None):
+    text = normalize_text(response_text)
+    metrics = {
+        "is_correct": None,
+        "elapsed_ms": None,
+    }
+    if not text:
+        return metrics
+
+    for part in text.split("|"):
+        token = part.strip()
+        if not token or "=" not in token:
+            continue
+        key, value = token.split("=", 1)
+        key = key.strip().lower()
+        value = value.strip().lower()
+        if key == "result":
+            if value == "correct":
+                metrics["is_correct"] = True
+            elif value == "incorrect":
+                metrics["is_correct"] = False
+        elif key == "elapsed_ms":
+            parsed = parse_int(value)
+            if parsed is not None and parsed >= 0:
+                metrics["elapsed_ms"] = parsed
+    return metrics
+
+
+def _brain_spark_target_difficulty(*, user: User, manager_view: str):
+    recent_rows = (
+        UserCoachSignalResponse.query.filter(
+            UserCoachSignalResponse.user_id == user.id,
+            UserCoachSignalResponse.context == manager_view,
+            UserCoachSignalResponse.signal_title == "Brain Spark",
+        )
+        .order_by(UserCoachSignalResponse.updated_at.desc(), UserCoachSignalResponse.id.desc())
+        .limit(20)
+        .all()
+    )
+
+    if not recent_rows:
+        return "easy"
+
+    results = []
+    elapsed_values = []
+    for row in recent_rows:
+        hydrate_coach_signal_response_secure_fields(user, row)
+        parsed = _parse_brain_spark_response_metrics(row.response_text)
+        if parsed["is_correct"] is not None:
+            results.append(parsed["is_correct"])
+        if parsed["elapsed_ms"] is not None:
+            elapsed_values.append(parsed["elapsed_ms"])
+
+    attempts = len(results)
+    if attempts < 5:
+        return "easy"
+
+    accuracy = sum(1 for item in results if item) / max(attempts, 1)
+    median_elapsed = None
+    if elapsed_values:
+        elapsed_values = sorted(elapsed_values)
+        median_elapsed = elapsed_values[len(elapsed_values) // 2]
+
+    if accuracy >= 0.8 and (median_elapsed is None or median_elapsed <= 9000):
+        return "hard"
+    if accuracy >= 0.6 and (median_elapsed is None or median_elapsed <= 14000):
+        return "medium"
+    return "easy"
+
+
+def _select_brain_spark_prompt(*, selected_day: date, manager_view: str, target_difficulty: str):
     ordered_views = ["checkin", "quick", "meal", "drink", "substance", "activity", "medications"]
     view_offset = ordered_views.index(manager_view) if manager_view in ordered_views else 0
-    prompt_index = (selected_day.toordinal() + (view_offset * 3)) % len(BRAIN_SPARK_PROMPTS)
-    prompt_row = BRAIN_SPARK_PROMPTS[prompt_index]
+
+    pool = [
+        (idx, row)
+        for idx, row in enumerate(BRAIN_SPARK_PROMPTS)
+        if _brain_spark_prompt_difficulty(row) == target_difficulty
+    ]
+    if not pool:
+        pool = list(enumerate(BRAIN_SPARK_PROMPTS))
+
+    pick_index = (selected_day.toordinal() + (view_offset * 3)) % len(pool)
+    return pool[pick_index]
+
+
+def build_brain_spark_context(*, user: User, selected_day: date, manager_view: str):
+    target_difficulty = _brain_spark_target_difficulty(user=user, manager_view=manager_view)
+    prompt_index, prompt_row = _select_brain_spark_prompt(
+        selected_day=selected_day,
+        manager_view=manager_view,
+        target_difficulty=target_difficulty,
+    )
     spark_id = f"{selected_day.isoformat()}:{manager_view}:{prompt_index}"
 
     done_map = session.get(BRAIN_SPARK_SESSION_KEY)
@@ -4214,6 +4317,7 @@ def build_brain_spark_context(*, selected_day: date, manager_view: str):
         "question": prompt_row["question"],
         "answers": prompt_row.get("answers") or [],
         "accept_any_nonempty": bool(prompt_row.get("accept_any_nonempty")),
+        "difficulty": _brain_spark_prompt_difficulty(prompt_row),
         "is_done": bool(done_map.get(spark_id)),
     }
 
@@ -10262,7 +10366,7 @@ def checkin_form():
         day_drink_entries=day_drink_entries,
         day_activity_entries=day_activity_entries,
     )
-    brain_spark = build_brain_spark_context(selected_day=selected_day, manager_view=manager_view)
+    brain_spark = build_brain_spark_context(user=g.user, selected_day=selected_day, manager_view=manager_view)
 
     prev_day = selected_day - timedelta(days=1)
     next_day = selected_day + timedelta(days=1)
@@ -10429,7 +10533,7 @@ def checkin_brain_spark_submit():
     if selected_day > local_today:
         selected_day = local_today
 
-    spark_context = build_brain_spark_context(selected_day=selected_day, manager_view=manager_view)
+    spark_context = build_brain_spark_context(user=g.user, selected_day=selected_day, manager_view=manager_view)
     answer = request.form.get("brain_answer")
     elapsed_ms = parse_int(request.form.get("brain_elapsed_ms"))
     if elapsed_ms is not None:

@@ -554,6 +554,20 @@
       font-size: 1.05rem;
       font-weight: 700;
     }
+    .brain-spark-difficulty {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      margin: 4px 0 8px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: #0b4f4a;
+      background: #e8f6f4;
+      border: 1px solid #c8e8e2;
+      border-radius: 999px;
+      padding: 3px 8px;
+      text-transform: capitalize;
+    }
     .brain-spark-modal-close {
       padding: 4px 10px;
       border: 1px solid #d7dee7;
@@ -835,6 +849,7 @@
         <h3 class="brain-spark-modal-title" id="brain_spark_modal_title">Brain Spark</h3>
         <button type="button" class="brain-spark-modal-close" id="brain_spark_close_btn">Close</button>
       </div>
+      <div class="brain-spark-difficulty">Difficulty: {{ brain_spark.difficulty }}</div>
       <p>{{ brain_spark.question }}</p>
       {% if brain_spark.is_done %}
         <p class="brain-spark-complete">Completed for this day/view.</p>

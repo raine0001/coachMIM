@@ -2007,6 +2007,21 @@
       if (!card || !toggle) {
         return;
       }
+      const storageKey = "mim_day_manager_more_open";
+      const hasActiveMoreTab = {{ 'true' if manager_more_open else 'false' }};
+
+      if (!hasActiveMoreTab) {
+        try {
+          const stored = window.localStorage.getItem(storageKey);
+          if (stored === "1") {
+            card.classList.add("logs-expanded");
+          } else if (stored === "0") {
+            card.classList.remove("logs-expanded");
+          }
+        } catch (error) {
+          // Ignore storage failures and keep default rendering.
+        }
+      }
 
       function renderLabel() {
         const open = card.classList.contains("logs-expanded");
@@ -2016,6 +2031,12 @@
 
       toggle.addEventListener("click", () => {
         card.classList.toggle("logs-expanded");
+        try {
+          const open = card.classList.contains("logs-expanded");
+          window.localStorage.setItem(storageKey, open ? "1" : "0");
+        } catch (error) {
+          // Ignore storage failures and keep UI responsive.
+        }
         renderLabel();
       });
 

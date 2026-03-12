@@ -212,7 +212,7 @@ SEARCH_STOPWORDS = {
     "unsweetened",
     "dash",
 }
-DAY_MANAGER_VIEWS = {"checkin", "meal", "drink", "substance", "activity", "medications"}
+DAY_MANAGER_VIEWS = {"checkin", "quick", "meal", "drink", "substance", "activity", "medications"}
 DAY_MANAGER_FAVORITE_SCOPE_PREFIX = "__dmv:"
 GOAL_DRAFT_SESSION_KEY = "goal_coach_draft"
 BRAIN_SPARK_SESSION_KEY = "brain_spark_done_v1"
@@ -440,6 +440,7 @@ VOLUME_UNIT_TO_ML = {
 AI_TIP_CONTEXT_CATEGORY_HINTS = {
     "home": ["health", "lifestyle", "fitness", "recipes"],
     "checkin": ["health", "lifestyle"],
+    "quick": ["health", "lifestyle", "food", "exercise"],
     "meal": ["recipes", "food", "health"],
     "drink": ["food", "health", "lifestyle"],
     "substance": ["health", "lifestyle"],
@@ -1786,8 +1787,6 @@ def checkin_has_any_data(record: DailyCheckIn | None):
         "productivity",
         "accomplishments",
         "notes",
-        "workout_timing",
-        "workout_intensity",
         "alcohol_drinks",
         "symptoms",
         "digestion",
@@ -1854,8 +1853,6 @@ def checkin_segment_status(record: DailyCheckIn | None):
                 "productivity",
                 "accomplishments",
                 "notes",
-                "workout_timing",
-                "workout_intensity",
                 "alcohol_drinks",
             ]
         ),
@@ -1863,7 +1860,7 @@ def checkin_segment_status(record: DailyCheckIn | None):
 
 
 def first_pending_checkin_tab(segments: dict[str, bool]) -> str:
-    for tab in ["sleep", "morning", "midday", "evening", "overall"]:
+    for tab in ["sleep", "morning", "overall"]:
         if not segments.get(tab):
             return tab
     return "overall"
@@ -1874,11 +1871,9 @@ def resolve_checkin_default_tab(*, segments: dict[str, bool], is_viewing_today: 
         return "sleep"
     if not is_viewing_today:
         return first_pending_checkin_tab(segments)
-    if local_hour < 11:
+    if local_hour < 15:
         return "morning"
-    if local_hour < 17:
-        return "midday"
-    return "evening"
+    return "overall"
 
 
 def day_bounds(target_day: date):
@@ -2771,13 +2766,11 @@ def build_day_manager_live_coaching_context(
     }
 
 
-CHECKIN_SEGMENT_ORDER = ["sleep", "morning", "midday", "evening", "overall"]
+CHECKIN_SEGMENT_ORDER = ["sleep", "morning", "overall"]
 CHECKIN_SEGMENT_LABELS = {
     "sleep": "Sleep",
     "morning": "Morning",
-    "midday": "Midday",
-    "evening": "Evening",
-    "overall": "Overall",
+    "overall": "End of Day",
 }
 
 
@@ -2785,14 +2778,8 @@ def expected_checkin_segments_for_day(day_value: date, *, local_today: date, loc
     if day_value < local_today:
         return CHECKIN_SEGMENT_ORDER[:]
 
-    expected = ["sleep"]
-    if local_hour >= 11:
-        expected.append("morning")
-    if local_hour >= 15:
-        expected.append("midday")
+    expected = ["sleep", "morning"]
     if local_hour >= 20:
-        expected.append("evening")
-    if local_hour >= 22:
         expected.append("overall")
     return expected
 
@@ -3346,17 +3333,8 @@ def build_home_scoreboard_context(user: User, *, local_today: date):
     def day_activity_logged(day_value: date):
         if not day_has_signal(day_value):
             return False
-        record = checkin_by_day.get(day_value)
         day_substances = substances_by_day.get(day_value, [])
-        from_substance_log = any((entry.kind or "").strip().lower() == "activity" for entry in day_substances)
-        from_checkin = bool(
-            record
-            and (
-                normalize_text(record.workout_timing) is not None
-                or record.workout_intensity is not None
-            )
-        )
-        return from_substance_log or from_checkin
+        return any((entry.kind or "").strip().lower() == "activity" for entry in day_substances)
 
     def day_low_stress(day_value: date):
         if not day_has_signal(day_value):
@@ -4198,6 +4176,11 @@ def build_day_manager_tip_context(
             "Morning and midday logs are your leading indicators for energy and focus swings.",
             "Daily check-ins turn random feelings into measurable trends you can actually coach.",
         ],
+        "quick": [
+            "One fast line is enough. Consistent tiny logs beat perfect delayed logs.",
+            "Use Quick Log for everything: meals, drinks, substances, workouts, and meds.",
+            "MIM Apply can parse your sentence into structured data before you save.",
+        ],
         "meal": [
             "Protein at each meal can reduce afternoon crashes and improve appetite stability.",
             "Adding fiber to one meal can flatten glucose spikes and smooth next-block focus.",
@@ -4241,6 +4224,10 @@ def build_day_manager_tip_context(
             micro_action = "All check-in segments are complete. Keep this consistency streak alive tomorrow."
         cta_label = "See Health Tips"
         cta_url = url_for("main.community_page", category="health")
+    elif manager_view == "quick":
+        micro_action = "Add one line and press MIM Apply before saving your next entry."
+        cta_label = "Quick Logging Tips"
+        cta_url = url_for("main.community_page", category="lifestyle")
     elif manager_view == "meal":
         protein_total = sum(float(entry.protein_g or 0) for entry in day_food_entries)
         if day_food_entries and protein_total < 30:
@@ -4295,7 +4282,7 @@ def _normalize_brain_answer(value: str | None):
 
 
 def build_brain_spark_context(*, selected_day: date, manager_view: str):
-    ordered_views = ["checkin", "meal", "drink", "substance", "activity", "medications"]
+    ordered_views = ["checkin", "quick", "meal", "drink", "substance", "activity", "medications"]
     view_offset = ordered_views.index(manager_view) if manager_view in ordered_views else 0
     prompt_index = (selected_day.toordinal() + (view_offset * 3)) % len(BRAIN_SPARK_PROMPTS)
     prompt_row = BRAIN_SPARK_PROMPTS[prompt_index]
@@ -5104,21 +5091,21 @@ def build_goal_progress_card(user: User, goal: UserGoal, *, local_today: date):
         metric_line = f"7-day drinks {total_drinks:.1f} (target <= {target_week:.1f})"
 
     elif goal.goal_type == "activity":
-        checkins = (
-            DailyCheckIn.query.filter(
-                DailyCheckIn.user_id == user.id,
-                DailyCheckIn.day >= local_today - timedelta(days=6),
-                DailyCheckIn.day <= local_today,
+        activity_start = datetime.combine(local_today - timedelta(days=6), datetime.min.time())
+        activity_end = datetime.combine(local_today + timedelta(days=1), datetime.min.time())
+        activity_entries = (
+            Substance.query.filter(
+                Substance.user_id == user.id,
+                Substance.kind == "activity",
+                Substance.taken_at >= activity_start,
+                Substance.taken_at < activity_end,
             )
-            .order_by(DailyCheckIn.day.asc())
+            .order_by(Substance.taken_at.asc())
             .all()
         )
-        for row in checkins:
-            hydrate_checkin_secure_fields(user, row)
-        sessions = 0
-        for row in checkins:
-            if normalize_text(row.workout_timing) or row.workout_intensity is not None:
-                sessions += 1
+        for row in activity_entries:
+            hydrate_substance_secure_fields(user, row)
+        sessions = len(activity_entries)
         target_sessions = goal.target_value or 4.0
         metric_pct = round(min(100.0, (sessions / max(target_sessions, 1.0)) * 100.0), 1)
         metric_line = f"7-day sessions {sessions} (target {target_sessions:.0f})"
@@ -10145,14 +10132,14 @@ def goals_delete(goal_id: int):
 def checkin_form():
     local_today = get_user_local_today(g.user)
     day_str = request.args.get("day")
-    manager_view = (request.args.get("view") or "checkin").strip().lower()
+    manager_view = (request.args.get("view") or "quick").strip().lower()
     saved_view = (request.args.get("saved") or "").strip().lower()
     saved_action = (request.args.get("saved_action") or "").strip().lower()
     requested_segment = (request.args.get("segment") or "").strip().lower()
-    if requested_segment not in {"sleep", "morning", "midday", "evening", "overall"}:
+    if requested_segment not in {"sleep", "morning", "overall"}:
         requested_segment = None
     if manager_view not in DAY_MANAGER_VIEWS:
-        manager_view = "checkin"
+        manager_view = "quick"
     if day_str:
         try:
             selected_day = date.fromisoformat(day_str)
@@ -10170,6 +10157,7 @@ def checkin_form():
     if saved_view == manager_view:
         label_map = {
             "checkin": "Check-in",
+            "quick": "Quick entry",
             "meal": "Meal entry",
             "drink": "Drink entry",
             "substance": "Substance entry",
@@ -10470,7 +10458,6 @@ def checkin_save():
         "stress",
         "anxiety",
         "productivity",
-        "workout_intensity",
         "alcohol_drinks",
     ]:
         value = request.form.get(field)
@@ -10489,7 +10476,6 @@ def checkin_save():
     record.morning_notes = request.form.get("morning_notes") or None
     record.midday_notes = request.form.get("midday_notes") or None
     record.evening_notes = request.form.get("evening_notes") or None
-    record.workout_timing = request.form.get("workout_timing") or None
     record.accomplishments = request.form.get("accomplishments") or None
     record.notes = request.form.get("notes") or None
 
@@ -10614,6 +10600,148 @@ def checkin_coach_feedback_save():
     db.session.commit()
     flash("MIM saved your response and will use it in future coaching.", "success")
     return redirect(url_for("main.checkin_form", day=selected_day.isoformat(), view=manager_view))
+
+
+def _infer_quick_log_context(entry_text: str) -> str:
+    text = (entry_text or "").strip().lower()
+    if not text:
+        return "meal"
+
+    if any(token in text for token in ["vitamin", "supplement", "med", "medication", "capsule", "tablet", "pill"]):
+        return "medications"
+    if any(token in text for token in ["workout", "exercise", "walk", "run", "bike", "lift", "yoga", "swim", "tv", "screen", "netflix"]):
+        return "activity"
+    if any(token in text for token in ["beer", "wine", "whiskey", "vodka", "alcohol", "cig", "nicotine"]):
+        return "substance"
+    if any(token in text for token in ["coffee", "tea", "latte", "cocoa", "soda", "water", "juice", "drink"]):
+        return "drink"
+    return "meal"
+
+
+def _infer_substance_kind(entry_text: str) -> str:
+    text = (entry_text or "").strip().lower()
+    if any(token in text for token in ["beer", "wine", "whiskey", "vodka", "alcohol", "drink"]):
+        return "alcohol"
+    if any(token in text for token in ["coffee", "espresso", "latte", "tea", "caffeine", "energy drink"]):
+        return "caffeine"
+    if any(token in text for token in ["nicotine", "cig", "vape", "dip", "smoke"]):
+        return "nicotine"
+    return "other"
+
+
+def _extract_duration_minutes(entry_text: str) -> int | None:
+    text = (entry_text or "").strip().lower()
+    if not text:
+        return None
+    duration_match = re.search(r"(\d+(?:\.\d+)?)\s*(hours?|hrs?|hr|h|minutes?|mins?|min|m)\b", text)
+    if not duration_match:
+        return None
+    amount = parse_float(duration_match.group(1))
+    if amount is None or amount <= 0:
+        return None
+    unit = duration_match.group(2)
+    if unit.startswith("h"):
+        return int(round(amount * 60.0))
+    return int(round(amount))
+
+
+@bp.post("/checkin/quick-log")
+@login_required
+@profile_required
+def checkin_quick_log_save():
+    local_today = get_user_local_today(g.user)
+    selected_day_raw = request.form.get("day", local_today.isoformat())
+    try:
+        selected_day = date.fromisoformat(selected_day_raw)
+    except ValueError:
+        selected_day = local_today
+
+    if selected_day > local_today:
+        selected_day = local_today
+
+    entry_time_raw = request.form.get("entry_time")
+    if not entry_time_raw:
+        fallback_time = datetime.now(get_user_zoneinfo(g.user)).strftime("%H:%M")
+        entry_time_raw = f"{selected_day.isoformat()}T{fallback_time}"
+    try:
+        entry_dt = datetime.fromisoformat(entry_time_raw)
+    except ValueError:
+        flash("Invalid date/time. Use the picker and try again.", "error")
+        return redirect(url_for("main.checkin_form", day=selected_day.isoformat(), view="quick"))
+
+    entry_text = normalize_text(request.form.get("entry_text"))
+    if not entry_text:
+        flash("Add a quick entry before saving.", "error")
+        return redirect(url_for("main.checkin_form", day=selected_day.isoformat(), view="quick"))
+
+    requested_context = (request.form.get("entry_context") or "auto").strip().lower()
+    allowed_contexts = {"auto", "meal", "drink", "substance", "activity", "medications"}
+    if requested_context not in allowed_contexts:
+        requested_context = "auto"
+    resolved_context = _infer_quick_log_context(entry_text) if requested_context == "auto" else requested_context
+
+    mim_payload = {}
+    mim_payload_raw = request.form.get("mim_payload")
+    if mim_payload_raw:
+        try:
+            parsed_payload = json.loads(mim_payload_raw)
+            if isinstance(parsed_payload, dict):
+                mim_payload = parsed_payload
+        except Exception:
+            mim_payload = {}
+
+    if resolved_context in {"meal", "drink"}:
+        meal = Meal(user_id=g.user.id)
+        meal.eaten_at = entry_dt
+        meal.is_beverage = resolved_context == "drink"
+        meal.description = normalize_text(mim_payload.get("description")) or entry_text
+        meal.label = normalize_text(mim_payload.get("label")) or ("Drink" if meal.is_beverage else None)
+        meal.portion_notes = normalize_text(mim_payload.get("portion_notes"))
+        meal.calories = parse_int(mim_payload.get("calories"))
+        meal.protein_g = parse_float(mim_payload.get("protein_g"))
+        meal.carbs_g = parse_float(mim_payload.get("carbs_g"))
+        meal.fat_g = parse_float(mim_payload.get("fat_g"))
+        meal.sugar_g = parse_float(mim_payload.get("sugar_g"))
+        meal.sodium_mg = parse_float(mim_payload.get("sodium_mg"))
+        meal.caffeine_mg = parse_float(mim_payload.get("caffeine_mg"))
+        persist_meal_secure_fields(g.user, meal)
+        db.session.add(meal)
+        db.session.commit()
+        flash(f"Quick {resolved_context} entry logged.", "success")
+        return redirect(url_for("main.checkin_form", day=selected_day.isoformat(), view="quick", saved="quick", saved_action="saved"))
+
+    entry = Substance(user_id=g.user.id)
+    entry.taken_at = entry_dt
+
+    if resolved_context == "activity":
+        entry.kind = "activity"
+        activity_type = normalize_text(mim_payload.get("activity_type"))
+        duration_min = parse_int(mim_payload.get("duration_min")) or _extract_duration_minutes(entry_text)
+        intensity = parse_int(mim_payload.get("intensity"))
+        amount_parts = [part for part in [activity_type, f"{duration_min} min" if duration_min else None, f"intensity {intensity}/10" if intensity else None] if part]
+        entry.amount = " | ".join(amount_parts) if amount_parts else entry_text
+        entry.notes = normalize_text(mim_payload.get("notes"))
+    elif resolved_context == "medications":
+        entry.kind = (normalize_text(mim_payload.get("kind")) or "medication").lower()
+        if entry.kind not in {"medication", "supplement"}:
+            entry.kind = "medication"
+        med_name = normalize_text(mim_payload.get("med_name"))
+        dose = normalize_text(mim_payload.get("dose"))
+        amount_parts = [part for part in [med_name, dose] if part]
+        entry.amount = " - ".join(amount_parts) if amount_parts else entry_text
+        entry.notes = normalize_text(mim_payload.get("notes"))
+    else:
+        entry.kind = (normalize_text(mim_payload.get("kind")) or _infer_substance_kind(entry_text)).lower()
+        if entry.kind not in {"alcohol", "caffeine", "nicotine", "other"}:
+            entry.kind = "other"
+        entry.amount = normalize_text(mim_payload.get("amount")) or entry_text
+        entry.notes = normalize_text(mim_payload.get("notes"))
+
+    persist_substance_secure_fields(g.user, entry)
+    db.session.add(entry)
+    db.session.commit()
+    flash(f"Quick {resolved_context} entry logged.", "success")
+    return redirect(url_for("main.checkin_form", day=selected_day.isoformat(), view="quick", saved="quick", saved_action="saved"))
 
 
 @bp.post("/checkin/meal-quick")

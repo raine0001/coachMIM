@@ -600,6 +600,7 @@
     <label>Day Manager</label>
     <div class="day-manager-tabs">
       <a class="day-manager-tab {{ 'active' if manager_view == 'checkin' else '' }}" href="{{ url_for('main.checkin_form', day=selected_day, view='checkin') }}">Check-In</a>
+      <a class="day-manager-tab {{ 'active' if manager_view == 'quick' else '' }}" href="{{ url_for('main.checkin_form', day=selected_day, view='quick') }}">Quick Log</a>
       <a class="day-manager-tab {{ 'active' if manager_view == 'meal' else '' }}" href="{{ url_for('main.checkin_form', day=selected_day, view='meal') }}">Log Meal</a>
       <a class="day-manager-tab {{ 'active' if manager_view == 'drink' else '' }}" href="{{ url_for('main.checkin_form', day=selected_day, view='drink') }}">Log Drink</a>
       <a class="day-manager-tab {{ 'active' if manager_view == 'substance' else '' }}" href="{{ url_for('main.checkin_form', day=selected_day, view='substance') }}">Log Substance</a>
@@ -825,19 +826,15 @@
 
       <div class="checkin-segment-tabs">
         <button type="button" class="checkin-tab-btn" data-tab="sleep">Sleep</button>
-        <button type="button" class="checkin-tab-btn" data-tab="morning">Morning</button>
-        <button type="button" class="checkin-tab-btn" data-tab="midday">Midday</button>
-        <button type="button" class="checkin-tab-btn" data-tab="evening">Evening</button>
-        <button type="button" class="checkin-tab-btn" data-tab="overall">Overall</button>
+        <button type="button" class="checkin-tab-btn" data-tab="morning">Morning Check-In</button>
+        <button type="button" class="checkin-tab-btn" data-tab="overall">End-of-Day Check-In</button>
       </div>
 
       <div class="muted checkin-segment-progress">
-        Segment progress:
+        Required daily check-ins:
         Sleep={{ "done" if selected_segments.sleep else "pending" }},
         Morning={{ "done" if selected_segments.morning else "pending" }},
-        Midday={{ "done" if selected_segments.midday else "pending" }},
-        Evening={{ "done" if selected_segments.evening else "pending" }},
-        Overall={{ "done" if selected_segments.overall else "pending" }}
+        End of day={{ "done" if selected_segments.overall else "pending" }}
       </div>
 
       <div class="checkin-tab-panel" data-panel="sleep">
@@ -851,16 +848,16 @@
             <label for="sleep_quality">Sleep Quality</label>
             <select id="sleep_quality" name="sleep_quality">
               <option value="" {% if not record or record.sleep_quality is none %}selected{% endif %}>Choose a sleep quality score</option>
-              <option value="1" {% if record and record.sleep_quality == 1 %}selected{% endif %}>1 - No sleep</option>
-              <option value="2" {% if record and record.sleep_quality == 2 %}selected{% endif %}>2 - &lt;2 hours, fragmented</option>
-              <option value="3" {% if record and record.sleep_quality == 3 %}selected{% endif %}>3 - 2-4 hours, very restless</option>
-              <option value="4" {% if record and record.sleep_quality == 4 %}selected{% endif %}>4 - 4-5 hours, multiple awakenings</option>
-              <option value="5" {% if record and record.sleep_quality == 5 %}selected{% endif %}>5 - 5-6 hours, light/uneven sleep</option>
-              <option value="6" {% if record and record.sleep_quality == 6 %}selected{% endif %}>6 - 6-7 hours, some interruptions</option>
-              <option value="7" {% if record and record.sleep_quality == 7 %}selected{% endif %}>7 - 7-8 hours, mostly uninterrupted</option>
-              <option value="8" {% if record and record.sleep_quality == 8 %}selected{% endif %}>8 - 7-9 hours, solid sleep</option>
-              <option value="9" {% if record and record.sleep_quality == 9 %}selected{% endif %}>9 - Deep and restorative, woke refreshed</option>
-              <option value="10" {% if record and record.sleep_quality == 10 %}selected{% endif %}>10 - Exceptional sleep, energized and clear all day</option>
+              <option value="1" {% if record and record.sleep_quality == 1 %}selected{% endif %}>1 - Very poor, no restoration</option>
+              <option value="2" {% if record and record.sleep_quality == 2 %}selected{% endif %}>2 - Extremely restless</option>
+              <option value="3" {% if record and record.sleep_quality == 3 %}selected{% endif %}>3 - Very low quality</option>
+              <option value="4" {% if record and record.sleep_quality == 4 %}selected{% endif %}>4 - Poor quality</option>
+              <option value="5" {% if record and record.sleep_quality == 5 %}selected{% endif %}>5 - Fair / mixed</option>
+              <option value="6" {% if record and record.sleep_quality == 6 %}selected{% endif %}>6 - Okay, somewhat refreshing</option>
+              <option value="7" {% if record and record.sleep_quality == 7 %}selected{% endif %}>7 - Good quality</option>
+              <option value="8" {% if record and record.sleep_quality == 8 %}selected{% endif %}>8 - Very good, mostly restorative</option>
+              <option value="9" {% if record and record.sleep_quality == 9 %}selected{% endif %}>9 - Excellent and restorative</option>
+              <option value="10" {% if record and record.sleep_quality == 10 %}selected{% endif %}>10 - Exceptional, fully restored</option>
             </select>
           </div>
         </div>
@@ -871,47 +868,12 @@
       </div>
 
       <div class="checkin-tab-panel" data-panel="morning" style="display: none;">
-        <h2>Morning</h2>
+        <h2>Morning Check-In</h2>
+        <p class="muted">Simple morning input: weight and how you feel.</p>
         <div class="grid">
           <div>
-            <label for="morning_energy">Energy</label>
-            {{ rating_select("morning_energy", "morning_energy", record.morning_energy if record else none, energy_scale, "Select energy level") }}
-          </div>
-          <div>
-            <label for="morning_focus">Focus Level</label>
-            {{ rating_select("morning_focus", "morning_focus", record.morning_focus if record else none, focus_scale, "Select focus level") }}
-          </div>
-          <div>
-            <label for="morning_mood">Mood Level</label>
+            <label for="morning_mood">How do you feel this morning? (1-10)</label>
             {{ rating_select("morning_mood", "morning_mood", record.morning_mood if record else none, mood_scale, "Select mood level") }}
-          </div>
-          <div>
-            <label for="morning_stress">Stress Level</label>
-            {{ rating_select("morning_stress", "morning_stress", record.morning_stress if record else none, stress_scale, "Select stress level") }}
-          </div>
-          <div>
-            <label for="morning_passive_screen_minutes">Passive Screen (min)</label>
-            <input
-              id="morning_passive_screen_minutes"
-              name="morning_passive_screen_minutes"
-              type="number"
-              min="0"
-              step="1"
-              value="{{ record.morning_passive_screen_minutes if record and record.morning_passive_screen_minutes is not none else '' }}"
-              placeholder="TV/scrolling/news"
-            />
-          </div>
-          <div>
-            <label for="morning_restorative_minutes">Restorative Time (min)</label>
-            <input
-              id="morning_restorative_minutes"
-              name="morning_restorative_minutes"
-              type="number"
-              min="0"
-              step="1"
-              value="{{ record.morning_restorative_minutes if record and record.morning_restorative_minutes is not none else '' }}"
-              placeholder="Walk/family/meditation"
-            />
           </div>
           <div>
             <label for="morning_weight">Morning Weight ({{ checkin_weight_unit }})</label>
@@ -920,7 +882,7 @@
         </div>
         <div class="checkin-form-block">
           <label for="morning_notes">Morning Notes</label>
-          <textarea id="morning_notes" name="morning_notes">{{ record.morning_notes if record else '' }}</textarea>
+          <textarea id="morning_notes" name="morning_notes" placeholder="Optional: anything important for this morning.">{{ record.morning_notes if record else '' }}</textarea>
         </div>
       </div>
 
@@ -1025,79 +987,62 @@
       </div>
 
       <div class="checkin-tab-panel" data-panel="overall" style="display: none;">
-        <h2>Overall Day Snapshot</h2>
+        <h2>End-of-Day Check-In</h2>
+        <p class="muted">Keep this simple: how was your day overall?</p>
         <div class="grid">
           <div>
-            <label for="energy">Overall Energy</label>
-            {{ rating_select("energy", "energy", record.energy if record else none, energy_scale, "Select overall energy level") }}
-          </div>
-          <div>
-            <label for="focus">Overall Focus Level</label>
-            {{ rating_select("focus", "focus", record.focus if record else none, focus_scale, "Select overall focus level") }}
-          </div>
-          <div>
-            <label for="mood">Overall Mood Level</label>
+            <label for="mood">How was your day? (1-10)</label>
             {{ rating_select("mood", "mood", record.mood if record else none, mood_scale, "Select overall mood level") }}
           </div>
-          <div>
-            <label for="stress">Overall Stress Level</label>
-            {{ rating_select("stress", "stress", record.stress if record else none, stress_scale, "Select overall stress level") }}
-          </div>
-          <div>
-            <label for="anxiety">Anxiety (1-10)</label>
-            <input id="anxiety" name="anxiety" type="number" min="1" max="10" value="{{ record.anxiety if record else '' }}" />
-          </div>
-          <div>
-            <label for="productivity">Productivity (1-10)</label>
-            <input id="productivity" name="productivity" type="number" min="1" max="10" value="{{ record.productivity if record else '' }}" />
-          </div>
-          <div>
-            <label for="workout_timing">Workout Timing</label>
-            <input id="workout_timing" name="workout_timing" placeholder="e.g., 7:00am strength" value="{{ record.workout_timing if record else '' }}" />
-          </div>
-          <div>
-            <label for="workout_intensity">Workout Intensity (1-10)</label>
-            <input id="workout_intensity" name="workout_intensity" type="number" min="1" max="10" value="{{ record.workout_intensity if record else '' }}" />
-          </div>
-          <div>
-            <label for="alcohol_drinks">Alcohol (drinks)</label>
-            <input id="alcohol_drinks" name="alcohol_drinks" type="number" min="0" step="0.5" value="{{ record.alcohol_drinks if record else '' }}" />
-          </div>
-          <div>
-            <label for="headache">Headache Severity (0-10)</label>
-            <input id="headache" name="headache" type="number" min="0" max="10" value="{{ record.symptoms.get('headache') if record and record.symptoms else '' }}" />
-          </div>
-          <div>
-            <label for="stomach">Stomach Severity (0-10)</label>
-            <input id="stomach" name="stomach" type="number" min="0" max="10" value="{{ record.symptoms.get('stomach') if record and record.symptoms else '' }}" />
-          </div>
-          <div>
-            <label for="nausea">Nausea Severity (0-10)</label>
-            <input id="nausea" name="nausea" type="number" min="0" max="10" value="{{ record.symptoms.get('nausea') if record and record.symptoms else '' }}" />
-          </div>
-          <div>
-            <label for="bm_count">BM Count</label>
-            <input id="bm_count" name="bm_count" type="number" min="0" value="{{ record.digestion.get('bm_count') if record and record.digestion else '' }}" />
-          </div>
-          <div>
-            <label for="digestion_issues">Digestion Issues (comma-separated)</label>
-            <input id="digestion_issues" name="digestion_issues" placeholder="bloat, cramp, reflux" value="{{ (record.digestion.get('issues') | join(', ')) if record and record.digestion and record.digestion.get('issues') else '' }}" />
-          </div>
-        </div>
-
-        <div class="checkin-form-block">
-          <label for="accomplishments">Accomplishments</label>
-          <textarea id="accomplishments" name="accomplishments">{{ record.accomplishments if record else '' }}</textarea>
         </div>
         <div class="checkin-form-block">
-          <label for="notes">Overall Notes</label>
-          <textarea id="notes" name="notes">{{ record.notes if record else '' }}</textarea>
+          <label for="notes">How was your day?</label>
+          <textarea id="notes" name="notes" placeholder="One short reflection is enough.">{{ record.notes if record else '' }}</textarea>
         </div>
       </div>
 
       <div class="checkin-form-actions">
         <button type="submit">Save Check-In</button>
       </div>
+    </form>
+  </div>
+  {% elif manager_view == "quick" %}
+  <div class="card">
+    <h2>Quick Log For {{ selected_day }}</h2>
+    {% if inline_saved_message %}
+      <div class="inline-save-success">{{ inline_saved_message }}</div>
+    {% endif %}
+    <p class="muted">One line for anything. Choose type (or Auto), press MIM Apply, then Save.</p>
+    <form method="post" action="{{ url_for('main.checkin_quick_log_save') }}" id="quick_log_form">
+      <input type="hidden" name="day" value="{{ selected_day }}" />
+      <input type="hidden" name="view" value="quick" />
+      <input type="hidden" name="mim_payload" id="quick_mim_payload" value="" />
+      <div class="grid">
+        <div>
+          <label for="quick_entry_time">Time</label>
+          <input id="quick_entry_time" name="entry_time" type="datetime-local" value="{{ default_entry_datetime }}" required />
+        </div>
+        <div>
+          <label for="quick_entry_context">Entry Type</label>
+          <select id="quick_entry_context" name="entry_context">
+            <option value="auto" selected>Auto Detect</option>
+            <option value="meal">Meal/Food</option>
+            <option value="drink">Drink</option>
+            <option value="substance">Substance (alcohol/caffeine/nicotine/other)</option>
+            <option value="activity">Activity/Workout</option>
+            <option value="medications">Medication/Supplement</option>
+          </select>
+        </div>
+      </div>
+      <div class="checkin-form-block">
+        <label for="quick_entry_text">Entry</label>
+        <input id="quick_entry_text" name="entry_text" placeholder="Examples: 1 hour workout, 1 hot cocoa, 3 beers, 1 bowl pasta" required />
+      </div>
+      <div class="checkin-form-actions">
+        <button type="button" id="quick_mim_apply">MIM Apply</button>
+        <button type="submit">Save Quick Entry</button>
+      </div>
+      <p class="muted" id="quick_mim_status" style="margin-top: 8px;"></p>
     </form>
   </div>
   {% elif manager_view == "meal" %}
@@ -2098,7 +2043,10 @@
       btn.addEventListener("click", () => setTab(btn.dataset.tab));
     });
 
-    setTab(defaultTab);
+    if (tabButtons.length > 0) {
+      const hasDefault = Array.from(tabButtons).some((btn) => btn.dataset.tab === defaultTab);
+      setTab(hasDefault ? defaultTab : tabButtons[0].dataset.tab);
+    }
   </script>
   {% endif %}
 
@@ -2201,6 +2149,26 @@
 
     function sanitizePrompt(value) {
       return String(value || "").replace(/\s+/g, " ").trim();
+    }
+
+    function inferQuickContextFromText(text) {
+      const value = String(text || "").toLowerCase();
+      if (!value) {
+        return "meal";
+      }
+      if (/(vitamin|supplement|med|medication|capsule|tablet|pill)/.test(value)) {
+        return "medications";
+      }
+      if (/(workout|exercise|walk|run|bike|lift|yoga|swim|tv|screen|netflix)/.test(value)) {
+        return "activity";
+      }
+      if (/(beer|wine|whiskey|vodka|alcohol|cig|nicotine)/.test(value)) {
+        return "substance";
+      }
+      if (/(coffee|tea|latte|cocoa|soda|water|juice|drink)/.test(value)) {
+        return "drink";
+      }
+      return "meal";
     }
 
     function wireMethodTabs(config) {
@@ -2382,6 +2350,57 @@
         }
       });
     }
+
+    (function wireQuickLogAssist() {
+      const applyBtn = document.getElementById("quick_mim_apply");
+      const textInput = document.getElementById("quick_entry_text");
+      const contextSelect = document.getElementById("quick_entry_context");
+      const payloadInput = document.getElementById("quick_mim_payload");
+      const statusEl = document.getElementById("quick_mim_status");
+      if (!applyBtn || !textInput || !contextSelect || !payloadInput || !statusEl) {
+        return;
+      }
+
+      applyBtn.addEventListener("click", async () => {
+        const text = sanitizePrompt(textInput.value);
+        if (!text) {
+          statusEl.textContent = "Add a quick entry first, then press MIM Apply.";
+          textInput.focus();
+          return;
+        }
+
+        const requestedContext = String(contextSelect.value || "auto").toLowerCase();
+        const resolvedContext = requestedContext === "auto" ? inferQuickContextFromText(text) : requestedContext;
+        if (!["meal", "drink", "substance", "activity", "medications"].includes(resolvedContext)) {
+          statusEl.textContent = "Could not resolve entry type for MIM Apply.";
+          return;
+        }
+
+        applyBtn.disabled = true;
+        statusEl.textContent = "MIM is parsing your entry...";
+        try {
+          const response = await fetch(mimAssistEndpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ context: resolvedContext, text: text })
+          });
+          const data = await parseJsonResponseSafe(response, "MIM apply failed.");
+          if (!response.ok || !data.ok) {
+            throw new Error(data.error || "MIM apply failed.");
+          }
+          const suggested = data.suggested_fields && typeof data.suggested_fields === "object"
+            ? data.suggested_fields
+            : {};
+          payloadInput.value = JSON.stringify(suggested);
+          statusEl.textContent = data.reply || "MIM suggestions are ready. Review and save.";
+        } catch (error) {
+          payloadInput.value = "";
+          statusEl.textContent = error.message || "MIM apply failed.";
+        } finally {
+          applyBtn.disabled = false;
+        }
+      });
+    })();
 
     wireMethodTabs({
       mimButtonId: "meal_method_mim_btn",

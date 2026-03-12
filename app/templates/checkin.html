@@ -180,6 +180,38 @@
     .checkin-form-actions button {
       padding: 9px 13px;
     }
+    .quick-log-shell {
+      border: 1px solid #d5e5fb;
+      border-radius: 12px;
+      padding: 12px;
+      background: linear-gradient(180deg, #f8fbff 0%, #ffffff 100%);
+    }
+    .quick-log-examples {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 8px;
+    }
+    .quick-log-chip {
+      border: 1px solid #c7d9f4;
+      background: #f3f8ff;
+      color: #1f2937;
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-size: 0.84rem;
+      cursor: pointer;
+    }
+    .quick-log-actions {
+      margin-top: 12px;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .quick-log-actions .save-btn {
+      background: #0f766e;
+      border-color: #0f766e;
+      color: #fff;
+    }
     .table-wrap {
       overflow-x: auto;
     }
@@ -886,106 +918,6 @@
         </div>
       </div>
 
-      <div class="checkin-tab-panel" data-panel="midday" style="display: none;">
-        <h2>Midday</h2>
-        <div class="grid">
-          <div>
-            <label for="midday_energy">Energy</label>
-            {{ rating_select("midday_energy", "midday_energy", record.midday_energy if record else none, energy_scale, "Select energy level") }}
-          </div>
-          <div>
-            <label for="midday_focus">Focus Level</label>
-            {{ rating_select("midday_focus", "midday_focus", record.midday_focus if record else none, focus_scale, "Select focus level") }}
-          </div>
-          <div>
-            <label for="midday_mood">Mood Level</label>
-            {{ rating_select("midday_mood", "midday_mood", record.midday_mood if record else none, mood_scale, "Select mood level") }}
-          </div>
-          <div>
-            <label for="midday_stress">Stress Level</label>
-            {{ rating_select("midday_stress", "midday_stress", record.midday_stress if record else none, stress_scale, "Select stress level") }}
-          </div>
-          <div>
-            <label for="midday_passive_screen_minutes">Passive Screen (min)</label>
-            <input
-              id="midday_passive_screen_minutes"
-              name="midday_passive_screen_minutes"
-              type="number"
-              min="0"
-              step="1"
-              value="{{ record.midday_passive_screen_minutes if record and record.midday_passive_screen_minutes is not none else '' }}"
-              placeholder="TV/scrolling/news"
-            />
-          </div>
-          <div>
-            <label for="midday_restorative_minutes">Restorative Time (min)</label>
-            <input
-              id="midday_restorative_minutes"
-              name="midday_restorative_minutes"
-              type="number"
-              min="0"
-              step="1"
-              value="{{ record.midday_restorative_minutes if record and record.midday_restorative_minutes is not none else '' }}"
-              placeholder="Walk/family/meditation"
-            />
-          </div>
-        </div>
-        <div class="checkin-form-block">
-          <label for="midday_notes">Midday Notes</label>
-          <textarea id="midday_notes" name="midday_notes">{{ record.midday_notes if record else '' }}</textarea>
-        </div>
-      </div>
-
-      <div class="checkin-tab-panel" data-panel="evening" style="display: none;">
-        <h2>Evening</h2>
-        <div class="grid">
-          <div>
-            <label for="evening_energy">Energy</label>
-            {{ rating_select("evening_energy", "evening_energy", record.evening_energy if record else none, energy_scale, "Select energy level") }}
-          </div>
-          <div>
-            <label for="evening_focus">Focus Level</label>
-            {{ rating_select("evening_focus", "evening_focus", record.evening_focus if record else none, focus_scale, "Select focus level") }}
-          </div>
-          <div>
-            <label for="evening_mood">Mood Level</label>
-            {{ rating_select("evening_mood", "evening_mood", record.evening_mood if record else none, mood_scale, "Select mood level") }}
-          </div>
-          <div>
-            <label for="evening_stress">Stress Level</label>
-            {{ rating_select("evening_stress", "evening_stress", record.evening_stress if record else none, stress_scale, "Select stress level") }}
-          </div>
-          <div>
-            <label for="evening_passive_screen_minutes">Passive Screen (min)</label>
-            <input
-              id="evening_passive_screen_minutes"
-              name="evening_passive_screen_minutes"
-              type="number"
-              min="0"
-              step="1"
-              value="{{ record.evening_passive_screen_minutes if record and record.evening_passive_screen_minutes is not none else '' }}"
-              placeholder="TV/scrolling/news"
-            />
-          </div>
-          <div>
-            <label for="evening_restorative_minutes">Restorative Time (min)</label>
-            <input
-              id="evening_restorative_minutes"
-              name="evening_restorative_minutes"
-              type="number"
-              min="0"
-              step="1"
-              value="{{ record.evening_restorative_minutes if record and record.evening_restorative_minutes is not none else '' }}"
-              placeholder="Walk/family/meditation"
-            />
-          </div>
-        </div>
-        <div class="checkin-form-block">
-          <label for="evening_notes">Evening Notes</label>
-          <textarea id="evening_notes" name="evening_notes">{{ record.evening_notes if record else '' }}</textarea>
-        </div>
-      </div>
-
       <div class="checkin-tab-panel" data-panel="overall" style="display: none;">
         <h2>End-of-Day Check-In</h2>
         <p class="muted">Keep this simple: how was your day overall?</p>
@@ -1013,6 +945,7 @@
       <div class="inline-save-success">{{ inline_saved_message }}</div>
     {% endif %}
     <p class="muted">One line for anything. Choose type (or Auto), press MIM Apply, then Save.</p>
+    <div class="quick-log-shell">
     <form method="post" action="{{ url_for('main.checkin_quick_log_save') }}" id="quick_log_form">
       <input type="hidden" name="day" value="{{ selected_day }}" />
       <input type="hidden" name="view" value="quick" />
@@ -1038,12 +971,20 @@
         <label for="quick_entry_text">Entry</label>
         <input id="quick_entry_text" name="entry_text" placeholder="Examples: 1 hour workout, 1 hot cocoa, 3 beers, 1 bowl pasta" required />
       </div>
-      <div class="checkin-form-actions">
+      <div class="quick-log-examples">
+        <button class="quick-log-chip" type="button" data-quick-example="1 hour workout">1 hour workout</button>
+        <button class="quick-log-chip" type="button" data-quick-example="1 hot cocoa">1 hot cocoa</button>
+        <button class="quick-log-chip" type="button" data-quick-example="3 beers">3 beers</button>
+        <button class="quick-log-chip" type="button" data-quick-example="1 hour tv">1 hour tv</button>
+        <button class="quick-log-chip" type="button" data-quick-example="1 bowl pasta">1 bowl pasta</button>
+      </div>
+      <div class="quick-log-actions">
         <button type="button" id="quick_mim_apply">MIM Apply</button>
-        <button type="submit">Save Quick Entry</button>
+        <button type="submit" class="save-btn">Save Quick Entry</button>
       </div>
       <p class="muted" id="quick_mim_status" style="margin-top: 8px;"></p>
     </form>
+    </div>
   </div>
   {% elif manager_view == "meal" %}
   <div class="card">
@@ -1974,9 +1915,7 @@
               <th class="align-center">Any Data</th>
               <th class="align-center">Sleep</th>
               <th class="align-center">Morning</th>
-              <th class="align-center">Midday</th>
-              <th class="align-center">Evening</th>
-              <th class="align-center">Overall</th>
+              <th class="align-center">End of Day</th>
               <th class="align-right">Weight ({{ checkin_weight_unit }})</th>
               <th class="align-right">Productivity</th>
               <th>Open</th>
@@ -1991,8 +1930,6 @@
                 <td class="align-center">{{ "yes" if row.has_data else "no" }}</td>
                 <td class="align-center">{{ "done" if row.segments.sleep else "-" }}</td>
                 <td class="align-center">{{ "done" if row.segments.morning else "-" }}</td>
-                <td class="align-center">{{ "done" if row.segments.midday else "-" }}</td>
-                <td class="align-center">{{ "done" if row.segments.evening else "-" }}</td>
                 <td class="align-center">{{ "done" if row.segments.overall else "-" }}</td>
                 <td class="align-right">
                   {% if row.record.morning_weight_kg is not none %}
@@ -2360,6 +2297,18 @@
       if (!applyBtn || !textInput || !contextSelect || !payloadInput || !statusEl) {
         return;
       }
+
+      document.querySelectorAll("[data-quick-example]").forEach((chip) => {
+        chip.addEventListener("click", () => {
+          const value = String(chip.getAttribute("data-quick-example") || "").trim();
+          if (!value) {
+            return;
+          }
+          textInput.value = value;
+          textInput.focus();
+          statusEl.textContent = "";
+        });
+      });
 
       applyBtn.addEventListener("click", async () => {
         const text = sanitizePrompt(textInput.value);

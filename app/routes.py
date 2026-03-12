@@ -677,7 +677,7 @@ SITEMAP_PUBLIC_ENDPOINTS = [
 NOTIFICATION_KIND_LABELS = {
     "reminder_morning": "Morning reminder",
     "reminder_midday": "Midday reminder",
-    "reminder_evening": "Evening reminder",
+    "reminder_evening": "End-of-day reminder",
     "escalation_checkin": "Check-in escalation",
     "goal_activity_gap": "Goal activity nudge",
     "missing_data": "Missing data",
@@ -718,20 +718,6 @@ CHECKIN_ENCRYPTED_FIELDS = [
     "morning_restorative_minutes",
     "morning_weight_kg",
     "morning_notes",
-    "midday_energy",
-    "midday_focus",
-    "midday_mood",
-    "midday_stress",
-    "midday_passive_screen_minutes",
-    "midday_restorative_minutes",
-    "midday_notes",
-    "evening_energy",
-    "evening_focus",
-    "evening_mood",
-    "evening_stress",
-    "evening_passive_screen_minutes",
-    "evening_restorative_minutes",
-    "evening_notes",
     "energy",
     "focus",
     "mood",
@@ -740,8 +726,6 @@ CHECKIN_ENCRYPTED_FIELDS = [
     "productivity",
     "accomplishments",
     "notes",
-    "workout_timing",
-    "workout_intensity",
     "alcohol_drinks",
     "symptoms",
     "digestion",
@@ -1693,71 +1677,6 @@ def parse_ingredients_json(raw_value):
     if not isinstance(parsed, list):
         return None
 
-    def safe_float(value):
-        if value in (None, ""):
-            return None
-        try:
-            return float(value)
-        except (TypeError, ValueError):
-            return None
-
-    def safe_int(value):
-        if value in (None, ""):
-            return None
-        try:
-            return int(value)
-        except (TypeError, ValueError):
-            return None
-
-    cleaned = []
-    for item in parsed[:60]:
-        if not isinstance(item, dict):
-            continue
-        cleaned_item = {
-            "food_item_id": safe_int(item.get("food_item_id")),
-            "food_name": (str(item.get("food_name") or "").strip()[:255] or None),
-            "quantity": safe_float(item.get("quantity")),
-            "unit": (str(item.get("unit") or "").strip()[:32] or None),
-            "serving_size": safe_float(item.get("serving_size")),
-            "serving_unit": (str(item.get("serving_unit") or "").strip()[:32] or None),
-            "calories": safe_float(item.get("calories")),
-            "protein_g": safe_float(item.get("protein_g")),
-            "carbs_g": safe_float(item.get("carbs_g")),
-            "fat_g": safe_float(item.get("fat_g")),
-            "sugar_g": safe_float(item.get("sugar_g")),
-            "sodium_mg": safe_float(item.get("sodium_mg")),
-            "caffeine_mg": safe_float(item.get("caffeine_mg")),
-        }
-        cleaned.append(cleaned_item)
-    return cleaned or None
-
-
-def get_user_zoneinfo(user: User):
-    tz_name = None
-    if user and user.profile and user.profile.time_zone:
-        tz_name = user.profile.time_zone
-    if not tz_name:
-        return ZoneInfo("UTC")
-    try:
-        return ZoneInfo(tz_name)
-    except ZoneInfoNotFoundError:
-        return ZoneInfo("UTC")
-
-
-def get_user_local_today(user: User):
-    tz = get_user_zoneinfo(user)
-    return datetime.now(tz).date()
-
-
-def checkin_has_any_data(record: DailyCheckIn | None):
-    if not record:
-        return False
-
-    for field in [
-        "sleep_hours",
-        "sleep_quality",
-        "sleep_notes",
-        "morning_energy",
         "morning_focus",
         "morning_mood",
         "morning_stress",
@@ -1765,20 +1684,6 @@ def checkin_has_any_data(record: DailyCheckIn | None):
         "morning_restorative_minutes",
         "morning_weight_kg",
         "morning_notes",
-        "midday_energy",
-        "midday_focus",
-        "midday_mood",
-        "midday_stress",
-        "midday_passive_screen_minutes",
-        "midday_restorative_minutes",
-        "midday_notes",
-        "evening_energy",
-        "evening_focus",
-        "evening_mood",
-        "evening_stress",
-        "evening_passive_screen_minutes",
-        "evening_restorative_minutes",
-        "evening_notes",
         "energy",
         "focus",
         "mood",
@@ -1819,28 +1724,6 @@ def checkin_segment_status(record: DailyCheckIn | None):
                 "morning_restorative_minutes",
                 "morning_weight_kg",
                 "morning_notes",
-            ]
-        ),
-        "midday": has_values(
-            [
-                "midday_energy",
-                "midday_focus",
-                "midday_mood",
-                "midday_stress",
-                "midday_passive_screen_minutes",
-                "midday_restorative_minutes",
-                "midday_notes",
-            ]
-        ),
-        "evening": has_values(
-            [
-                "evening_energy",
-                "evening_focus",
-                "evening_mood",
-                "evening_stress",
-                "evening_passive_screen_minutes",
-                "evening_restorative_minutes",
-                "evening_notes",
             ]
         ),
         "overall": has_values(
@@ -2344,69 +2227,6 @@ def average_or_none(values: list[float], digits: int = 1):
     return round(sum(cleaned) / len(cleaned), digits)
 
 
-def _parse_clock_token(token: str):
-    text = (token or "").strip().lower().replace(".", "")
-    if not text:
-        return None
-
-    match = re.fullmatch(r"(\d{1,2})(?::(\d{2}))?\s*(am|pm)?", text)
-    if not match:
-        return None
-
-    hour = int(match.group(1))
-    minute = int(match.group(2) or 0)
-    ampm = match.group(3)
-    if minute > 59:
-        return None
-
-    if ampm:
-        if hour < 1 or hour > 12:
-            return None
-        if ampm == "pm" and hour != 12:
-            hour += 12
-        if ampm == "am" and hour == 12:
-            hour = 0
-    else:
-        if hour > 23:
-            return None
-
-    return hour * 60 + minute
-
-
-def parse_workout_minutes(workout_timing: str | None):
-    text = normalize_text(workout_timing)
-    if not text:
-        return None
-
-    normalized = text.lower()
-
-    # Duration like "1 hr 20 min" or "45 min".
-    hour_match = re.search(r"(\d+(?:\.\d+)?)\s*(?:h|hr|hrs|hour|hours)\b", normalized)
-    minute_match = re.search(r"(\d+(?:\.\d+)?)\s*(?:m|min|mins|minute|minutes)\b", normalized)
-    if hour_match or minute_match:
-        hours = float(hour_match.group(1)) if hour_match else 0.0
-        minutes = float(minute_match.group(1)) if minute_match else 0.0
-        total = int(round((hours * 60) + minutes))
-        return total if total > 0 else None
-
-    # Time range like "7:00am-8:15am" or "18:00 to 19:00".
-    range_match = re.search(
-        r"(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)\s*(?:-|to)\s*(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)",
-        normalized,
-    )
-    if range_match:
-        start_minutes = _parse_clock_token(range_match.group(1))
-        end_minutes = _parse_clock_token(range_match.group(2))
-        if start_minutes is not None and end_minutes is not None:
-            diff = end_minutes - start_minutes
-            if diff < 0:
-                diff += 24 * 60
-            if 0 < diff <= 8 * 60:
-                return diff
-
-    return None
-
-
 def checkin_metric_value(record: DailyCheckIn, overall_field: str, segment_fields: list[str]):
     overall_value = getattr(record, overall_field, None)
     if overall_value is not None:
@@ -2434,8 +2254,6 @@ def _collect_checkin_note_text(record: DailyCheckIn | None):
     parts = [
         normalize_text(record.sleep_notes),
         normalize_text(record.morning_notes),
-        normalize_text(record.midday_notes),
-        normalize_text(record.evening_notes),
         normalize_text(record.notes),
         normalize_text(record.accomplishments),
     ]
@@ -2491,12 +2309,12 @@ def _meal_frequency_energy_correlation(*, checkins: list[DailyCheckIn], meals_by
         energy_value = checkin_metric_value(
             row,
             "energy",
-            ["morning_energy", "midday_energy", "evening_energy"],
+            ["morning_energy"],
         )
         focus_value = checkin_metric_value(
             row,
             "focus",
-            ["morning_focus", "midday_focus", "evening_focus"],
+            ["morning_focus"],
         )
         if meal_count <= 1:
             if energy_value is not None:
@@ -2985,28 +2803,28 @@ def build_home_weekly_context(user: User, profile: UserProfile):
     avg_sleep = average_or_none([entry.sleep_hours for entry in checkins if entry.sleep_hours is not None], digits=2)
     avg_energy = average_or_none(
         [
-            checkin_metric_value(entry, "energy", ["morning_energy", "midday_energy", "evening_energy"])
+            checkin_metric_value(entry, "energy", ["morning_energy"])
             for entry in checkins
         ],
         digits=1,
     )
     avg_focus = average_or_none(
         [
-            checkin_metric_value(entry, "focus", ["morning_focus", "midday_focus", "evening_focus"])
+            checkin_metric_value(entry, "focus", ["morning_focus"])
             for entry in checkins
         ],
         digits=1,
     )
     avg_mood = average_or_none(
         [
-            checkin_metric_value(entry, "mood", ["morning_mood", "midday_mood", "evening_mood"])
+            checkin_metric_value(entry, "mood", ["morning_mood"])
             for entry in checkins
         ],
         digits=1,
     )
     avg_stress = average_or_none(
         [
-            checkin_metric_value(entry, "stress", ["morning_stress", "midday_stress", "evening_stress"])
+            checkin_metric_value(entry, "stress", ["morning_stress"])
             for entry in checkins
         ],
         digits=1,
@@ -3021,8 +2839,6 @@ def build_home_weekly_context(user: User, profile: UserProfile):
                 entry,
                 [
                     "morning_passive_screen_minutes",
-                    "midday_passive_screen_minutes",
-                    "evening_passive_screen_minutes",
                 ],
             )
             for entry in checkins
@@ -3035,8 +2851,6 @@ def build_home_weekly_context(user: User, profile: UserProfile):
                 entry,
                 [
                     "morning_restorative_minutes",
-                    "midday_restorative_minutes",
-                    "evening_restorative_minutes",
                 ],
             )
             for entry in checkins
@@ -3193,7 +3007,7 @@ def _day_stress_average(record: DailyCheckIn | None):
     if not record:
         return None
     values = []
-    for field in ["stress", "morning_stress", "midday_stress", "evening_stress"]:
+    for field in ["stress", "morning_stress"]:
         value = getattr(record, field, None)
         if value is not None:
             values.append(float(value))
@@ -5124,7 +4938,7 @@ def build_goal_progress_card(user: User, goal: UserGoal, *, local_today: date):
             hydrate_checkin_secure_fields(user, row)
         if goal.goal_type == "focus":
             values = [
-                checkin_metric_value(row, "focus", ["morning_focus", "midday_focus", "evening_focus"])
+                checkin_metric_value(row, "focus", ["morning_focus"])
                 for row in checkins
             ]
             values = [value for value in values if value is not None]
@@ -5135,7 +4949,7 @@ def build_goal_progress_card(user: User, goal: UserGoal, *, local_today: date):
                 metric_line = f"7-day focus avg {avg_focus:.1f} (target {target_focus:.1f})"
         else:
             values = [
-                checkin_metric_value(row, "stress", ["morning_stress", "midday_stress", "evening_stress"])
+                checkin_metric_value(row, "stress", ["morning_stress"])
                 for row in checkins
             ]
             values = [value for value in values if value is not None]
@@ -5352,12 +5166,12 @@ def build_home_actionable_report(
     def _focus_value(record: DailyCheckIn | None):
         if not record:
             return None
-        return checkin_metric_value(record, "focus", ["morning_focus", "midday_focus", "evening_focus"])
+        return checkin_metric_value(record, "focus", ["morning_focus"])
 
     def _energy_value(record: DailyCheckIn | None):
         if not record:
             return None
-        return checkin_metric_value(record, "energy", ["morning_energy", "midday_energy", "evening_energy"])
+        return checkin_metric_value(record, "energy", ["morning_energy"])
 
     def _anxiety_value(record: DailyCheckIn | None):
         if not record:
@@ -7233,8 +7047,7 @@ def _create_segment_reminder_if_needed(
     created_notifications: list[UserNotification] = []
     segment_windows = [
         ("morning", "reminder_morning", 6, 11, prefs.enable_morning_reminder),
-        ("midday", "reminder_midday", 11, 17, prefs.enable_midday_reminder),
-        ("evening", "reminder_evening", 17, 22, prefs.enable_evening_reminder),
+        ("overall", "reminder_evening", 19, 23, prefs.enable_evening_reminder),
     ]
     for segment_name, kind, window_start, window_end, enabled in segment_windows:
         if not enabled:
@@ -7909,7 +7722,7 @@ def notifications_preferences_save():
     prefs.pause_notifications_until = pause_until
 
     prefs.enable_morning_reminder = parse_bool(request.form.get("enable_morning_reminder"))
-    prefs.enable_midday_reminder = parse_bool(request.form.get("enable_midday_reminder"))
+    prefs.enable_midday_reminder = False
     prefs.enable_evening_reminder = parse_bool(request.form.get("enable_evening_reminder"))
     prefs.enable_missing_data_alert = parse_bool(request.form.get("enable_missing_data_alert"))
     prefs.enable_motivation_alert = parse_bool(request.form.get("enable_motivation_alert"))
@@ -10440,18 +10253,6 @@ def checkin_save():
         "morning_stress",
         "morning_passive_screen_minutes",
         "morning_restorative_minutes",
-        "midday_energy",
-        "midday_focus",
-        "midday_mood",
-        "midday_stress",
-        "midday_passive_screen_minutes",
-        "midday_restorative_minutes",
-        "evening_energy",
-        "evening_focus",
-        "evening_mood",
-        "evening_stress",
-        "evening_passive_screen_minutes",
-        "evening_restorative_minutes",
         "energy",
         "focus",
         "mood",
@@ -10474,8 +10275,6 @@ def checkin_save():
 
     record.sleep_notes = request.form.get("sleep_notes") or None
     record.morning_notes = request.form.get("morning_notes") or None
-    record.midday_notes = request.form.get("midday_notes") or None
-    record.evening_notes = request.form.get("evening_notes") or None
     record.accomplishments = request.form.get("accomplishments") or None
     record.notes = request.form.get("notes") or None
 

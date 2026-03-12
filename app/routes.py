@@ -4283,6 +4283,42 @@ def _brain_spark_target_difficulty(*, user: User, manager_view: str):
     return "easy"
 
 
+def _brain_spark_stats(*, user: User, manager_view: str, selected_day: date):
+    rows = (
+        UserCoachSignalResponse.query.filter(
+            UserCoachSignalResponse.user_id == user.id,
+            UserCoachSignalResponse.context == manager_view,
+            UserCoachSignalResponse.signal_title == "Brain Spark",
+            UserCoachSignalResponse.day <= selected_day,
+        )
+        .order_by(UserCoachSignalResponse.day.desc(), UserCoachSignalResponse.updated_at.desc())
+        .limit(240)
+        .all()
+    )
+
+    best_time_ms = None
+    correct_days = set()
+    for row in rows:
+        hydrate_coach_signal_response_secure_fields(user, row)
+        parsed = _parse_brain_spark_response_metrics(row.response_text)
+        if parsed["is_correct"]:
+            correct_days.add(row.day)
+            if parsed["elapsed_ms"] is not None:
+                if best_time_ms is None or parsed["elapsed_ms"] < best_time_ms:
+                    best_time_ms = parsed["elapsed_ms"]
+
+    streak_days = 0
+    day_cursor = selected_day
+    while day_cursor in correct_days:
+        streak_days += 1
+        day_cursor = day_cursor - timedelta(days=1)
+
+    return {
+        "streak_days": streak_days,
+        "best_time_ms": best_time_ms,
+    }
+
+
 def _select_brain_spark_prompt(*, selected_day: date, manager_view: str, target_difficulty: str):
     ordered_views = ["checkin", "quick", "meal", "drink", "substance", "activity", "medications"]
     view_offset = ordered_views.index(manager_view) if manager_view in ordered_views else 0
@@ -4311,6 +4347,7 @@ def build_brain_spark_context(*, user: User, selected_day: date, manager_view: s
     done_map = session.get(BRAIN_SPARK_SESSION_KEY)
     if not isinstance(done_map, dict):
         done_map = {}
+    stats = _brain_spark_stats(user=user, manager_view=manager_view, selected_day=selected_day)
 
     return {
         "spark_id": spark_id,
@@ -4319,6 +4356,8 @@ def build_brain_spark_context(*, user: User, selected_day: date, manager_view: s
         "accept_any_nonempty": bool(prompt_row.get("accept_any_nonempty")),
         "difficulty": _brain_spark_prompt_difficulty(prompt_row),
         "is_done": bool(done_map.get(spark_id)),
+        "streak_days": stats["streak_days"],
+        "best_time_ms": stats["best_time_ms"],
     }
 
 

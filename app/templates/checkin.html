@@ -568,6 +568,11 @@
       padding: 3px 8px;
       text-transform: capitalize;
     }
+    .brain-spark-stats {
+      margin: 0 0 8px;
+      font-size: 0.86rem;
+      color: #475467;
+    }
     .brain-spark-modal-close {
       padding: 4px 10px;
       border: 1px solid #d7dee7;
@@ -850,6 +855,12 @@
         <button type="button" class="brain-spark-modal-close" id="brain_spark_close_btn">Close</button>
       </div>
       <div class="brain-spark-difficulty">Difficulty: {{ brain_spark.difficulty }}</div>
+      <p class="brain-spark-stats">
+        Streak: {{ brain_spark.streak_days }} day{{ '' if brain_spark.streak_days == 1 else 's' }}
+        {% if brain_spark.best_time_ms %}
+          | Best: {{ '%.1f'|format(brain_spark.best_time_ms / 1000.0) }}s
+        {% endif %}
+      </p>
       <p>{{ brain_spark.question }}</p>
       {% if brain_spark.is_done %}
         <p class="brain-spark-complete">Completed for this day/view.</p>

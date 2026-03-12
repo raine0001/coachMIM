@@ -129,6 +129,12 @@
       flex-wrap: wrap;
       margin-top: 6px;
     }
+    .day-manager-tabs-primary {
+      margin-top: 6px;
+    }
+    .day-manager-tabs-more {
+      margin-top: 6px;
+    }
     .day-manager-tab {
       padding: 7px 11px;
       border-radius: 8px;
@@ -143,6 +149,17 @@
       color: #fff;
       background: #0f766e;
       border-color: #0f766e;
+    }
+    .day-manager-more-toggle {
+      display: none;
+      margin-top: 8px;
+      padding: 7px 11px;
+      border-radius: 8px;
+      border: 1px solid #d7dee7;
+      background: #ffffff;
+      color: #17212b;
+      font-size: 0.9rem;
+      cursor: pointer;
     }
     .day-manager-counts {
       margin: 8px 0 0;
@@ -556,6 +573,22 @@
       .day-manager-tab {
         flex: 0 0 auto;
       }
+      .day-manager-more-toggle {
+        display: inline-flex;
+        align-items: center;
+      }
+      .day-manager-tabs-primary {
+        overflow-x: auto;
+        flex-wrap: nowrap;
+        padding-bottom: 2px;
+      }
+      .day-manager-tabs-more {
+        display: none;
+      }
+      .day-manager-card.logs-expanded .day-manager-tabs-more {
+        display: flex;
+        flex-wrap: wrap;
+      }
       .checkin-segment-tabs {
         overflow-x: auto;
         flex-wrap: nowrap;
@@ -628,11 +661,22 @@
     </p>
   </div>
 
-  <div class="card day-manager-card">
+  {% set manager_more_open = manager_view in ["meal", "drink", "substance", "activity", "medications"] %}
+  <div class="card day-manager-card{% if manager_more_open %} logs-expanded{% endif %}" id="day_manager_card">
     <label>Day Manager</label>
-    <div class="day-manager-tabs">
-      <a class="day-manager-tab {{ 'active' if manager_view == 'checkin' else '' }}" href="{{ url_for('main.checkin_form', day=selected_day, view='checkin') }}">Check-In</a>
+    <div class="day-manager-tabs day-manager-tabs-primary">
       <a class="day-manager-tab {{ 'active' if manager_view == 'quick' else '' }}" href="{{ url_for('main.checkin_form', day=selected_day, view='quick') }}">Quick Log</a>
+      <a class="day-manager-tab {{ 'active' if manager_view == 'checkin' else '' }}" href="{{ url_for('main.checkin_form', day=selected_day, view='checkin') }}">Check-In</a>
+    </div>
+    <button
+      type="button"
+      class="day-manager-more-toggle"
+      id="day_manager_more_toggle"
+      aria-expanded="{{ 'true' if manager_more_open else 'false' }}"
+    >
+      {{ 'Less Logs' if manager_more_open else 'More Logs' }}
+    </button>
+    <div class="day-manager-tabs day-manager-tabs-more" id="day_manager_more_tabs">
       <a class="day-manager-tab {{ 'active' if manager_view == 'meal' else '' }}" href="{{ url_for('main.checkin_form', day=selected_day, view='meal') }}">Log Meal</a>
       <a class="day-manager-tab {{ 'active' if manager_view == 'drink' else '' }}" href="{{ url_for('main.checkin_form', day=selected_day, view='drink') }}">Log Drink</a>
       <a class="day-manager-tab {{ 'active' if manager_view == 'substance' else '' }}" href="{{ url_for('main.checkin_form', day=selected_day, view='substance') }}">Log Substance</a>
@@ -1957,6 +2001,27 @@
   </div>
 
   <script>
+    (function wireDayManagerMoreToggle() {
+      const card = document.getElementById("day_manager_card");
+      const toggle = document.getElementById("day_manager_more_toggle");
+      if (!card || !toggle) {
+        return;
+      }
+
+      function renderLabel() {
+        const open = card.classList.contains("logs-expanded");
+        toggle.textContent = open ? "Less Logs" : "More Logs";
+        toggle.setAttribute("aria-expanded", open ? "true" : "false");
+      }
+
+      toggle.addEventListener("click", () => {
+        card.classList.toggle("logs-expanded");
+        renderLabel();
+      });
+
+      renderLabel();
+    })();
+
     const defaultTab = "{{ checkin_default_tab or 'sleep' }}";
     const tabButtons = document.querySelectorAll(".checkin-tab-btn");
     const tabPanels = document.querySelectorAll(".checkin-tab-panel");
